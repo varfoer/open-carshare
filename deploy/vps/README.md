@@ -97,15 +97,20 @@ Port 8080 stays closed; the server listens on loopback only.
 
 ## 9. Interim backup
 
-Until mail backups arrive in a later phase, nightly tar via cron
-(`sudo crontab -e`):
+Until mail backups arrive in a later phase, nightly tar via cron. The
+archives contain password hashes, so keep them root-only:
 
-```cron
-0 3 * * * tar -czf /var/backups/ocs-$(date +\%F).tar.gz -C /var/lib ocs && find /var/backups -name 'ocs-*.tar.gz' -mtime +14 -delete
+```sh
+sudo install -d -m 0700 -o root -g root /var/backups/ocs
+sudo crontab -e
 ```
 
-Copy the archives off the VPS; the data contains personal data, keep them
-private.
+```cron
+0 3 * * * umask 077; tar -czf /var/backups/ocs/ocs-$(date +\%F).tar.gz -C /var/lib ocs && find /var/backups/ocs -name 'ocs-*.tar.gz' -mtime +14 -delete
+```
+
+Copy the archives off the VPS over a secure channel. Never send these
+archives by mail unencrypted (spec section 12).
 
 ## Updating
 
