@@ -69,7 +69,8 @@ docs/
 ### user
 id, email (login), name, street, zip, city, pw_hash, role (`admin`|`user`),
 active, account_holder, iban, bic (optional), mandate_ref, mandate_date,
-license_checked_at, created_at.
+license_checked_at, may_club_trip (default false, set by admin only),
+created_at.
 
 ### car
 id, name, plate, active, location_text, geotab_device_id, keysafe_id.
@@ -92,7 +93,8 @@ Pricing uses the tariff valid at the booking's booked start.
 id, car_id, user_id, booked_start, booked_end, state
 (`reserved`|`active`|`done`|`cancelled`), actual_start, actual_end,
 km_start, km_end, km_source (`geotab`|`manual`), km_pending,
-cancelled_at, invoice_id, created_at, modified_at, modified_by.
+cancelled_at, club_trip (default false), invoice_id, created_at, modified_at,
+modified_by.
 
 ### damage_report
 id, booking_id, phase (`start`|`end`), text, photo files (0..n), created_at.
@@ -131,6 +133,21 @@ sepa lead days, invoice footer text, SMTP config, Geotab credentials.
 - Never started booking: whole booked time is billed as unused time.
 - Admin may modify any booking in any state, including actual times and km.
 
+### Club trips (Vereinsfahrten)
+- Members with `user.may_club_trip` (car maintainers, Vorstand; set by admin
+  only) may mark a booking as `club_trip` for internal association trips.
+  Otherwise it is a normal booking (overlap, tolerance, extend-only, ...).
+- Create with `club_trip: true` without the permission: 403 `forbidden`.
+- A user may change `club_trip` on an own booking only while
+  `now < booked_start` (afterwards 400 `not_modifiable`). Setting it needs the
+  permission; clearing it does not. A flag-only change (times unchanged) is a
+  valid update. Omitted `club_trip` means unchanged.
+- Admin may set `club_trip` on any booking at any time, regardless of the
+  booked user's permission.
+- Revoking `may_club_trip` leaves existing bookings unchanged.
+- Calendar entries of other users stay `{start,end,own:false}`; own entries and
+  the booking JSON include `club_trip`.
+
 ### Calendar visibility
 - User: own bookings + other bookings as "belegt", only from now on, no names.
 - Admin: everything.
@@ -166,6 +183,8 @@ Rules:
 - Time cap applies per calendar day to the day's whole time cost
   (active + unused).
 - Combined cap applies to the booking as a whole: `days × combined_cap`.
+- Club trip (`club_trip`): total = 0 (time, km, late fee and cancel fee
+  all 0; `br_cancel_fee` returns 0 for user and admin cancel).
 - Late fee counts started hours beyond `B1 + start_tolerance_min` and is
   outside both caps. Returns within the tolerance are free of late fee
   (the extra minutes are still billed as active time).
@@ -200,7 +219,9 @@ encrypted at rest with a key from the server config file (not in `data/`).
    (amount, collection date, mandate ref, creditor ID).
 5. Admin downloads the SEPA XML and imports it into Hibiscus.
 
-Users with total 0 get no invoice. Users without a valid mandate block
+A club trip appears on the invoice as a line with date/times and km, amount
+0 EUR, marked "Vereinsfahrt". Users with total 0 get no invoice (so such lines
+show only on an invoice that exists for other chargeable bookings). Users without a valid mandate block
 finalization (listed in the draft).
 
 ### SEPA
