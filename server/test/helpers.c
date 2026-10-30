@@ -95,8 +95,9 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
 
 /* ---- requests ---- */
 
-api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *body,
-                    const char *token, int64_t now, const char *content_type) {
+static api_res_t req_full(app_t *a, const char *method, const char *path, const char *body,
+                          const char *token, int64_t now, const char *content_type,
+                          const char *ip) {
   api_res_t res;
   memset(&res, 0, sizeof res);
   size_t pl = path ? strlen(path) : 0;
@@ -115,11 +116,21 @@ api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *
   req.body_len = body ? strlen(body) : 0;
   req.content_type = content_type;
   req.session_token = token;
-  req.client_ip = "1.2.3.4";
+  req.client_ip = ip;
   req.now = now;
   api_handle(a, &req, &res);
   free(p);
   return res;
+}
+
+api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *body,
+                    const char *token, int64_t now, const char *content_type) {
+  return req_full(a, method, path, body, token, now, content_type, "1.2.3.4");
+}
+
+api_res_t th_req_ip(app_t *a, const char *method, const char *path, const char *body,
+                    int64_t now, const char *ip) {
+  return req_full(a, method, path, body, NULL, now, "application/json", ip);
 }
 
 api_res_t th_req(app_t *a, const char *method, const char *path, const char *body,

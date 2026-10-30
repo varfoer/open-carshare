@@ -324,6 +324,37 @@ void test_query_int_parsing(void) {
   TEST_ASSERT_FALSE(api_query_int("car", "car", &v));
 }
 
+/* I1: forgot is limited to 3 sends per 15 min per email and per IP; when
+ * throttled it still answers 200 but sends no mail. */
+static void forgot_ip(const char *email, const char *ip, int64_t now) {
+  char b[128];
+  snprintf(b, sizeof b, "{\"email\":\"%s\"}", email);
+  api_res_t r = th_req_ip(a, "POST", "/api/password/forgot", b, now, ip);
+  expect(&r, 200, NULL);
+  api_res_free(&r);
+}
+
+void test_forgot_rate_limited_per_email(void) {
+  forgot_ip("anna@x.de", "10.0.0.1", T);
+  forgot_ip("Anna@X.de", "10.0.0.2", T + 1);
+  forgot_ip("anna@x.de", "10.0.0.3", T + 2);
+  TEST_ASSERT_EQUAL_INT(3, th_mail_count());
+  forgot_ip("ANNA@x.de", "10.0.0.4", T + 3);
+  TEST_ASSERT_EQUAL_INT(3, th_mail_count());
+  forgot_ip("anna@x.de", "10.0.0.5", T + 900);
+  TEST_ASSERT_EQUAL_INT(4, th_mail_count());
+}
+
+void test_forgot_rate_limited_per_ip(void) {
+  forgot_ip("a1@x.de", "10.0.0.9", T);
+  forgot_ip("a2@x.de", "10.0.0.9", T);
+  forgot_ip("a3@x.de", "10.0.0.9", T);
+  forgot_ip("anna@x.de", "10.0.0.9", T);
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+  forgot_ip("anna@x.de", "10.0.0.10", T);
+  TEST_ASSERT_EQUAL_INT(1, th_mail_count());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_login_ok_sets_cookie);
@@ -343,6 +374,8 @@ int main(void) {
   RUN_TEST(test_forgot_unknown_email_200_no_mail);
   RUN_TEST(test_forgot_inactive_user_no_mail);
   RUN_TEST(test_forgot_then_set_password_then_login);
+  RUN_TEST(test_forgot_rate_limited_per_email);
+  RUN_TEST(test_forgot_rate_limited_per_ip);
   RUN_TEST(test_set_password_with_invite_token);
   RUN_TEST(test_logout);
   RUN_TEST(test_me_put_updates_profile);

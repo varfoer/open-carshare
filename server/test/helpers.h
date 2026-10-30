@@ -31,5 +31,8 @@ api_res_t th_req(app_t *a, const char *method, const char *path, const char *bod
 /* Like th_req with explicit content type (NULL allowed). */
 api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *body,
                     const char *token, int64_t now, const char *content_type);
+/* Unauthenticated JSON request from client ip. */
+api_res_t th_req_ip(app_t *a, const char *method, const char *path, const char *body,
+                    int64_t now, const char *ip);
 
 #endif

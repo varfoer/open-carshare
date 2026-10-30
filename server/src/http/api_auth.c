@@ -86,6 +86,16 @@ void h_logout(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *r
   api_ok(res);
 }
 
+/* Reset mails: at most FORGOT_MAX_SENDS per RL_WINDOW_SECS per client IP and
+ * per (lowercased) email, so a member cannot be mail-bombed and SMTP cannot
+ * stall the event loop at will. Separate keys from the login limit. */
+#define FORGOT_MAX_SENDS 3
+
+static void lower_from(char *s, int from, int n, size_t cap) {
+  for (int i = from; i < n && i < (int)cap; i++)
+    if (s[i] >= 'A' && s[i] <= 'Z') s[i] = (char)(s[i] - 'A' + 'a');
+}
+
 void h_password_forgot(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   user_t probe;
   const char *email = api_get_str(ctx->body, "email", sizeof probe.email);
@@ -93,9 +103,20 @@ void h_password_forgot(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     api_invalid(res);
     return;
   }
+  char ip_key[160], email_key[160];
+  snprintf(ip_key, sizeof ip_key, "forgot:ip:%s", req->client_ip ? req->client_ip : "");
+  int n = snprintf(email_key, sizeof email_key, "forgot:email:%s", email);
+  lower_from(email_key, 13, n, sizeof email_key);
+  /* Always 200: the response must not reveal whether the address exists or
+   * whether the request was throttled; token/mail failures are swallowed too. */
+  if (!rl_allowed_n(&a->rl, ip_key, req->now, FORGOT_MAX_SENDS) ||
+      !rl_allowed_n(&a->rl, email_key, req->now, FORGOT_MAX_SENDS)) {
+    api_ok(res);
+    return;
+  }
+  rl_fail_n(&a->rl, ip_key, req->now, FORGOT_MAX_SENDS);
+  rl_fail_n(&a->rl, email_key, req->now, FORGOT_MAX_SENDS);
   const user_t *u = db_user_by_email(&a->db, email);
-  /* Always 200: the response must not reveal whether the address exists, so
-   * token/mail failures are swallowed as well. */
   if (u && u->active) (void)api_send_token_mail(a, u->id, TOKEN_RESET, req->now);
   api_ok(res);
 }

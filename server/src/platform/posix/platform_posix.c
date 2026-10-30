@@ -84,6 +84,7 @@ int platform_mail_send(const char *smtp_url, const char *user, const char *pass,
   curl_easy_setopt(c, CURLOPT_READFUNCTION, mail_read_cb);
   curl_easy_setopt(c, CURLOPT_READDATA, &src);
   curl_easy_setopt(c, CURLOPT_UPLOAD, 1L);
+  curl_easy_setopt(c, CURLOPT_CONNECTTIMEOUT, 5L);
   curl_easy_setopt(c, CURLOPT_TIMEOUT, 20L);
   curl_easy_setopt(c, CURLOPT_NOSIGNAL, 1L);
   curl_easy_setopt(c, CURLOPT_USE_SSL,
