@@ -88,35 +88,45 @@ export async function render(root, params) {
   root.append(form);
 
   if (booking) {
-    // Extend only: start is fixed, end may not move before the current end.
-    s.date.disabled = true;
-    s.time.disabled = true;
-    hint.textContent = `Aktuell: ${formatDateTime(booking.booked_start)} bis ${formatDateTime(booking.booked_end)}. Nur eine spätere Endzeit ist möglich.`;
-    const orig = epochToBerlin(booking.booked_end);
-    e.date.min = dateStr(orig);
-    const refresh = () => {
-      const sameDay = e.date.value === dateStr(orig);
-      for (const o of e.time.options) o.disabled = sameDay && o.value < timeStr(orig);
-      if (sameDay && e.time.value < timeStr(orig)) e.time.value = timeStr(orig);
-      if (e.date.value && e.date.value < dateStr(orig)) {
-        e.date.value = dateStr(orig);
-        refresh();
-      }
+    // Extend only: end may not move before the current end; start may move
+    // earlier (never later) while the booking has not started yet.
+    const startEditable = nowTs < booking.booked_start;
+    s.date.disabled = !startEditable;
+    s.time.disabled = !startEditable;
+    hint.textContent = `Aktuell: ${formatDateTime(booking.booked_start)} bis ${formatDateTime(booking.booked_end)}. ` +
+      (startEditable ? 'Möglich: früherer Start und/oder spätere Endzeit.' : 'Nur eine spätere Endzeit ist möglich.');
+    // Clamp a date/time pair to a bound; dir -1: not after bound, +1: not before.
+    const constrain = (ctl, ts, dir) => {
+      const o = epochToBerlin(ts);
+      const ds = dateStr(o), tm = timeStr(o);
+      if (dir > 0) ctl.date.min = ds; else ctl.date.max = ds;
+      const bad = (v) => (dir > 0 ? v < tm : v > tm);
+      const refresh = () => {
+        if (ctl.date.value && (dir > 0 ? ctl.date.value < ds : ctl.date.value > ds)) ctl.date.value = ds;
+        const same = ctl.date.value === ds;
+        for (const opt of ctl.time.options) opt.disabled = same && bad(opt.value);
+        if (same && bad(ctl.time.value)) ctl.time.value = tm;
+      };
+      ctl.date.addEventListener('change', refresh);
+      ctl.time.addEventListener('change', refresh);
+      refresh();
     };
-    e.date.addEventListener('change', refresh);
-    e.time.addEventListener('change', refresh);
-    refresh();
+    constrain(e, booking.booked_end, 1);
+    if (startEditable) constrain(s, booking.booked_start, -1);
   }
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     err.hidden = true;
     if (!e.date.value || !s.date.value) return;
-    const start = booking ? booking.booked_start : toEpoch(s);
+    const start = booking && s.date.disabled ? booking.booked_start : toEpoch(s);
     const end = toEpoch(e);
     const fail = (m) => { err.textContent = m; err.hidden = false; };
     if (end <= start) return fail('Das Ende muss nach dem Start liegen.');
-    if (booking && end < booking.booked_end) return fail('Die Buchung kann nur verlängert werden.');
+    if (booking) {
+      if (start > booking.booked_start || end < booking.booked_end) return fail('Die Buchung kann nur verlängert werden.');
+      if (start === booking.booked_start && end === booking.booked_end) return fail('Keine Änderung.');
+    }
     submit.disabled = true;
     try {
       if (booking) await api('PUT', `/api/bookings/${booking.id}`, { start, end });

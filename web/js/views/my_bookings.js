@@ -76,7 +76,8 @@ export async function render(root) {
       err.hidden = true;
       try {
         const s = await api('GET', '/api/settings/public');
-        const fee = s.cancel_fee_cents > 0 ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
+        const inWindow = b.booked_start - Math.floor(Date.now() / 1000) < s.cancel_deadline_min * 60;
+        const fee = s.cancel_fee_cents > 0 && inWindow ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
         const ok = await confirmDialog(
           `Buchung ${formatDateTime(b.booked_start)} stornieren? Stornierung: ${fee}.`);
         if (!ok) return;
