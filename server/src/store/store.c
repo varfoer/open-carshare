@@ -80,5 +80,8 @@ int store_write_atomic(const char *path, const char *data, size_t len) {
     remove(tmp);
     return -1;
   }
-  return platform_fsync_dir(dir);
+  /* The rename already made the new content visible. A dir fsync failure only
+   * degrades power-loss durability, so it is not reported as a write failure. */
+  (void)platform_fsync_dir(dir);
+  return 0;
 }
