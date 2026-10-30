@@ -1,5 +1,7 @@
 # VPS deployment
 
+License: GPL-2.0-only (see LICENSE)
+
 Single Debian/Ubuntu VPS: `ocs-server` on `127.0.0.1:8080` behind Caddy (TLS).
 Files here: `ocs-server.service`, `ocs.conf.example`, `Caddyfile`.
 
@@ -93,6 +95,8 @@ sudo ufw allow 22/tcp && sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
+If sshd listens on a port other than 22, allow that port before `ufw enable`.
+
 Port 8080 stays closed; the server listens on loopback only.
 
 ## 9. Interim backup
@@ -106,7 +110,7 @@ sudo crontab -e
 ```
 
 ```cron
-0 3 * * * umask 077; tar -czf /var/backups/ocs/ocs-$(date +\%F).tar.gz -C /var/lib ocs && find /var/backups/ocs -name 'ocs-*.tar.gz' -mtime +14 -delete
+0 3 * * * umask 077; tar -czf /var/backups/ocs/ocs-$(date +\%F).tar.gz -C /var/lib ocs && find /var/backups/ocs -name 'ocs-*.tar.gz' -mtime +30 -delete
 ```
 
 Copy the archives off the VPS over a secure channel. Never send these

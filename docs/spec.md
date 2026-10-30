@@ -32,7 +32,7 @@ Browser / PWA  --HTTPS-->  Caddy (TLS, Let's Encrypt)  --HTTP localhost-->  ocs-
 |---|---|---|
 | HTTP server | Mongoose (GPLv2) | portable to ESP-IDF later |
 | JSON | cJSON | small, ships with ESP-IDF |
-| Password hashing | Monocypher (Argon2i) | single file, portable |
+| Password hashing | Monocypher (Argon2id) | single file, portable |
 | HTTPS client (Geotab) | libcurl | VPS only, behind `platform/` interface |
 | Mail | SMTP via libcurl to relay | behind `platform/` interface |
 | Tests | Unity | also runs on ESP32 |
@@ -234,7 +234,7 @@ Geotab sync failing.
 
 ## 11. Security
 
-- Argon2i password hashing, session token (random 256 bit) in `HttpOnly`,
+- Argon2id password hashing, session token (random 256 bit) in `HttpOnly`,
   `Secure`, `SameSite=Strict` cookie.
 - Login rate limiting per IP and account.
 - Password reset via mail link (single use, 1 h).
