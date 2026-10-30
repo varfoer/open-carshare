@@ -132,6 +132,11 @@ void h_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   api_json(res, 200, arr);
 }
 
+/* The permission also binds admins on the user endpoints (their override is the admin API). */
+static bool admin_lacks_club(const api_ctx_t *ctx, bool wanted, bool before) {
+  return ctx->user->role == ROLE_ADMIN && wanted && !before && !ctx->user->may_club_trip;
+}
+
 void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   int64_t car, start, end;
   if (!ctx->body || !api_get_int(ctx->body, "car_id", &car) ||
@@ -151,6 +156,7 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
     api_invalid(res);
     return;
   }
+  if (admin_lacks_club(ctx, b.club_trip, false)) { api_br_error(res, BR_CLUB_FORBIDDEN); return; }
   br_result_t r = br_check_create(&a->db, ctx->user, &b, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
   b.created_at = b.modified_at = req->now;
@@ -183,6 +189,7 @@ void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
     api_invalid(res);
     return;
   }
+  if (admin_lacks_club(ctx, nb.club_trip, old.club_trip)) { api_br_error(res, BR_CLUB_FORBIDDEN); return; }
   br_result_t r = br_check_update(&a->db, ctx->user, &old, &nb, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
   nb.modified_at = req->now;

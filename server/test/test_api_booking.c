@@ -500,6 +500,15 @@ void test_club_cancel_fee_zero_inside_deadline(void) {
   cJSON_Delete(j);
 }
 
+void test_club_admin_on_user_endpoint_needs_permission(void) {
+  char tadm[65];
+  int64_t adm = th_add_user(a, "adm@x.de", NULL, ROLE_ADMIN);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, adm, T, tadm));
+  call_free("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tadm, 403, "forbidden");
+  allow_club(adm);
+  call_free("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tadm, 201, NULL);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_auth_required);
@@ -529,5 +538,6 @@ int main(void) {
   RUN_TEST(test_club_update_flag_before_start);
   RUN_TEST(test_club_update_flag_after_start_400);
   RUN_TEST(test_club_cancel_fee_zero_inside_deadline);
+  RUN_TEST(test_club_admin_on_user_endpoint_needs_permission);
   return UNITY_END();
 }

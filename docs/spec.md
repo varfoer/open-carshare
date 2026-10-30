@@ -143,7 +143,8 @@ sepa lead days, invoice footer text, SMTP config, Geotab credentials.
   permission; clearing it does not. A flag-only change (times unchanged) is a
   valid update. Omitted `club_trip` means unchanged.
 - Admin may set `club_trip` on any booking at any time, regardless of the
-  booked user's permission.
+  booked user's permission. (Admin API only; an admin using the user endpoints needs
+  `may_club_trip` like everyone else.)
 - Revoking `may_club_trip` leaves existing bookings unchanged.
 - Calendar entries of other users stay `{start,end,own:false}`; own entries and
   the booking JSON include `club_trip`.
