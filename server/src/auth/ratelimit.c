@@ -12,32 +12,67 @@ static rl_entry_t *find(const ratelimit_t *rl, const char *key) {
   return NULL;
 }
 
-bool rl_allowed(const ratelimit_t *rl, const char *key, int64_t now) {
-  const rl_entry_t *e = find(rl, key);
-  if (!e) return true;
-  if (now - e->window_start >= RL_WINDOW_SECS) return true;
-  return e->fails < RL_MAX_FAILS;
+static bool expired(const rl_entry_t *e, int64_t now) {
+  return now - e->window_start >= RL_WINDOW_SECS;
 }
 
-void rl_fail(ratelimit_t *rl, const char *key, int64_t now) {
+/* Still blocking: limit reached within the current window. */
+static bool blocking(const rl_entry_t *e, int64_t now) {
+  return e->key[0] && !expired(e, now) && e->fails >= e->max;
+}
+
+/*
+ * Slot for a new key, or NULL if every slot is blocking. Order: a free slot;
+ * else the expired entry with the oldest window; else the non-blocking entry
+ * with the fewest fails (oldest window on ties). A blocking entry is never
+ * evicted, so failures on other keys cannot lift a block.
+ */
+static rl_entry_t *free_slot(ratelimit_t *rl, int64_t now) {
+  rl_entry_t *exp = NULL, *few = NULL;
+  for (size_t i = 0; i < N; i++) {
+    rl_entry_t *e = &rl->e[i];
+    if (!e->key[0]) return e;
+    if (expired(e, now)) {
+      if (!exp || e->window_start < exp->window_start) exp = e;
+    } else if (!blocking(e, now)) {
+      if (!few || e->fails < few->fails ||
+          (e->fails == few->fails && e->window_start < few->window_start))
+        few = e;
+    }
+  }
+  return exp ? exp : few;
+}
+
+bool rl_allowed_n(const ratelimit_t *rl, const char *key, int64_t now, int max) {
+  const rl_entry_t *e = find(rl, key);
+  if (!e) return free_slot((ratelimit_t *)rl, now) != NULL; /* saturated: deny */
+  if (expired(e, now)) return true;
+  return e->fails < max;
+}
+
+void rl_fail_n(ratelimit_t *rl, const char *key, int64_t now, int max) {
   if (!key || !*key) return;
   rl_entry_t *e = find(rl, key);
   if (!e) {
-    size_t slot = 0;
-    for (size_t i = 0; i < N; i++) {
-      if (!rl->e[i].key[0]) { slot = i; goto found; }
-      if (rl->e[i].window_start < rl->e[slot].window_start) slot = i;
-    }
-  found:
-    e = &rl->e[slot];
+    e = free_slot(rl, now);
+    if (!e) return; /* saturated: not tracked; rl_allowed_n denies it anyway */
     memset(e, 0, sizeof *e);
     strncpy(e->key, key, sizeof e->key - 1);
     e->window_start = now;
-  } else if (now - e->window_start >= RL_WINDOW_SECS) {
+  } else if (expired(e, now)) {
     e->window_start = now;
     e->fails = 0;
   }
+  e->max = max;
   e->fails++;
+}
+
+bool rl_allowed(const ratelimit_t *rl, const char *key, int64_t now) {
+  return rl_allowed_n(rl, key, now, RL_MAX_FAILS);
+}
+
+void rl_fail(ratelimit_t *rl, const char *key, int64_t now) {
+  rl_fail_n(rl, key, now, RL_MAX_FAILS);
 }
 
 void rl_reset(ratelimit_t *rl, const char *key) {
