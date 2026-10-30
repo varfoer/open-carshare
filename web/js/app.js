@@ -16,6 +16,8 @@ const ROUTES = {
 const PUBLIC = new Set(['#/login', '#/passwort']);
 const DEFAULT_ROUTE = '#/kalender';
 
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 let user = null;
 let carName = 'Carsharing';
 let renderToken = 0;
