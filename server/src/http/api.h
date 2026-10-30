@@ -22,6 +22,11 @@ typedef struct { int status; char *body; char set_cookie[256]; } api_res_t;
 void api_handle(app_t *a, const api_req_t *req, api_res_t *res);
 void api_res_free(api_res_t *res);
 
+/* Route table introspection (fuzzers, docs). Patterns use '*' for one path segment. */
+size_t api_route_count(void);
+const char *api_route_method(size_t i);
+const char *api_route_pattern(size_t i);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);

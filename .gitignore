@@ -1,4 +1,8 @@
 build/
 build-*/
+crash-*
+leak-*
+timeout-*
+oom-*
 data/
 .superpowers/

@@ -10,5 +10,10 @@ if(OCS_SANITIZE)
   add_link_options(-fsanitize=address,undefined)
 endif()
 
+option(OCS_FUZZ "Build libFuzzer targets (clang only)" OFF)
+if(OCS_FUZZ AND NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR "OCS_FUZZ requires clang (CC=clang)")
+endif()
+
 enable_testing()
 add_subdirectory(server)

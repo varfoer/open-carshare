@@ -305,6 +305,10 @@ static cJSON *parse_body(const api_req_t *req, bool *ok) {
   return j;
 }
 
+size_t api_route_count(void) { return sizeof ROUTES / sizeof ROUTES[0]; }
+const char *api_route_method(size_t i) { return i < api_route_count() ? ROUTES[i].method : NULL; }
+const char *api_route_pattern(size_t i) { return i < api_route_count() ? ROUTES[i].pattern : NULL; }
+
 static void dispatch(app_t *a, const api_req_t *req, api_res_t *res) {
   if (!req->method || !req->path) {
     api_error(res, 400, "invalid", "Ungültige Anfrage.");

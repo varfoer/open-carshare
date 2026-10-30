@@ -51,3 +51,14 @@ ocs_add_test(test_api_auth)
 ocs_add_test(test_api_booking)
 ocs_add_test(test_api_admin)
 ocs_add_test(test_config)
+
+if(OCS_FUZZ)
+  target_compile_options(ocs_core PRIVATE -fsanitize=fuzzer-no-link)
+  add_executable(fuzz_api
+    ${CMAKE_CURRENT_SOURCE_DIR}/fuzz/fuzz_api.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/helpers.c)
+  target_include_directories(fuzz_api PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  target_compile_options(fuzz_api PRIVATE -fsanitize=fuzzer-no-link)
+  target_link_libraries(fuzz_api PRIVATE ocs_core)
+  target_link_options(fuzz_api PRIVATE -fsanitize=fuzzer)
+endif()
