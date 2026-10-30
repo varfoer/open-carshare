@@ -7,6 +7,7 @@
 #include "auth/session.h"
 #include "core/booking_rules.h"
 #include "core/codec.h"
+#include "core/email.h"
 #include "http/api_internal.h"
 
 #define FEE_MAX ((int64_t)1 << 53)
@@ -18,24 +19,6 @@ static void err_invalid_email(api_res_t *res) {
 }
 static void err_duplicate_email(api_res_t *res) {
   api_error(res, 409, "duplicate_email", "Diese E-Mail-Adresse ist bereits registriert.");
-}
-
-/* Trim and lowercase (ASCII) into out. 0 ok, -1 no exactly-one-'@' address or too long. */
-static int normalize_email(const char *in, char out[128]) {
-  while (*in && isspace((unsigned char)*in)) in++;
-  size_t n = strlen(in);
-  while (n > 0 && isspace((unsigned char)in[n - 1])) n--;
-  if (n == 0 || n >= 128) return -1;
-  size_t ats = 0;
-  for (size_t i = 0; i < n; i++) {
-    unsigned char c = (unsigned char)in[i];
-    if (c == '@') ats++;
-    if (isspace(c)) return -1;
-    out[i] = (char)tolower(c);
-  }
-  out[n] = 0;
-  if (ats != 1 || out[0] == '@' || out[n - 1] == '@') return -1;
-  return 0;
 }
 
 /* Id of the path segment right after prefix (ends at '/' or end of path). */
@@ -104,7 +87,7 @@ static bool read_user_fields(const cJSON *body, user_t *u, api_res_t *res) {
     if (!api_get_int(body, "license_checked_at", &v) || v < 0) { api_invalid(res); return false; }
     u->license_checked_at = v;
   }
-  if (normalize_email(email, u->email) != 0) { err_invalid_email(res); return false; }
+  if (email_normalize(email, u->email) != 0) { err_invalid_email(res); return false; }
   snprintf(u->name, sizeof u->name, "%s", name);
   snprintf(u->street, sizeof u->street, "%s", street);
   snprintf(u->zip, sizeof u->zip, "%s", zip);

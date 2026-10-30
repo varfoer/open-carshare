@@ -19,6 +19,8 @@ static int fsync_path(const char *path, int flags) {
 int platform_fsync_file(const char *path) { return fsync_path(path, O_RDONLY); }
 int platform_fsync_dir(const char *dir) { return fsync_path(dir, O_RDONLY | O_DIRECTORY); }
 
+int platform_init(void) { return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK ? 0 : -1; }
+
 int64_t platform_now(void) { return (int64_t)time(NULL); }
 
 int platform_random(void *buf, size_t n) {

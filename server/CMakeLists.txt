@@ -21,8 +21,9 @@ endif()
 
 add_executable(ocs-server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/main.c
+  ${CMAKE_CURRENT_SOURCE_DIR}/src/http/server.c
   ${TP}/mongoose/mongoose.c)
-set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/main.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/main.c ${CMAKE_CURRENT_SOURCE_DIR}/src/http/server.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
 target_link_libraries(ocs-server PRIVATE ocs_core)
 
 add_library(unity STATIC ${TP}/unity/unity.c)
@@ -48,3 +49,4 @@ ocs_add_test(test_session)
 ocs_add_test(test_api_auth)
 ocs_add_test(test_api_booking)
 ocs_add_test(test_api_admin)
+ocs_add_test(test_config)

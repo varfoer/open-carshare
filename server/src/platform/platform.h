@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Call once at startup, before any other platform_* call. 0 ok, -1 fail. */
+int platform_init(void);
+
 /* Durability helpers. 0 ok, -1 fail. */
 int platform_fsync_file(const char *path);
 int platform_fsync_dir(const char *dir);
