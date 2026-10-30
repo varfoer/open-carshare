@@ -59,3 +59,17 @@ dialog.confirm { border: 1px solid var(--border); border-radius: 8px; max-width:
 .cal-cell.own { background: var(--accent); color: var(--accent-fg); cursor: pointer; }
 .cal-cell.other { background: #9aa3b0; color: #fff; }
 .cal-cell.gap { background: #eef0f3; }
+.subnav { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin-bottom: 1rem; }
+.subnav a[aria-current="page"] { font-weight: 700; text-decoration: none; color: var(--fg); }
+.table-wrap { overflow-x: auto; margin-bottom: 1rem; }
+table.data { width: 100%; border-collapse: collapse; background: var(--card); font-size: .9rem; }
+table.data th, table.data td { padding: .5rem; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.data td.actions { display: flex; gap: .4rem; flex-wrap: wrap; }
+table.data button { min-height: 36px; font: inherit; background: var(--card); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.filter-bar { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
+.filter-bar label { flex: 1 1 10rem; }
+label.check { display: flex; align-items: center; gap: .5rem; color: var(--fg); }
+label.check input { display: inline-block; width: auto; margin: 0; }
+.view h2 { font-size: 1.15rem; margin-top: 0; }
+.view .card + .card, .view button.primary + .card, .view form.card { margin-top: 1rem; }
+.view form.card button.btn { margin-top: .5rem; }

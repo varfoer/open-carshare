@@ -1,11 +1,7 @@
 import { api } from '../api.js';
 import { navigate } from '../app.js';
 import { formatDateTime } from '../time.js';
-
-// Integer cents -> "5,00 €" without float rounding.
-export function formatEuro(cents) {
-  return `${(cents / 100) | 0},${String(cents % 100).padStart(2, '0')} €`;
-}
+import { formatEuro } from '../money.js';
 
 function confirmDialog(text) {
   return new Promise((resolve) => {

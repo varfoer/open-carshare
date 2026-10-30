@@ -46,3 +46,10 @@ export function startOfBerlinDay(ts) {
   const b = epochToBerlin(ts);
   return berlinToEpoch(b.y, b.mo, b.d, 0, 0);
 }
+
+// Berlin month [from, to): 1st 00:00 of month and of the next month.
+export function monthRange(y, mo) {
+  const ny = mo === 12 ? y + 1 : y;
+  const nm = mo === 12 ? 1 : mo + 1;
+  return { from: berlinToEpoch(y, mo, 1, 0, 0), to: berlinToEpoch(ny, nm, 1, 0, 0) };
+}
