@@ -1,0 +1,22 @@
+#ifndef OCS_CORE_BOOKING_RULES_H
+#define OCS_CORE_BOOKING_RULES_H
+
+#include <stdbool.h>
+#include <stdint.h>
+#include "core/model.h"
+#include "store/db.h"
+
+typedef enum { BR_OK = 0, BR_INVALID, BR_IN_PAST, BR_OVERLAP, BR_CAR_INACTIVE,
+               BR_NOT_EXTENSION, BR_NOT_MODIFIABLE, BR_FORBIDDEN } br_result_t;
+
+bool    interval_overlaps(int64_t a0, int64_t a1, int64_t b0, int64_t b1);   /* half-open */
+int64_t booking_occupied_end(const booking_t *b, int64_t now);  /* ACTIVE: max(booked_end, now); else booked_end */
+br_result_t br_check_free(const db_t *db, int64_t car_id, int64_t start, int64_t end,
+                          int64_t exclude_id, int64_t now);   /* only RESERVED/ACTIVE block */
+br_result_t br_check_create(const db_t *db, const user_t *actor, const booking_t *nb, int64_t now);
+br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t *old,
+                            const booking_t *nb, int64_t now);
+br_result_t br_check_cancel(const user_t *actor, const booking_t *b, int64_t now);
+int64_t br_cancel_fee(const settings_t *s, const booking_t *b, int64_t now);
+
+#endif
