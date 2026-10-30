@@ -453,6 +453,78 @@ void test_storage_failure_500(void) {
 /* C1: admin times and license_checked_at must lie in [0, now + 2 years]. */
 #define YEAR2 (2 * 365 * 86400)
 
+static void assert_dir_loads(void);
+
+void test_admin_user_may_club_trip(void) {
+  char p[64];
+  cJSON *j = call("POST", "/api/admin/users", user_body("neu@x.de", "user"), tadm, 201, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "user"), "may_club_trip")));
+  cJSON_Delete(j);
+  adm_free("POST", "/api/admin/users",
+           "{\"email\":\"v@x.de\",\"name\":\"V\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
+           "\"role\":\"user\",\"may_club_trip\":true}", 201, NULL);
+  TEST_ASSERT_TRUE(db_user_by_email(&a->db, "v@x.de")->may_club_trip);
+  adm_free("POST", "/api/admin/users",
+           "{\"email\":\"w@x.de\",\"name\":\"V\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
+           "\"role\":\"user\",\"may_club_trip\":\"yes\"}", 400, "invalid");
+  snprintf(p, sizeof p, "/api/admin/users/%lld", (long long)u1);
+  j = call("PUT", p,
+           "{\"email\":\"anna@x.de\",\"name\":\"Anna\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
+           "\"role\":\"user\",\"active\":true,\"may_club_trip\":true}", tadm, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "user"), "may_club_trip")));
+  cJSON_Delete(j);
+  TEST_ASSERT_TRUE(db_user(&a->db, u1)->may_club_trip);
+  /* omitted on PUT = unchanged */
+  adm_free("PUT", p, user_put_body("anna@x.de", "user", true), 200, NULL);
+  TEST_ASSERT_TRUE(db_user(&a->db, u1)->may_club_trip);
+  /* user json for /api/me includes it */
+  j = call("GET", "/api/me", NULL, tu1, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "user"), "may_club_trip")));
+  cJSON_Delete(j);
+  adm_free("PUT", p,
+           "{\"email\":\"anna@x.de\",\"name\":\"Anna\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
+           "\"role\":\"user\",\"active\":true,\"may_club_trip\":false}", 200, NULL);
+  TEST_ASSERT_FALSE(db_user(&a->db, u1)->may_club_trip);
+  assert_dir_loads();
+}
+
+void test_admin_booking_club_trip_override(void) {
+  /* u1 has no permission; admin may set the flag, also for past/started bookings */
+  cJSON *j = call("POST", "/api/admin/bookings",
+                  "{\"car_id\":1,\"user_id\":2,\"start\":1774742400,\"end\":1774746000,\"club_trip\":true}",
+                  tadm, 201, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "club_trip")));
+  cJSON_Delete(j);
+  int64_t id = mk_booking(car2, u1, T + 5 * H, T + 6 * H);
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->club_trip);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/bookings/%lld", (long long)id);
+  booking_t b = *db_booking(&a->db, id);
+  b.state = BK_ACTIVE;
+  b.booked_start = T - H;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  char body[200];
+  snprintf(body, sizeof body,
+           "{\"car_id\":%lld,\"user_id\":%lld,\"start\":%lld,\"end\":%lld,\"club_trip\":true}",
+           (long long)car2, (long long)u1, (long long)(T - H), (long long)(T + 6 * H));
+  adm_free("PUT", p, body, 200, NULL);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  /* omitted = unchanged */
+  adm_free("PUT", p, bk_body(car2, u1, T - H, T + 6 * H), 200, NULL);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  /* admin cancel (reserved only): fee 0, flag kept */
+  b = *db_booking(&a->db, id);
+  b.state = BK_RESERVED;
+  b.booked_start = T + H;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  adm_free("DELETE", p, NULL, 200, NULL);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  adm_free("POST", "/api/admin/bookings",
+           "{\"car_id\":1,\"user_id\":2,\"start\":1774800000,\"end\":1774803600,\"club_trip\":1}",
+           400, "invalid");
+  assert_dir_loads();
+}
+
 static void assert_dir_loads(void) {
   db_t d;
   TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
@@ -525,5 +597,7 @@ int main(void) {
   RUN_TEST(test_storage_failure_500);
   RUN_TEST(test_admin_time_out_of_range_400);
   RUN_TEST(test_admin_license_checked_at_out_of_range_400);
+  RUN_TEST(test_admin_user_may_club_trip);
+  RUN_TEST(test_admin_booking_club_trip_override);
   return UNITY_END();
 }

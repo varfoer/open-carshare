@@ -136,7 +136,8 @@ void test_calendar_hides_other_users_details(void) {
   cJSON *j = call("GET", cal(car1, T, T + 86400), NULL, tok1, 200, NULL);
   TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(j));
   cJSON *own = cJSON_GetArrayItem(j, 0), *oth = cJSON_GetArrayItem(j, 1);
-  TEST_ASSERT_EQUAL_INT(5, cJSON_GetArraySize(own));
+  TEST_ASSERT_EQUAL_INT(6, cJSON_GetArraySize(own));
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(own, "club_trip")));
   TEST_ASSERT_EQUAL_INT(id1, num(own, "id"));
   TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(own, "own")));
   TEST_ASSERT_EQUAL_STRING("reserved", cJSON_GetObjectItemCaseSensitive(own, "state")->valuestring);
@@ -146,6 +147,7 @@ void test_calendar_hides_other_users_details(void) {
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(oth, "own")));
   TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(oth, "id"));
   TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(oth, "state"));
+  TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(oth, "club_trip"));
   cJSON_Delete(j);
   /* other car is empty */
   j = call("GET", cal(car2, T, T + 86400), NULL, tok1, 200, NULL);
@@ -395,6 +397,109 @@ void test_extend_time_out_of_range_400(void) {
   assert_dir_loads();
 }
 
+static char *club_body(int64_t car, int64_t s, int64_t e, const char *flag) {
+  static char b[200];
+  snprintf(b, sizeof b, "{\"car_id\":%lld,\"start\":%lld,\"end\":%lld,\"club_trip\":%s}",
+           (long long)car, (long long)s, (long long)e, flag);
+  return b;
+}
+static char *club_put(int64_t s, int64_t e, const char *flag) {
+  static char b[160];
+  snprintf(b, sizeof b, "{\"start\":%lld,\"end\":%lld,\"club_trip\":%s}", (long long)s,
+           (long long)e, flag);
+  return b;
+}
+static void allow_club(int64_t uid) {
+  user_t u = *db_user(&a->db, uid);
+  u.may_club_trip = true;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
+}
+static const char *path_of(int64_t id) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld", (long long)id);
+  return p;
+}
+
+void test_club_create_forbidden_without_permission(void) {
+  cJSON *j = call("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tok1, 403,
+                  "forbidden");
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_size_t(0, a->db.n_bookings);
+  j = call("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "false"), tok1, 201, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "club_trip")));
+  cJSON_Delete(j);
+  call_free("POST", "/api/bookings", club_body(car1, T + 5 * H, T + 6 * H, "1"), tok1, 400, "invalid");
+}
+
+void test_club_create_ok_with_permission(void) {
+  allow_club(u1);
+  cJSON *j = call("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tok1, 201, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "club_trip")));
+  int64_t id = num(j, "id");
+  cJSON_Delete(j);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  /* other rules still apply */
+  call_free("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tok1, 409, "overlap");
+  /* own list and calendar show the flag, others do not */
+  j = call("GET", "/api/bookings", NULL, tok1, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(j, 0), "club_trip")));
+  cJSON_Delete(j);
+  j = call("GET", cal(car1, T, T + 86400), NULL, tok1, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(j, 0), "club_trip")));
+  cJSON_Delete(j);
+  j = call("GET", cal(car1, T, T + 86400), NULL, tok2, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(3, cJSON_GetArraySize(cJSON_GetArrayItem(j, 0)));
+  cJSON_Delete(j);
+}
+
+void test_club_update_flag_before_start(void) {
+  int64_t id = book(tok1, car1, T + 2 * H, T + 3 * H);
+  call_free("PUT", path_of(id), club_put(T + 2 * H, T + 3 * H, "true"), tok1, 403, "forbidden");
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->club_trip);
+  allow_club(u1);
+  /* flag only, times unchanged */
+  cJSON *j = call("PUT", path_of(id), club_put(T + 2 * H, T + 3 * H, "true"), tok1, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "club_trip")));
+  cJSON_Delete(j);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  /* omitted flag = unchanged, also on extension */
+  call_free("PUT", path_of(id), body2(T + 2 * H, T + 4 * H), tok1, 200, NULL);
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  /* unchanged times and flag: still only_extend */
+  call_free("PUT", path_of(id), club_put(T + 2 * H, T + 4 * H, "true"), tok1, 400, "only_extend");
+  /* clear, also after revoking permission */
+  user_t u = *db_user(&a->db, u1);
+  u.may_club_trip = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
+  call_free("PUT", path_of(id), club_put(T + 2 * H, T + 4 * H, "false"), tok1, 200, NULL);
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->club_trip);
+}
+
+void test_club_update_flag_after_start_400(void) {
+  allow_club(u1);
+  int64_t id = book(tok1, car1, T + 2 * H, T + 3 * H);
+  call_free("PUT", path_of(id), club_put(T + 2 * H, T + 3 * H, "true"), tok1, 200, NULL);
+  booking_t b = *db_booking(&a->db, id);
+  b.state = BK_ACTIVE;
+  b.booked_start = T - H;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  call_free("PUT", path_of(id), club_put(T - H, T + 3 * H, "false"), tok1, 400, "not_modifiable");
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+  call_free("PUT", path_of(id), body2(T - H, T + 4 * H), tok1, 200, NULL); /* extension ok */
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->club_trip);
+}
+
+void test_club_cancel_fee_zero_inside_deadline(void) {
+  allow_club(u1);
+  int64_t id = 0;
+  cJSON *j = call("POST", "/api/bookings", club_body(car1, T + 30 * 60, T + H, "true"), tok1, 201, NULL);
+  id = num(j, "id");
+  cJSON_Delete(j);
+  j = call("DELETE", path_of(id), NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(0, num(j, "cancel_fee_cents"));
+  cJSON_Delete(j);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_auth_required);
@@ -419,5 +524,10 @@ int main(void) {
   RUN_TEST(test_storage_failure_500_no_phantom);
   RUN_TEST(test_create_time_out_of_range_400);
   RUN_TEST(test_extend_time_out_of_range_400);
+  RUN_TEST(test_club_create_forbidden_without_permission);
+  RUN_TEST(test_club_create_ok_with_permission);
+  RUN_TEST(test_club_update_flag_before_start);
+  RUN_TEST(test_club_update_flag_after_start_400);
+  RUN_TEST(test_club_cancel_fee_zero_inside_deadline);
   return UNITY_END();
 }

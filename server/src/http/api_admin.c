@@ -88,6 +88,8 @@ static bool read_user_fields(const cJSON *body, int64_t now, user_t *u, api_res_
     if (!api_get_int(body, "license_checked_at", &v) || !br_time_in_range(v, now)) { api_invalid(res); return false; }
     u->license_checked_at = v;
   }
+  const cJSON *mc = cJSON_GetObjectItemCaseSensitive(body, "may_club_trip");
+  if (mc && !api_get_bool(body, "may_club_trip", &u->may_club_trip)) { api_invalid(res); return false; }
   if (email_normalize(email, u->email) != 0) { err_invalid_email(res); return false; }
   snprintf(u->name, sizeof u->name, "%s", name);
   snprintf(u->street, sizeof u->street, "%s", street);
@@ -259,9 +261,14 @@ void h_admin_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   api_json(res, 200, arr);
 }
 
+/* club_trip is optional: absent keeps the value already in b. */
 static bool read_booking_fields(const cJSON *body, booking_t *b) {
-  return body && api_get_int(body, "car_id", &b->car_id) && api_get_int(body, "user_id", &b->user_id) &&
-         api_get_int(body, "start", &b->booked_start) && api_get_int(body, "end", &b->booked_end);
+  if (!body || !api_get_int(body, "car_id", &b->car_id) || !api_get_int(body, "user_id", &b->user_id) ||
+      !api_get_int(body, "start", &b->booked_start) || !api_get_int(body, "end", &b->booked_end))
+    return false;
+  if (cJSON_GetObjectItemCaseSensitive(body, "club_trip") && !api_get_bool(body, "club_trip", &b->club_trip))
+    return false;
+  return true;
 }
 
 void h_admin_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {

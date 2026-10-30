@@ -7,7 +7,8 @@
 #include "store/db.h"
 
 typedef enum { BR_OK = 0, BR_INVALID, BR_IN_PAST, BR_OVERLAP, BR_CAR_INACTIVE,
-               BR_NOT_EXTENSION, BR_NOT_MODIFIABLE, BR_FORBIDDEN } br_result_t;
+               BR_NOT_EXTENSION, BR_NOT_MODIFIABLE, BR_FORBIDDEN,
+               BR_CLUB_FORBIDDEN } br_result_t;
 
 /* Latest accepted API time, relative to now: two years. */
 #define BR_TIME_MAX_AHEAD ((int64_t)2 * 365 * 86400)

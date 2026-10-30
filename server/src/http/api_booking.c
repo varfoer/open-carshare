@@ -91,6 +91,7 @@ void h_calendar_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
     if (ok && own)
       ok = cJSON_AddNumberToObject(o, "id", (double)b->id) &&
            cJSON_AddBoolToObject(o, "own", 1) &&
+           cJSON_AddBoolToObject(o, "club_trip", b->club_trip) &&
            cJSON_AddStringToObject(o, "state", b->state == BK_ACTIVE ? "active" : "reserved");
     else if (ok)
       ok = cJSON_AddBoolToObject(o, "own", 0) != NULL;
@@ -145,6 +146,11 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   b.booked_start = start;
   b.booked_end = end;
   b.state = BK_RESERVED;
+  if (ctx->body && cJSON_GetObjectItemCaseSensitive(ctx->body, "club_trip") &&
+      !api_get_bool(ctx->body, "club_trip", &b.club_trip)) {
+    api_invalid(res);
+    return;
+  }
   br_result_t r = br_check_create(&a->db, ctx->user, &b, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
   b.created_at = b.modified_at = req->now;
@@ -169,6 +175,11 @@ void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
   booking_t old = *old_p, nb = old;
   if (!ctx->body || !api_get_int(ctx->body, "start", &nb.booked_start) ||
       !api_get_int(ctx->body, "end", &nb.booked_end)) {
+    api_invalid(res);
+    return;
+  }
+  if (cJSON_GetObjectItemCaseSensitive(ctx->body, "club_trip") &&
+      !api_get_bool(ctx->body, "club_trip", &nb.club_trip)) {
     api_invalid(res);
     return;
   }

@@ -12,11 +12,13 @@ typedef struct {
   int64_t id; char email[128]; char name[96]; char street[96]; char zip[16];
   char city[64]; char pw_hash[160]; role_t role; bool active;
   int64_t license_checked_at; int64_t created_at;
+  bool may_club_trip;
 } user_t;
 typedef struct { int64_t id; char name[64]; char plate[16]; char location[128]; bool active; } car_t;
 typedef struct {
   int64_t id, car_id, user_id, booked_start, booked_end; booking_state_t state;
   int64_t cancelled_at, cancel_fee_cents, created_at, modified_at, modified_by;
+  bool club_trip;
 } booking_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; } session_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; token_kind_t kind; bool used; } token_t;

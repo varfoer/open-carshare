@@ -32,6 +32,13 @@ static int get_bool(const cJSON *j, const char *key, bool *out) {
   return 0;
 }
 
+/* Optional bool: a missing key leaves *out untouched (caller preset false); a present
+ * non-bool value is an error. */
+static int get_bool_opt(const cJSON *j, const char *key, bool *out) {
+  if (!cJSON_GetObjectItemCaseSensitive(j, key)) return 0;
+  return get_bool(j, key, out);
+}
+
 /* Copies into a fixed buffer of size cap; rejects strings that do not fit with NUL. */
 static int get_str(const cJSON *j, const char *key, char *dst, size_t cap) {
   const cJSON *it = cJSON_GetObjectItemCaseSensitive(j, key);
@@ -119,6 +126,7 @@ static cJSON *user_json(const user_t *v, bool with_hash) {
   PUT(put_bool(o, "active", v->active));
   PUT(put_i64(o, "license_checked_at", v->license_checked_at));
   PUT(put_i64(o, "created_at", v->created_at));
+  PUT(put_bool(o, "may_club_trip", v->may_club_trip));
   return o;
 }
 
@@ -141,6 +149,7 @@ int user_from_json(const cJSON *j, user_t *out) {
   TRY(get_bool(j, "active", &out->active));
   TRY(get_i64(j, "license_checked_at", &out->license_checked_at));
   TRY(get_i64(j, "created_at", &out->created_at));
+  TRY(get_bool_opt(j, "may_club_trip", &out->may_club_trip));
   return 0;
 }
 
@@ -184,6 +193,7 @@ cJSON *booking_to_json(const booking_t *v) {
   PUT(put_i64(o, "created_at", v->created_at));
   PUT(put_i64(o, "modified_at", v->modified_at));
   PUT(put_i64(o, "modified_by", v->modified_by));
+  PUT(put_bool(o, "club_trip", v->club_trip));
   return o;
 }
 
@@ -203,6 +213,7 @@ int booking_from_json(const cJSON *j, booking_t *out) {
   TRY(get_i64(j, "created_at", &out->created_at));
   TRY(get_i64(j, "modified_at", &out->modified_at));
   TRY(get_i64(j, "modified_by", &out->modified_by));
+  TRY(get_bool_opt(j, "club_trip", &out->club_trip));
   return 0;
 }
 

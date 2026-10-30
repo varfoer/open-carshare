@@ -127,6 +127,9 @@ void api_br_error(api_res_t *res, int r) {
     case BR_NOT_MODIFIABLE:
       api_error(res, 400, "not_modifiable", "Diese Buchung kann nicht mehr geändert werden.");
       break;
+    case BR_CLUB_FORBIDDEN:
+      api_error(res, 403, "forbidden", "Du darfst keine Vereinsfahrten buchen.");
+      break;
     case BR_FORBIDDEN:
     default: api_not_found(res); break;
   }

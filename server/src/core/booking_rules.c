@@ -2,7 +2,7 @@
 
 /*
  * Check order for create/update (first failure wins):
- *   BR_INVALID -> BR_FORBIDDEN -> BR_NOT_MODIFIABLE -> BR_NOT_EXTENSION
+ *   BR_INVALID -> BR_FORBIDDEN -> BR_NOT_MODIFIABLE -> BR_CLUB_FORBIDDEN -> BR_NOT_EXTENSION
  *   -> BR_CAR_INACTIVE -> BR_OVERLAP -> BR_IN_PAST
  * BR_INVALID covers times (range per br_time_in_range, order, 60 s alignment) and existence of the car and,
  * for admin writes, of an active target user.
@@ -70,6 +70,7 @@ br_result_t br_check_create(const db_t *db, const user_t *actor, const booking_t
   if (!write_valid(db, actor, nb, now)) return BR_INVALID;
   bool admin = actor->role == ROLE_ADMIN;
   if (!admin && nb->user_id != actor->id) return BR_FORBIDDEN;
+  if (!admin && nb->club_trip && !actor->may_club_trip) return BR_CLUB_FORBIDDEN;
   if (!find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
   br_result_t r = br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, 0, now);
   if (r != BR_OK) return r;
@@ -85,11 +86,17 @@ br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t
   if (old->state == BK_CANCELLED || (!admin && old->state == BK_DONE)) return BR_NOT_MODIFIABLE;
 
   bool start_changed = nb->booked_start != old->booked_start;
+  bool flag_changed = nb->club_trip != old->club_trip;
+  if (!admin && flag_changed) {
+    /* The flag is fixed once the booking has started; setting it needs the permission. */
+    if (now >= old->booked_start) return BR_NOT_MODIFIABLE;
+    if (nb->club_trip && !actor->may_club_trip) return BR_CLUB_FORBIDDEN;
+  }
   if (!admin) {
     bool same_ids = nb->car_id == old->car_id && nb->user_id == old->user_id;
     if (old->state == BK_RESERVED) {
       bool grows = nb->booked_start <= old->booked_start && nb->booked_end >= old->booked_end;
-      bool changed = start_changed || nb->booked_end != old->booked_end;
+      bool changed = start_changed || nb->booked_end != old->booked_end || flag_changed;
       if (!same_ids || !grows || !changed) return BR_NOT_EXTENSION;
     } else { /* BK_ACTIVE */
       if (!same_ids || start_changed || nb->booked_end < old->booked_end) return BR_NOT_EXTENSION;
@@ -114,6 +121,7 @@ br_result_t br_check_cancel(const user_t *actor, const booking_t *b, int64_t now
 }
 
 int64_t br_cancel_fee(const settings_t *s, const booking_t *b, int64_t now) {
+  if (b->club_trip) return 0;
   if (b->booked_start - now < (int64_t)s->cancel_deadline_min * 60) return s->cancel_fee_cents;
   return 0;
 }

@@ -19,6 +19,43 @@ static void test_booking_roundtrip(void) {
     cJSON_Delete(j);
 }
 
+static void test_club_flags_roundtrip_and_default(void) {
+    booking_t b = {.id = 7, .state = BK_RESERVED, .club_trip = true}, r;
+    cJSON *j = booking_to_json(&b);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(j, "club_trip")));
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_TRUE(r.club_trip);
+    cJSON_Delete(j);
+    b.club_trip = false;
+    j = booking_to_json(&b);
+    TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItem(j, "club_trip")));
+    /* old data files: key missing -> false */
+    cJSON_DeleteItemFromObject(j, "club_trip");
+    r.club_trip = true;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_FALSE(r.club_trip);
+    /* wrong type is still rejected */
+    cJSON_AddStringToObject(j, "club_trip", "yes");
+    TEST_ASSERT_EQUAL_INT(-1, booking_from_json(j, &r));
+    cJSON_Delete(j);
+
+    user_t u = {.id = 1, .may_club_trip = true}, ur;
+    j = user_to_json(&u);
+    TEST_ASSERT_EQUAL_INT(0, user_from_json(j, &ur));
+    TEST_ASSERT_TRUE(ur.may_club_trip);
+    cJSON_Delete(j);
+    j = user_to_public_json(&u);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(j, "may_club_trip")));
+    cJSON_Delete(j);
+    u.may_club_trip = false;
+    j = user_to_json(&u);
+    cJSON_DeleteItemFromObject(j, "may_club_trip");
+    ur.may_club_trip = true;
+    TEST_ASSERT_EQUAL_INT(0, user_from_json(j, &ur));
+    TEST_ASSERT_FALSE(ur.may_club_trip);
+    cJSON_Delete(j);
+}
+
 static void test_booking_all_states(void) {
     booking_state_t st[] = {BK_RESERVED, BK_ACTIVE, BK_DONE, BK_CANCELLED};
     const char *names[] = {"reserved", "active", "done", "cancelled"};
@@ -191,6 +228,7 @@ static void test_settings_roundtrip_and_wrong_type(void) {
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
+    RUN_TEST(test_club_flags_roundtrip_and_default);
     RUN_TEST(test_booking_all_states);
     RUN_TEST(test_user_umlaut_roundtrip);
     RUN_TEST(test_user_public_json_has_no_pw_hash);

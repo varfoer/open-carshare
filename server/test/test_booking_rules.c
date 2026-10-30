@@ -208,6 +208,76 @@ void test_time_range(void) {
   TEST_ASSERT_EQUAL(BR_INVALID, br_check_create(&db, ADM, &n, now));
 }
 
+void test_club_create_needs_permission(void) {
+  booking_t a = mk(1, 1, T + 10 * H, T + 11 * H);
+  a.club_trip = true;
+  TEST_ASSERT_EQUAL(BR_CLUB_FORBIDDEN, br_check_create(&db, U1, &a, now));
+  U1->may_club_trip = true;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_create(&db, U1, &a, now));
+  U1->may_club_trip = false;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_create(&db, ADM, &a, now)); /* admin: any user */
+  a.user_id = 1;
+}
+void test_club_update_flag_rules(void) {
+  booking_t *o = add(1, 1, 1, T + 10 * H, T + 11 * H, BK_RESERVED);
+  booking_t nb = *o;
+  nb.club_trip = true;
+  /* flag-only change: no only_extend, but permission needed */
+  TEST_ASSERT_EQUAL(BR_CLUB_FORBIDDEN, br_check_update(&db, U1, o, &nb, now));
+  U1->may_club_trip = true;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, U1, o, &nb, now));
+  /* clearing needs no permission */
+  U1->may_club_trip = false;
+  o->club_trip = true;
+  nb.club_trip = false;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, U1, o, &nb, now));
+  /* unchanged flag without permission is fine (revoked later) */
+  nb.club_trip = true;
+  nb.booked_end += H;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, U1, o, &nb, now));
+  /* unchanged times and flag: still not an extension */
+  nb = *o;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, o, &nb, now));
+  /* flag change plus shrinking: extend-only still applies */
+  o->club_trip = false;
+  U1->may_club_trip = true;
+  nb = *o;
+  nb.club_trip = true;
+  nb.booked_end -= H / 2;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, o, &nb, now));
+}
+void test_club_update_flag_after_start_not_modifiable(void) {
+  booking_t *o = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
+  U1->may_club_trip = true;
+  booking_t nb = *o;
+  nb.club_trip = true;
+  TEST_ASSERT_EQUAL(BR_NOT_MODIFIABLE, br_check_update(&db, U1, o, &nb, now));
+  o->club_trip = true;
+  nb.club_trip = false;
+  TEST_ASSERT_EQUAL(BR_NOT_MODIFIABLE, br_check_update(&db, U1, o, &nb, now));
+  /* extending an active club trip keeps working */
+  nb = *o;
+  nb.booked_end += H;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, U1, o, &nb, now));
+  /* reserved but start reached (tolerance window): same */
+  booking_t *r = add(2, 1, 1, T, T + H, BK_RESERVED);
+  nb = *r;
+  nb.club_trip = true;
+  TEST_ASSERT_EQUAL(BR_NOT_MODIFIABLE, br_check_update(&db, U1, r, &nb, now));
+}
+void test_club_admin_override(void) {
+  booking_t *o = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
+  booking_t nb = *o;
+  nb.club_trip = true;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, o, &nb, now)); /* U1 lacks permission, started */
+}
+void test_club_cancel_fee_zero(void) {
+  booking_t a = mk(1, 1, T + 30 * 60, T + 2 * H);
+  TEST_ASSERT_EQUAL_INT64(500, br_cancel_fee(&db.settings, &a, now));
+  a.club_trip = true;
+  TEST_ASSERT_EQUAL_INT64(0, br_cancel_fee(&db.settings, &a, now));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_touching_intervals_do_not_overlap);
@@ -231,6 +301,11 @@ int main(void) {
   RUN_TEST(test_user_cancel_after_start_rejected);
   RUN_TEST(test_admin_may_move_and_shorten);
   RUN_TEST(test_cancel_fee_inside_deadline);
+  RUN_TEST(test_club_create_needs_permission);
+  RUN_TEST(test_club_update_flag_rules);
+  RUN_TEST(test_club_update_flag_after_start_not_modifiable);
+  RUN_TEST(test_club_admin_override);
+  RUN_TEST(test_club_cancel_fee_zero);
   RUN_TEST(test_time_range);
   return UNITY_END();
 }
