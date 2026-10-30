@@ -132,7 +132,8 @@ window.addEventListener('hashchange', route);
 onUnauthorized(() => {
   user = null;
   updateChrome();
-  navigate('#/login');
+  // Public routes (login, password reset/invite) are never redirected.
+  if (!PUBLIC.has(parseHash(location.hash).path)) navigate('#/login');
 });
 
 await refreshUser();
