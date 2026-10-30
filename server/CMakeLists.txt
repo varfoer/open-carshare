@@ -39,3 +39,4 @@ endfunction()
 
 ocs_add_test(test_smoke)
 ocs_add_test(test_codec)
+ocs_add_test(test_db)
