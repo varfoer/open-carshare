@@ -38,3 +38,4 @@ function(ocs_add_test name)
 endfunction()
 
 ocs_add_test(test_smoke)
+ocs_add_test(test_codec)
