@@ -146,11 +146,8 @@ void test_active_late_booking_blocks_until_now(void) {
   now = T + 3 * H;
   booking_t a = mk(1, 2, T + 2 * H, T + 4 * H);
   a.user_id = 2;
-  /* user 2 hits BR_IN_PAST first (start 1 h back, tolerance 15 min); admin has no time rule */
-  TEST_ASSERT_EQUAL(BR_IN_PAST, br_check_create(&db, U2, &a, now));
-  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_create(&db, ADM, &a, now));
-  db.settings.start_tolerance_min = 90;
   TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_create(&db, U2, &a, now));
+  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_create(&db, ADM, &a, now));
   TEST_ASSERT_EQUAL_INT64(now, booking_occupied_end(&bks[0], now));
 }
 void test_cancelled_does_not_block(void) {

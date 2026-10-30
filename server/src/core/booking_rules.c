@@ -3,7 +3,7 @@
 /*
  * Check order for create/update (first failure wins):
  *   BR_INVALID -> BR_FORBIDDEN -> BR_NOT_MODIFIABLE -> BR_NOT_EXTENSION
- *   -> BR_CAR_INACTIVE -> BR_IN_PAST -> BR_OVERLAP
+ *   -> BR_CAR_INACTIVE -> BR_OVERLAP -> BR_IN_PAST
  * BR_INVALID covers times (order, 60 s alignment) and existence of the car and,
  * for admin writes, of an active target user.
  */
@@ -64,8 +64,10 @@ br_result_t br_check_create(const db_t *db, const user_t *actor, const booking_t
   bool admin = actor->role == ROLE_ADMIN;
   if (!admin && nb->user_id != actor->id) return BR_FORBIDDEN;
   if (!find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
+  br_result_t r = br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, 0, now);
+  if (r != BR_OK) return r;
   if (!admin && !start_allowed(db, nb->booked_start, now)) return BR_IN_PAST;
-  return br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, 0, now);
+  return BR_OK;
 }
 
 br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t *old,
@@ -88,9 +90,11 @@ br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t
   }
 
   if (!find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
+  if (old->state == BK_RESERVED || old->state == BK_ACTIVE) {
+    br_result_t r = br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, old->id, now);
+    if (r != BR_OK) return r;
+  }
   if (!admin && start_changed && !start_allowed(db, nb->booked_start, now)) return BR_IN_PAST;
-  if (old->state == BK_RESERVED || old->state == BK_ACTIVE)
-    return br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, old->id, now);
   return BR_OK;
 }
 
