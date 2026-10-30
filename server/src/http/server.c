@@ -29,7 +29,10 @@ static void reply_error(struct mg_connection *c, int status, const char *code, c
                 "{\"error\":\"%s\",\"message\":\"%s\"}", code, msg_de);
 }
 
+#define REJECTED(c) ((c)->data[0] == 'R')
+
 static void reply_too_large(struct mg_connection *c) {
+  c->data[0] = 'R'; /* answered already; the later MSG event must not reply again */
   reply_error(c, 413, "too_large", "Die Anfrage ist zu groß.");
   c->is_draining = 1;
 }
@@ -111,6 +114,51 @@ static bool is_api_path(struct mg_str uri) {
          (uri.len >= 5 && memcmp(uri.buf, "/api/", 5) == 0);
 }
 
+static void reply_plain(struct mg_connection *c, int status, const char *text) {
+  mg_http_reply(c, status, "Content-Type: text/plain; charset=utf-8\r\n" SEC_HEADERS, "%s\n", text);
+}
+
+/* Static files. Every outcome that mongoose would answer without our headers
+ * (400 bad path, 301 directory redirect, 403/404 listing) is decided here first,
+ * so only a plain existing file reaches mg_http_serve_dir. */
+static void serve_static(struct mg_connection *c, struct mg_http_message *hm, app_t *a) {
+  char dec[2048], path[sizeof a->cfg.web_dir + sizeof dec + 16];
+  int dn = mg_url_decode(hm->uri.buf, hm->uri.len, dec, sizeof dec, 0);
+  if (dn < 0 || (size_t)dn != strlen(dec) || !mg_path_is_sane(mg_str_n(dec, (size_t)dn))) {
+    reply_plain(c, 400, "Ungültiger Pfad.");
+    return;
+  }
+  snprintf(path, sizeof path, "%s/%s", a->cfg.web_dir, dec);
+  int fl = mg_fs_posix.st(path, NULL, NULL);
+  bool is_dir = (fl & MG_FS_DIR) != 0;
+  bool slash = hm->uri.len > 0 && hm->uri.buf[hm->uri.len - 1] == '/';
+  if (fl == 0) {
+    reply_plain(c, 404, "Nicht gefunden.");
+    return;
+  }
+  if (is_dir && !slash) {
+    char hdr[2048 + 128];
+    snprintf(hdr, sizeof hdr, "Location: %.*s/\r\n" SEC_HEADERS, (int)hm->uri.len, hm->uri.buf);
+    mg_http_reply(c, 301, hdr, "");
+    return;
+  }
+  if (is_dir) {
+    size_t n = strlen(path);
+    while (n > 1 && path[n - 1] == '/') path[--n] = 0;
+    snprintf(path + n, sizeof path - n, "/index.html");
+    int ifl = mg_fs_posix.st(path, NULL, NULL);
+    if (ifl == 0 || (ifl & MG_FS_DIR)) {
+      reply_plain(c, 404, "Nicht gefunden.");
+      return;
+    }
+  }
+  struct mg_http_serve_opts opts;
+  memset(&opts, 0, sizeof opts);
+  opts.root_dir = a->cfg.web_dir;
+  opts.extra_headers = SEC_HEADERS;
+  mg_http_serve_dir(c, hm, &opts);
+}
+
 static void on_event(struct mg_connection *c, int ev, void *ev_data) {
   app_t *a = c->fn_data;
   if (ev == MG_EV_HTTP_HDRS) {
@@ -118,16 +166,14 @@ static void on_event(struct mg_connection *c, int ev, void *ev_data) {
     if (hm->body.len > MAX_BODY) reply_too_large(c);
   } else if (ev == MG_EV_HTTP_MSG) {
     struct mg_http_message *hm = ev_data;
-    if (hm->body.len > MAX_BODY) {
+    if (REJECTED(c)) {
+      /* 413 already sent from HDRS */
+    } else if (hm->body.len > MAX_BODY) {
       reply_too_large(c);
     } else if (is_api_path(hm->uri)) {
       handle_api(c, hm, a);
     } else {
-      struct mg_http_serve_opts opts;
-      memset(&opts, 0, sizeof opts);
-      opts.root_dir = a->cfg.web_dir;
-      opts.extra_headers = SEC_HEADERS;
-      mg_http_serve_dir(c, hm, &opts);
+      serve_static(c, hm, a);
     }
   }
 }

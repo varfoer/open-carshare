@@ -24,6 +24,7 @@ add_executable(ocs-server
   ${CMAKE_CURRENT_SOURCE_DIR}/src/http/server.c
   ${TP}/mongoose/mongoose.c)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/main.c ${CMAKE_CURRENT_SOURCE_DIR}/src/http/server.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
+target_compile_definitions(ocs-server PRIVATE MG_ENABLE_DIRLIST=0)
 target_link_libraries(ocs-server PRIVATE ocs_core)
 
 add_library(unity STATIC ${TP}/unity/unity.c)
