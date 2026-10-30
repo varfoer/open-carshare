@@ -55,19 +55,36 @@ static int get_enum(const cJSON *j, const char *key, const char *const *names, i
   return -1;
 }
 
-/* ---- write helpers ---- */
+/* ---- write helpers: return 0 ok, -1 on OOM or a value the reader would reject ---- */
 
-static void put_str(cJSON *o, const char *key, const char *s, size_t cap) {
+static int put_str(cJSON *o, const char *key, const char *s, size_t cap) {
   char buf[256];
   size_t n = strnlen(s, cap);
   if (n >= sizeof buf) n = sizeof buf - 1;
   memcpy(buf, s, n);
   buf[n] = '\0';
-  cJSON_AddStringToObject(o, key, buf);
+  return cJSON_AddStringToObject(o, key, buf) ? 0 : -1;
 }
 
-static void put_i64(cJSON *o, const char *key, int64_t v) {
-  cJSON_AddNumberToObject(o, key, (double)v);
+/* Largest |v| written: cJSON prints non-int32 numbers with "%1.15g" and accepts
+ * that form whenever it compares equal within DBL_EPSILON, so 16-digit integers
+ * (e.g. 2^53 -> 9007199254740990) would be silently altered. 15 digits always
+ * print exactly. This is stricter than the reader's 2^53 limit, so every value
+ * written can be loaded back unchanged. */
+#define MAX_WRITE_INT 999999999999999LL /* 10^15 - 1 */
+
+/* Refuses |v| > MAX_WRITE_INT so that nothing is written that get_i64 cannot load back. */
+static int put_i64(cJSON *o, const char *key, int64_t v) {
+  if (v > MAX_WRITE_INT || v < -MAX_WRITE_INT) return -1;
+  return cJSON_AddNumberToObject(o, key, (double)v) ? 0 : -1;
+}
+
+static int put_cstr(cJSON *o, const char *key, const char *s) {
+  return cJSON_AddStringToObject(o, key, s) ? 0 : -1;
+}
+
+static int put_bool(cJSON *o, const char *key, bool v) {
+  return cJSON_AddBoolToObject(o, key, v) ? 0 : -1;
 }
 
 static const char *const ROLE_NAMES[] = {"user", "admin"};
@@ -82,23 +99,26 @@ static const char *enum_name(const char *const *names, int count, int v) {
   do { if (!cJSON_IsObject(j)) return -1; } while (0)
 #define TRY(expr) \
   do { if ((expr) != 0) return -1; } while (0)
+/* In X_to_json: on any failed put, free the partial object and return NULL. */
+#define PUT(expr) \
+  do { if ((expr) != 0) { cJSON_Delete(o); return NULL; } } while (0)
 
 /* ---- user ---- */
 
 static cJSON *user_json(const user_t *v, bool with_hash) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_i64(o, "id", v->id);
-  put_str(o, "email", v->email, sizeof v->email);
-  put_str(o, "name", v->name, sizeof v->name);
-  put_str(o, "street", v->street, sizeof v->street);
-  put_str(o, "zip", v->zip, sizeof v->zip);
-  put_str(o, "city", v->city, sizeof v->city);
-  if (with_hash) put_str(o, "pw_hash", v->pw_hash, sizeof v->pw_hash);
-  cJSON_AddStringToObject(o, "role", enum_name(ROLE_NAMES, 2, v->role));
-  cJSON_AddBoolToObject(o, "active", v->active);
-  put_i64(o, "license_checked_at", v->license_checked_at);
-  put_i64(o, "created_at", v->created_at);
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_str(o, "email", v->email, sizeof v->email));
+  PUT(put_str(o, "name", v->name, sizeof v->name));
+  PUT(put_str(o, "street", v->street, sizeof v->street));
+  PUT(put_str(o, "zip", v->zip, sizeof v->zip));
+  PUT(put_str(o, "city", v->city, sizeof v->city));
+  if (with_hash) PUT(put_str(o, "pw_hash", v->pw_hash, sizeof v->pw_hash));
+  PUT(put_cstr(o, "role", enum_name(ROLE_NAMES, 2, v->role)));
+  PUT(put_bool(o, "active", v->active));
+  PUT(put_i64(o, "license_checked_at", v->license_checked_at));
+  PUT(put_i64(o, "created_at", v->created_at));
   return o;
 }
 
@@ -129,11 +149,11 @@ int user_from_json(const cJSON *j, user_t *out) {
 cJSON *car_to_json(const car_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_i64(o, "id", v->id);
-  put_str(o, "name", v->name, sizeof v->name);
-  put_str(o, "plate", v->plate, sizeof v->plate);
-  put_str(o, "location", v->location, sizeof v->location);
-  cJSON_AddBoolToObject(o, "active", v->active);
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_str(o, "name", v->name, sizeof v->name));
+  PUT(put_str(o, "plate", v->plate, sizeof v->plate));
+  PUT(put_str(o, "location", v->location, sizeof v->location));
+  PUT(put_bool(o, "active", v->active));
   return o;
 }
 
@@ -153,17 +173,17 @@ int car_from_json(const cJSON *j, car_t *out) {
 cJSON *booking_to_json(const booking_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_i64(o, "id", v->id);
-  put_i64(o, "car_id", v->car_id);
-  put_i64(o, "user_id", v->user_id);
-  put_i64(o, "booked_start", v->booked_start);
-  put_i64(o, "booked_end", v->booked_end);
-  cJSON_AddStringToObject(o, "state", enum_name(STATE_NAMES, 4, v->state));
-  put_i64(o, "cancelled_at", v->cancelled_at);
-  put_i64(o, "cancel_fee_cents", v->cancel_fee_cents);
-  put_i64(o, "created_at", v->created_at);
-  put_i64(o, "modified_at", v->modified_at);
-  put_i64(o, "modified_by", v->modified_by);
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "car_id", v->car_id));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_i64(o, "booked_start", v->booked_start));
+  PUT(put_i64(o, "booked_end", v->booked_end));
+  PUT(put_cstr(o, "state", enum_name(STATE_NAMES, 4, v->state)));
+  PUT(put_i64(o, "cancelled_at", v->cancelled_at));
+  PUT(put_i64(o, "cancel_fee_cents", v->cancel_fee_cents));
+  PUT(put_i64(o, "created_at", v->created_at));
+  PUT(put_i64(o, "modified_at", v->modified_at));
+  PUT(put_i64(o, "modified_by", v->modified_by));
   return o;
 }
 
@@ -191,9 +211,9 @@ int booking_from_json(const cJSON *j, booking_t *out) {
 cJSON *session_to_json(const session_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_str(o, "token_hash", v->token_hash, sizeof v->token_hash);
-  put_i64(o, "user_id", v->user_id);
-  put_i64(o, "expires_at", v->expires_at);
+  PUT(put_str(o, "token_hash", v->token_hash, sizeof v->token_hash));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_i64(o, "expires_at", v->expires_at));
   return o;
 }
 
@@ -211,11 +231,11 @@ int session_from_json(const cJSON *j, session_t *out) {
 cJSON *token_to_json(const token_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_str(o, "token_hash", v->token_hash, sizeof v->token_hash);
-  put_i64(o, "user_id", v->user_id);
-  put_i64(o, "expires_at", v->expires_at);
-  cJSON_AddStringToObject(o, "kind", enum_name(KIND_NAMES, 2, v->kind));
-  cJSON_AddBoolToObject(o, "used", v->used);
+  PUT(put_str(o, "token_hash", v->token_hash, sizeof v->token_hash));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_i64(o, "expires_at", v->expires_at));
+  PUT(put_cstr(o, "kind", enum_name(KIND_NAMES, 2, v->kind)));
+  PUT(put_bool(o, "used", v->used));
   return o;
 }
 
@@ -237,9 +257,9 @@ int token_from_json(const cJSON *j, token_t *out) {
 cJSON *settings_to_json(const settings_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  put_i64(o, "start_tolerance_min", v->start_tolerance_min);
-  put_i64(o, "cancel_deadline_min", v->cancel_deadline_min);
-  put_i64(o, "cancel_fee_cents", v->cancel_fee_cents);
+  PUT(put_i64(o, "start_tolerance_min", v->start_tolerance_min));
+  PUT(put_i64(o, "cancel_deadline_min", v->cancel_deadline_min));
+  PUT(put_i64(o, "cancel_fee_cents", v->cancel_fee_cents));
   return o;
 }
 

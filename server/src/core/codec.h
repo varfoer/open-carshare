@@ -4,7 +4,9 @@
 #include "cJSON.h"
 #include "core/model.h"
 
-/* X_to_json: caller owns the returned object (cJSON_Delete); NULL on OOM.
+/* X_to_json: caller owns the returned object (cJSON_Delete); NULL on OOM or if an
+ * integer field has |v| > 10^15 - 1 (it would not survive printing and loading;
+ * this covers the reader's 2^53 limit), never a partial object.
  * X_from_json: 0 ok; -1 on non-object, missing required field, wrong type,
  * non-integral/out-of-range number, unknown enum string or over-long string.
  * *out is zeroed first. Unknown keys are ignored. */

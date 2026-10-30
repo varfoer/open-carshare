@@ -9,6 +9,12 @@
 typedef enum { BR_OK = 0, BR_INVALID, BR_IN_PAST, BR_OVERLAP, BR_CAR_INACTIVE,
                BR_NOT_EXTENSION, BR_NOT_MODIFIABLE, BR_FORBIDDEN } br_result_t;
 
+/* Latest accepted API time, relative to now: two years. */
+#define BR_TIME_MAX_AHEAD ((int64_t)2 * 365 * 86400)
+/* API-supplied times (booking start/end, license_checked_at) must lie in
+ * [0, now + BR_TIME_MAX_AHEAD]; this keeps them far below the codec's 2^53
+ * limit and keeps time arithmetic free of overflow. */
+bool    br_time_in_range(int64_t t, int64_t now);
 bool    interval_overlaps(int64_t a0, int64_t a1, int64_t b0, int64_t b1);   /* half-open */
 int64_t booking_occupied_end(const booking_t *b, int64_t now);  /* ACTIVE: max(booked_end, now); else booked_end */
 br_result_t br_check_free(const db_t *db, int64_t car_id, int64_t start, int64_t end,

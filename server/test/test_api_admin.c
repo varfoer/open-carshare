@@ -407,12 +407,19 @@ void test_settings_roundtrip_and_negative_400(void) {
   adm_free("PUT", "/api/admin/settings",
            "{\"start_tolerance_min\":1,\"cancel_deadline_min\":1,\"cancel_fee_cents\":9007199254740994}",
            400, "invalid");
+  adm_free("PUT", "/api/admin/settings",
+           "{\"start_tolerance_min\":1,\"cancel_deadline_min\":1,\"cancel_fee_cents\":1000000000000000}",
+           400, "invalid");
   adm_free("PUT", "/api/admin/settings", "{\"start_tolerance_min\":1,\"cancel_deadline_min\":1}", 400,
            "invalid");
   adm_free("PUT", "/api/admin/settings",
            "{\"start_tolerance_min\":2147483647,\"cancel_deadline_min\":0,"
-           "\"cancel_fee_cents\":9007199254740992}", 200, NULL);
-  TEST_ASSERT_EQUAL_INT64((int64_t)1 << 53, a->db.settings.cancel_fee_cents);
+           "\"cancel_fee_cents\":999999999999999}", 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(999999999999999LL, a->db.settings.cancel_fee_cents);
+  db_t d; /* the largest fee survives a reload unchanged */
+  TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
+  TEST_ASSERT_EQUAL_INT64(999999999999999LL, d.settings.cancel_fee_cents);
+  db_free(&d);
   TEST_ASSERT_EQUAL_INT(INT_MAX, a->db.settings.start_tolerance_min);
   TEST_ASSERT_EQUAL_INT(0, a->db.settings.cancel_deadline_min);
 }
@@ -443,6 +450,57 @@ void test_storage_failure_500(void) {
   TEST_ASSERT_EQUAL_INT(15, a->db.settings.start_tolerance_min);
 }
 
+/* C1: admin times and license_checked_at must lie in [0, now + 2 years]. */
+#define YEAR2 (2 * 365 * 86400)
+
+static void assert_dir_loads(void) {
+  db_t d;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
+  db_free(&d);
+}
+
+void test_admin_time_out_of_range_400(void) {
+  adm_free("POST", "/api/admin/bookings",
+           "{\"car_id\":1,\"user_id\":2,\"start\":-9223372036854775808,\"end\":0}", 400,
+           "invalid");
+  adm_free("POST", "/api/admin/bookings", bk_body(car1, u1, -H, H), 400, "invalid");
+  adm_free("POST", "/api/admin/bookings", bk_body(car1, u1, T, T + YEAR2 + 60), 400, "invalid");
+  adm_free("POST", "/api/admin/bookings",
+           "{\"car_id\":1,\"user_id\":2,\"start\":1774746000,\"end\":4323455642275676160}",
+           400, "invalid");
+  TEST_ASSERT_EQUAL_size_t(0, a->db.n_bookings);
+  int64_t id = mk_booking(car1, u1, T + H, T + 2 * H);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/bookings/%lld", (long long)id);
+  adm_free("PUT", p, bk_body(car1, u1, -9223372036854775807LL - 1 + 32, T + 2 * H), 400,
+           "invalid");
+  adm_free("PUT", p, bk_body(car1, u1, T + H, T + YEAR2 + 60), 400, "invalid");
+  TEST_ASSERT_EQUAL_INT64(T + H, db_booking(&a->db, id)->booked_start);
+  TEST_ASSERT_EQUAL_INT64(T + 2 * H, db_booking(&a->db, id)->booked_end);
+  assert_dir_loads();
+}
+
+void test_admin_license_checked_at_out_of_range_400(void) {
+  char p[64], b[400];
+  snprintf(p, sizeof p, "/api/admin/users/%lld", (long long)u1);
+  const char *bad[] = {"4323455642275676160", "-1", "1837814460" /* T + 2y + 60 */};
+  for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+    snprintf(b, sizeof b,
+             "{\"email\":\"anna@x.de\",\"name\":\"Anna\",\"street\":\"S\",\"zip\":\"1\","
+             "\"city\":\"C\",\"role\":\"user\",\"active\":true,\"license_checked_at\":%s}",
+             bad[i]);
+    adm_free("PUT", p, b, 400, "invalid");
+  }
+  TEST_ASSERT_EQUAL_INT64(0, db_user(&a->db, u1)->license_checked_at);
+  snprintf(b, sizeof b,
+           "{\"email\":\"anna@x.de\",\"name\":\"Anna\",\"street\":\"S\",\"zip\":\"1\","
+           "\"city\":\"C\",\"role\":\"user\",\"active\":true,\"license_checked_at\":%lld}",
+           (long long)T);
+  adm_free("PUT", p, b, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(T, db_user(&a->db, u1)->license_checked_at);
+  assert_dir_loads();
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_user_role_gets_403_on_admin);
@@ -465,5 +523,7 @@ int main(void) {
   RUN_TEST(test_admin_bookings_list_filters);
   RUN_TEST(test_settings_roundtrip_and_negative_400);
   RUN_TEST(test_storage_failure_500);
+  RUN_TEST(test_admin_time_out_of_range_400);
+  RUN_TEST(test_admin_license_checked_at_out_of_range_400);
   return UNITY_END();
 }

@@ -360,6 +360,41 @@ void test_storage_failure_500_no_phantom(void) {
   cJSON_Delete(j);
 }
 
+/* C1: an over-range time must be rejected and must never reach the data dir. */
+static void assert_dir_loads(void) {
+  db_t d;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
+  db_free(&d);
+}
+
+#define YEAR2 (2 * 365 * 86400)
+
+void test_create_time_out_of_range_400(void) {
+  char b[200];
+  snprintf(b, sizeof b, "{\"car_id\":%lld,\"start\":%lld,\"end\":4323455642275676160}",
+           (long long)car1, (long long)(T + H));
+  call_free("POST", "/api/bookings", b, tok1, 400, "invalid");
+  call_free("POST", "/api/bookings", body3(car1, T + H, T + YEAR2 + 60), tok1, 400, "invalid");
+  TEST_ASSERT_EQUAL_size_t(0, a->db.n_bookings);
+  assert_dir_loads();
+  cJSON *j = call("GET", cal(car1, T, T + 86400), NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(j));
+  cJSON_Delete(j);
+  /* the upper bound itself is allowed */
+  book(tok1, car1, T + YEAR2 - H, T + YEAR2);
+  assert_dir_loads();
+}
+
+void test_extend_time_out_of_range_400(void) {
+  int64_t id = book(tok1, car1, T + H, T + 2 * H);
+  char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld", (long long)id);
+  call_free("PUT", p, "{\"start\":1774746000,\"end\":4323455642275676160}", tok1, 400, "invalid");
+  call_free("PUT", p, body2(T + H, T + YEAR2 + 60), tok1, 400, "invalid");
+  TEST_ASSERT_EQUAL_INT64(T + 2 * H, db_booking(&a->db, id)->booked_end);
+  assert_dir_loads();
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_auth_required);
@@ -382,5 +417,7 @@ int main(void) {
   RUN_TEST(test_other_users_booking_404);
   RUN_TEST(test_path_id_not_numeric_400);
   RUN_TEST(test_storage_failure_500_no_phantom);
+  RUN_TEST(test_create_time_out_of_range_400);
+  RUN_TEST(test_extend_time_out_of_range_400);
   return UNITY_END();
 }

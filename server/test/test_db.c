@@ -192,12 +192,45 @@ void test_settings_persist(void) {
   db_free(&db);
 }
 
+/* C1 second line of defence: values the codec cannot read back are never written. */
+void test_put_rejects_unsafe_int(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  booking_t b = mkbooking();
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b));
+  booking_t big = b;
+  big.booked_end = 4323455642275676160LL;
+  TEST_ASSERT_EQUAL_INT(-1, db_put_booking(&db, &big));
+  TEST_ASSERT_EQUAL_INT64(200, db_booking(&db, b.id)->booked_end);
+  booking_t nb = mkbooking();
+  nb.booked_start = -9007199254740993LL; /* -(2^53 + 1) */
+  TEST_ASSERT_EQUAL_INT(-1, db_put_booking(&db, &nb));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_bookings);
+  user_t u = mkuser("big@x.de");
+  u.license_checked_at = 9007199254740993LL; /* 2^53 + 1 */
+  TEST_ASSERT_EQUAL_INT(-1, db_put_user(&db, &u));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_users);
+  /* 2^53 would print as 9007199254740990 (cJSON "%1.15g"): refused too */
+  u.license_checked_at = 9007199254740992LL;
+  TEST_ASSERT_EQUAL_INT(-1, db_put_user(&db, &u));
+  /* 10^15 - 1 is the largest written value and loads back unchanged */
+  u.license_checked_at = 999999999999999LL;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&db, &u));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_bookings);
+  TEST_ASSERT_EQUAL_INT64(200, db.bookings[0].booked_end);
+  TEST_ASSERT_EQUAL_INT64(999999999999999LL, db.users[0].license_checked_at);
+  db_free(&db);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
   RUN_TEST(test_load_dir_too_long);
   RUN_TEST(test_put_assigns_ids_and_persists);
   RUN_TEST(test_put_replaces_existing);
+  RUN_TEST(test_put_rejects_unsafe_int);
   RUN_TEST(test_user_by_email_case_insensitive);
   RUN_TEST(test_put_rolls_back_on_write_failure);
   RUN_TEST(test_corrupt_file_fails_load);

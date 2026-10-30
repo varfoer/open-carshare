@@ -10,7 +10,8 @@
 #include "core/email.h"
 #include "http/api_internal.h"
 
-#define FEE_MAX ((int64_t)1 << 53)
+/* Largest value the codec writes exactly (see MAX_WRITE_INT in core/codec.c). */
+#define FEE_MAX ((int64_t)999999999999999)
 
 /* ---- helpers ---- */
 
@@ -70,7 +71,7 @@ void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
 
 /* Reads the editable user fields from body into u (email normalized).
  * Returns false with res filled on error. */
-static bool read_user_fields(const cJSON *body, user_t *u, api_res_t *res) {
+static bool read_user_fields(const cJSON *body, int64_t now, user_t *u, api_res_t *res) {
   const char *email = body ? api_get_str(body, "email", 1024) : NULL;
   const char *name = body ? api_get_str(body, "name", sizeof u->name) : NULL;
   const char *street = body ? api_get_str(body, "street", sizeof u->street) : NULL;
@@ -84,7 +85,7 @@ static bool read_user_fields(const cJSON *body, user_t *u, api_res_t *res) {
   const cJSON *lc = cJSON_GetObjectItemCaseSensitive(body, "license_checked_at");
   if (lc) {
     int64_t v;
-    if (!api_get_int(body, "license_checked_at", &v) || v < 0) { api_invalid(res); return false; }
+    if (!api_get_int(body, "license_checked_at", &v) || !br_time_in_range(v, now)) { api_invalid(res); return false; }
     u->license_checked_at = v;
   }
   if (email_normalize(email, u->email) != 0) { err_invalid_email(res); return false; }
@@ -98,7 +99,7 @@ static bool read_user_fields(const cJSON *body, user_t *u, api_res_t *res) {
 void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   user_t u;
   memset(&u, 0, sizeof u);
-  if (!read_user_fields(ctx->body, &u, res)) return;
+  if (!read_user_fields(ctx->body, req->now, &u, res)) return;
   if (db_user_by_email(&a->db, u.email)) { err_duplicate_email(res); return; }
   u.active = true;
   u.created_at = req->now;
@@ -128,7 +129,7 @@ void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   if (!old_p) { api_not_found(res); return; }
   user_t u = *old_p;
   bool active;
-  if (!read_user_fields(ctx->body, &u, res)) return;
+  if (!read_user_fields(ctx->body, req->now, &u, res)) return;
   if (!api_get_bool(ctx->body, "active", &active)) { api_invalid(res); return; }
   const user_t *other = db_user_by_email(&a->db, u.email);
   if (other && other->id != id) { err_duplicate_email(res); return; }

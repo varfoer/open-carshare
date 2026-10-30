@@ -193,6 +193,21 @@ void test_cancel_fee_inside_deadline(void) {
   TEST_ASSERT_EQUAL_INT64(0, br_cancel_fee(&db.settings, &c, now));
 }
 
+void test_time_range(void) {
+  TEST_ASSERT_TRUE(br_time_in_range(0, now));
+  TEST_ASSERT_TRUE(br_time_in_range(now + BR_TIME_MAX_AHEAD, now));
+  TEST_ASSERT_FALSE(br_time_in_range(now + BR_TIME_MAX_AHEAD + 1, now));
+  TEST_ASSERT_FALSE(br_time_in_range(-60, now));
+  TEST_ASSERT_FALSE(br_time_in_range(INT64_MIN, now));
+  TEST_ASSERT_TRUE(br_time_in_range(INT64_MAX, INT64_MAX)); /* no overflow */
+  booking_t n = {.car_id = 1, .user_id = 1, .booked_start = T + H,
+                 .booked_end = T + BR_TIME_MAX_AHEAD + 60, .state = BK_RESERVED};
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_create(&db, ADM, &n, now));
+  n.booked_start = INT64_MIN + 8; /* multiple of 60 */
+  n.booked_end = T + H;
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_create(&db, ADM, &n, now));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_touching_intervals_do_not_overlap);
@@ -216,5 +231,6 @@ int main(void) {
   RUN_TEST(test_user_cancel_after_start_rejected);
   RUN_TEST(test_admin_may_move_and_shorten);
   RUN_TEST(test_cancel_fee_inside_deadline);
+  RUN_TEST(test_time_range);
   return UNITY_END();
 }
