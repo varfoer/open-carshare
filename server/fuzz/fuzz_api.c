@@ -32,7 +32,26 @@ static int setup(void) {
   if (aid < 0 || uid < 0 || session_create(app, aid, FUZZ_NOW, admin_tok) != 0 ||
       session_create(app, uid, FUZZ_NOW, user_tok) != 0)
     return -1;
+  /* One active car (id 1) so booking writes get past BR_INVALID. */
+  car_t c;
+  memset(&c, 0, sizeof c);
+  snprintf(c.name, sizeof c.name, "Fuzz");
+  snprintf(c.plate, sizeof c.plate, "F-1");
+  snprintf(c.location, sizeof c.location, "Hof");
+  c.active = true;
+  if (db_put_car(&app->db, &c) != 0 || c.id != 1) return -1;
   return 0;
+}
+
+/* Whatever the API wrote must load back: a data dir db_load rejects would
+ * keep the server from restarting. */
+static void check_dir_loads(void) {
+  db_t d;
+  if (db_load(&d, app->cfg.data_dir) != 0) {
+    fprintf(stderr, "fuzz_api: db_load failed on %s\n", app->cfg.data_dir);
+    abort();
+  }
+  db_free(&d);
 }
 
 int LLVMFuzzerInitialize(int *argc, char ***argv) {
@@ -54,6 +73,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
    * (logout, deactivation, password change). */
   if (++iters % RECREATE_EVERY == 0 || !session_user(app, user_tok, FUZZ_NOW) ||
       !session_user(app, admin_tok, FUZZ_NOW)) {
+    check_dir_loads();
     teardown();
     if (setup() != 0) {
       fprintf(stderr, "fuzz_api: re-setup failed\n");
