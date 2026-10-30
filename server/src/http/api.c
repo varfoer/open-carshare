@@ -26,6 +26,13 @@ static const route_t ROUTES[] = {
     {"GET", "/api/me", h_me_get, MIN_USER},
     {"PUT", "/api/me", h_me_put, MIN_USER},
     {"PUT", "/api/me/password", h_me_password, MIN_USER},
+    {"GET", "/api/cars", h_cars_get, MIN_USER},
+    {"GET", "/api/calendar", h_calendar_get, MIN_USER},
+    {"GET", "/api/bookings", h_bookings_get, MIN_USER},
+    {"POST", "/api/bookings", h_booking_post, MIN_USER},
+    {"PUT", "/api/bookings/*", h_booking_put, MIN_USER},
+    {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER},
+    {"GET", "/api/settings/public", h_settings_public, MIN_USER},
 };
 
 static bool pattern_match(const char *pat, const char *path) {

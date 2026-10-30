@@ -59,4 +59,13 @@ void h_me_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *r
 void h_me_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_me_password(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
+/* api_booking.c */
+void h_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_calendar_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
 #endif
