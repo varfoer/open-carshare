@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { navigate } from '../app.js';
+import { navigate, currentUser } from '../app.js';
 import { epochToBerlin, formatDateTime } from '../time.js';
 import { dateStr, timeStr, field, dateTime, toEpoch } from '../form_time.js';
 
@@ -47,14 +47,25 @@ export async function render(root, params) {
   a.href = booking ? '#/buchungen' : '#/kalender';
   a.textContent = 'Abbrechen';
   back.append(a);
+  // Club trip checkbox: only for permitted users (or if the booking already is one).
+  const me = currentUser();
+  const showClub = (me && me.may_club_trip) || (booking && booking.club_trip);
+  const club = document.createElement('input');
+  club.type = 'checkbox';
+  club.checked = !!(booking && booking.club_trip);
+  const clubLabel = document.createElement('label');
+  clubLabel.className = 'check';
+  clubLabel.append(club, ' Vereinsfahrt (wird nicht berechnet)');
   form.append(h1, carLine,
-    field('Start', s.date, s.time), field('Ende', e.date, e.time), hint, err, submit, back);
+    field('Start', s.date, s.time), field('Ende', e.date, e.time),
+    ...(showClub ? [clubLabel] : []), hint, err, submit, back);
   root.append(form);
 
   if (booking) {
     // Extend only: end may not move before the current end; start may move
     // earlier (never later) while the booking has not started yet.
     const startEditable = nowTs < booking.booked_start;
+    club.disabled = !startEditable; // the flag is fixed once the booking has started
     s.date.disabled = !startEditable;
     s.time.disabled = !startEditable;
     hint.textContent = `Aktuell: ${formatDateTime(booking.booked_start)} bis ${formatDateTime(booking.booked_end)}. ` +
@@ -89,12 +100,19 @@ export async function render(root, params) {
     if (end <= start) return fail('Das Ende muss nach dem Start liegen.');
     if (booking) {
       if (start > booking.booked_start || end < booking.booked_end) return fail('Die Buchung kann nur verlängert werden.');
-      if (start === booking.booked_start && end === booking.booked_end) return fail('Keine Änderung.');
+      if (start === booking.booked_start && end === booking.booked_end && club.checked === !!booking.club_trip) return fail('Keine Änderung.');
     }
     submit.disabled = true;
     try {
-      if (booking) await api('PUT', `/api/bookings/${booking.id}`, { start, end });
-      else await api('POST', '/api/bookings', { car_id: carId, start, end });
+      if (booking) {
+        const body = { start, end };
+        if (showClub && !club.disabled) body.club_trip = club.checked;
+        await api('PUT', `/api/bookings/${booking.id}`, body);
+      } else {
+        const body = { car_id: carId, start, end };
+        if (showClub) body.club_trip = club.checked;
+        await api('POST', '/api/bookings', body);
+      }
       navigate('#/buchungen');
     } catch (x) {
       fail(x.message);

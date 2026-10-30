@@ -58,6 +58,12 @@ export async function render(root) {
     const c = document.createElement('p');
     c.className = 'booking-car';
     c.textContent = names.get(b.car_id) || '';
+    if (b.club_trip) {
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = 'Vereinsfahrt';
+      c.append(' ', badge);
+    }
     const actions = document.createElement('div');
     actions.className = 'dialog-actions';
     const ext = document.createElement('a');
@@ -73,7 +79,7 @@ export async function render(root) {
       try {
         const s = await api('GET', '/api/settings/public');
         const inWindow = b.booked_start - Math.floor(Date.now() / 1000) < s.cancel_deadline_min * 60;
-        const fee = s.cancel_fee_cents > 0 && inWindow ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
+        const fee = !b.club_trip && s.cancel_fee_cents > 0 && inWindow ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
         const ok = await confirmDialog(
           `Buchung ${formatDateTime(b.booked_start)} stornieren? Stornierung: ${fee}.`);
         if (!ok) return;

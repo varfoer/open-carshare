@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { el, adminNav, messageBox, selectField, primaryButton } from '../admin_ui.js';
+import { el, adminNav, messageBox, selectField, checkField, primaryButton } from '../admin_ui.js';
 import { epochToBerlin, formatDateTime, monthRange } from '../time.js';
 import { field, dateTime, toEpoch, p2 } from '../form_time.js';
 
@@ -66,7 +66,8 @@ export async function render(root) {
       list.append(el('div', { className: 'card booking' },
         el('p', { className: 'booking-time', text: `${formatDateTime(b.booked_start)} – ${formatDateTime(b.booked_end)}` }),
         el('p', { className: 'booking-car',
-          text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` }),
+          text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` },
+          ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : [])),
         actions));
     }
   }
@@ -76,12 +77,13 @@ export async function render(root) {
     const userF = selectField('Nutzer', users.map((u) => [u.id, `${u.name} (${u.email})`]), b.user_id);
     const s = dateTime(b.booked_start);
     const e = dateTime(b.booked_end);
+    const club = checkField('Vereinsfahrt (wird nicht berechnet)', !!b.club_trip);
     const fErr = messageBox('error');
     const cancel = el('button', { type: 'button', text: 'Abbrechen', className: 'btn' });
     cancel.addEventListener('click', () => formHost.replaceChildren());
     const form = el('form', { className: 'card' },
       el('h2', { text: 'Buchung bearbeiten' }), carF.node, userF.node,
-      field('Start', s.date, s.time), field('Ende', e.date, e.time), fErr.node,
+      field('Start', s.date, s.time), field('Ende', e.date, e.time), club.node, fErr.node,
       primaryButton('Speichern'), cancel);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -91,7 +93,8 @@ export async function render(root) {
       if (end <= start) return fErr.show('Das Ende muss nach dem Start liegen.');
       try {
         await api('PUT', `/api/admin/bookings/${b.id}`,
-          { car_id: Number(carF.input.value), user_id: Number(userF.input.value), start, end });
+          { car_id: Number(carF.input.value), user_id: Number(userF.input.value), start, end,
+            club_trip: club.input.checked });
         formHost.replaceChildren();
         await load();
       } catch (x) { fErr.show(x.message); }

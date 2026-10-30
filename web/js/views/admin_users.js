@@ -24,7 +24,7 @@ export async function render(root) {
   };
 
   const head = el('tr');
-  for (const h of ['Name', 'E-Mail', 'Rolle', 'aktiv', '']) head.append(el('th', { text: h }));
+  for (const h of ['Name', 'E-Mail', 'Rolle', 'aktiv', 'Vereinsfahrten', '']) head.append(el('th', { text: h }));
   table.append(el('thead', {}, head));
   const body = el('tbody');
   table.append(body);
@@ -45,6 +45,7 @@ export async function render(root) {
       el('td', { text: u.name }), el('td', { text: u.email }),
       el('td', { text: u.role === 'admin' ? 'Admin' : 'Nutzer' }),
       el('td', { text: u.active ? 'ja' : 'nein' }),
+      el('td', { text: u.may_club_trip ? 'ja' : 'nein' }),
       el('td', { className: 'actions' }, edit, inv)));
   }
 
@@ -58,13 +59,14 @@ export async function render(root) {
     const active = checkField('aktiv', u ? u.active : true);
     const origDate = u && u.license_checked_at ? dateStr(epochToBerlin(u.license_checked_at)) : '';
     const lic = textField('Führerschein geprüft am', origDate, { type: 'date' });
+    const club = checkField('Darf Vereinsfahrten buchen', u ? u.may_club_trip : false);
     const fErr = messageBox('error');
     const cancel = el('button', { type: 'button', text: 'Abbrechen', className: 'btn' });
     cancel.addEventListener('click', () => formHost.replaceChildren());
     const form = el('form', { className: 'card' },
       el('h2', { text: u ? 'Nutzer bearbeiten' : 'Nutzer anlegen' }),
       email.node, name.node, street.node, zip.node, city.node, role.node,
-      ...(u ? [active.node] : []), lic.node, fErr.node,
+      ...(u ? [active.node] : []), club.node, lic.node, fErr.node,
       primaryButton(u ? 'Speichern' : 'Anlegen und einladen'), cancel);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -72,7 +74,7 @@ export async function render(root) {
       const body = {
         email: email.input.value.trim(), name: name.input.value.trim(),
         street: street.input.value.trim(), zip: zip.input.value.trim(), city: city.input.value.trim(),
-        role: role.input.value,
+        role: role.input.value, may_club_trip: club.input.checked,
       };
       // Optional: send only when set and (on edit) changed, else the server keeps the old value.
       if (lic.input.value && lic.input.value !== origDate) {
