@@ -1,0 +1,11 @@
+# Production: set OCS_DOMAIN (e.g. in /etc/default/caddy or a systemd drop-in).
+# Caddy obtains and renews the TLS certificate automatically and sets
+# X-Forwarded-For, which ocs-server trusts from 127.0.0.1 only.
+{$OCS_DOMAIN} {
+	reverse_proxy 127.0.0.1:8080
+}
+
+# Local testing: comment out the block above and use this one instead.
+# localhost {
+# 	reverse_proxy 127.0.0.1:8080
+# }

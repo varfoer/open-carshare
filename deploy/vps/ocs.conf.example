@@ -1,0 +1,26 @@
+# /etc/ocs/ocs.conf -- copy from ocs.conf.example.
+# Permissions: chown root:ocs /etc/ocs/ocs.conf && chmod 0640 /etc/ocs/ocs.conf
+# (contains the SMTP password). Format: `key = value`, `#` starts a comment line.
+# Unknown keys are an error. data_dir, web_dir and base_url are required.
+
+# Address the server listens on. Keep it on loopback; Caddy is the public face.
+# Default: http://127.0.0.1:8080
+listen = http://127.0.0.1:8080
+
+# Directory for data files (users.jsonl etc.). Must be writable by user ocs.
+data_dir = /var/lib/ocs
+
+# Copy of the web/ directory (without web/test/).
+web_dir = /opt/ocs/web
+
+# Public URL, used in links inside e-mails. No trailing slash.
+base_url = https://carshare.example.org
+
+# SMTP relay. TLS is required unless the host is localhost/127.0.0.1.
+# smtp://host:587 = STARTTLS, smtps://host:465 = implicit TLS.
+smtp_url = smtp://relay.example.org:587
+smtp_user = ocs@example.org
+smtp_pass = CHANGE-ME
+
+# Sender address of outgoing mail.
+mail_from = open-carshare <ocs@example.org>

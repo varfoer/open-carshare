@@ -1,0 +1,21 @@
+[Unit]
+Description=open-carshare server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ocs
+Group=ocs
+WorkingDirectory=/var/lib/ocs
+ExecStart=/opt/ocs/ocs-server -c /etc/ocs/ocs.conf
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ocs
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
