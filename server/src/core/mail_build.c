@@ -147,3 +147,27 @@ int mail_build(char *buf, size_t n, const char *from, const char *to,
   buf[o.len] = '\0';
   return (int)o.len;
 }
+
+static int is_blank(char c) { return c == ' ' || c == '\t'; }
+
+int mail_envelope_addr(const char *from, char *out, size_t n) {
+  if (has_crlf(from)) return -1;
+  const char *b = from, *e;
+  const char *lt = strchr(from, '<');
+  if (lt) {
+    b = lt + 1;
+    e = strchr(b, '>');
+    if (!e) return -1;
+  } else {
+    e = from + strlen(from);
+  }
+  while (b < e && is_blank(*b)) b++;
+  while (e > b && is_blank(e[-1])) e--;
+  size_t k = (size_t)(e - b);
+  if (k == 0 || k >= n) return -1;
+  for (size_t i = 0; i < k; i++)
+    if (is_blank(b[i]) || b[i] == '<' || b[i] == '>') return -1;
+  memcpy(out, b, k);
+  out[k] = '\0';
+  return 0;
+}

@@ -11,4 +11,12 @@
 int mail_build(char *buf, size_t n, const char *from, const char *to,
                const char *subject, const char *body, int64_t date);
 
+/* SMTP envelope sender (MAIL FROM) for a configured mail_from value, which may
+ * be "Name <addr>" or a bare "addr". Writes the part between '<' and '>' if a
+ * '<' is present, else the whole value with surrounding blanks trimmed.
+ * Returns 0, or -1 if from contains CR/LF, the '>' is missing, the address is
+ * empty or contains blanks, or it does not fit out[n] with NUL. The From:
+ * header keeps the full value (mail_build). */
+int mail_envelope_addr(const char *from, char *out, size_t n);
+
 #endif

@@ -59,6 +59,31 @@ void test_buffer_too_small(void) {
   TEST_ASSERT_EQUAL_INT(n, mail_build(b, (size_t)n + 1, FROM, TO, "s", "x", 0));
 }
 
+/* C2: the SMTP envelope (MAIL FROM) takes only the address of mail_from. */
+void test_envelope_addr(void) {
+  char a[64];
+  TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("open-carshare <ocs@example.org>", a, sizeof a));
+  TEST_ASSERT_EQUAL_STRING("ocs@example.org", a);
+  TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("ocs@example.org", a, sizeof a));
+  TEST_ASSERT_EQUAL_STRING("ocs@example.org", a);
+  TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("  ocs@example.org \t", a, sizeof a));
+  TEST_ASSERT_EQUAL_STRING("ocs@example.org", a);
+  TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("\"Car, Share\" < ocs@x.de > ", a, sizeof a));
+  TEST_ASSERT_EQUAL_STRING("ocs@x.de", a);
+}
+
+void test_envelope_addr_rejects(void) {
+  char a[16];
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("ocs@x.de\r\nRCPT TO:<e@v.il>", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("Name <ocs@x.de\n>", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("Name <ocs@x.de", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("Name <>", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("   ", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("Name <a b@x.de>", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(-1, mail_envelope_addr("much-too-long@example.org", a, sizeof a));
+  TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("fits@xx.de", a, sizeof a));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ascii_subject_plain);
@@ -67,5 +92,7 @@ int main(void) {
   RUN_TEST(test_header_injection_rejected);
   RUN_TEST(test_body_lf_converted_to_crlf);
   RUN_TEST(test_buffer_too_small);
+  RUN_TEST(test_envelope_addr);
+  RUN_TEST(test_envelope_addr_rejects);
   return UNITY_END();
 }

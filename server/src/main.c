@@ -14,17 +14,28 @@
 #define PW_MIN_CHARS 10
 #define PW_MAX_BYTES 1024
 
+/* Logs every failure to stderr (recipient and reason only; never the SMTP
+ * password or the mail body, which carries the token link). */
 static int mail_cb(void *ctx, const char *to, const char *subject, const char *body) {
   app_t *a = ctx;
-  if (!a->cfg.smtp_url[0]) return -1;
-  char *buf = malloc(MAIL_BUF);
-  if (!buf) return -1;
-  int rc = -1;
-  if (mail_build(buf, MAIL_BUF, a->cfg.mail_from, to, subject, body, platform_now()) >= 0)
-    rc = platform_mail_send(a->cfg.smtp_url, a->cfg.smtp_user, a->cfg.smtp_pass,
-                            a->cfg.mail_from, to, buf);
+  const char *why = NULL;
+  char env_from[sizeof a->cfg.mail_from];
+  char *buf = NULL;
+  if (!a->cfg.smtp_url[0]) why = "smtp_url not configured";
+  else if (mail_envelope_addr(a->cfg.mail_from, env_from, sizeof env_from) != 0)
+    why = "invalid mail_from";
+  else if (!(buf = malloc(MAIL_BUF))) why = "out of memory";
+  else if (mail_build(buf, MAIL_BUF, a->cfg.mail_from, to, subject, body, platform_now()) < 0)
+    why = "message could not be built";
+  else if (platform_mail_send(a->cfg.smtp_url, a->cfg.smtp_user, a->cfg.smtp_pass, env_from, to,
+                              buf) != 0)
+    why = "SMTP send failed";
   free(buf);
-  return rc == 0 ? 0 : -1;
+  if (why) {
+    fprintf(stderr, "ocs-server: mail to %s failed: %s\n", to, why);
+    return -1;
+  }
+  return 0;
 }
 
 static size_t utf8_len(const char *s) {
