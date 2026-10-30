@@ -40,6 +40,9 @@ void api_not_found(api_res_t *res);                /* 404 not_found */
 /* 200/201 {"user":<public json>} */
 void api_user_response(api_res_t *res, int status, const user_t *u);
 
+/* Map a br_result_t (core/booking_rules.h) to its HTTP error response. */
+void api_br_error(api_res_t *res, int br_result);
+
 /* Issue a reset/invite token for user_id and mail the link
  * <base_url>/#/passwort?token=<token>. 0 ok, -1 token/storage failure,
  * -2 user missing, -3 mail failure. */
@@ -67,5 +70,20 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
 void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_admin.c (all MIN_ADMIN) */
+void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_invite(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_car_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_car_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_settings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 #endif

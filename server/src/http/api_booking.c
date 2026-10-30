@@ -7,28 +7,6 @@
 
 #define CAL_MAX_RANGE (62 * 86400)
 
-static void br_error(api_res_t *res, br_result_t r) {
-  switch (r) {
-    case BR_INVALID: api_error(res, 400, "invalid", "Ungültige Eingabe."); break;
-    case BR_IN_PAST: api_error(res, 400, "in_past", "Der Beginn liegt in der Vergangenheit."); break;
-    case BR_CAR_INACTIVE:
-      api_error(res, 400, "car_inactive", "Dieses Auto ist derzeit nicht buchbar.");
-      break;
-    case BR_OVERLAP:
-      api_error(res, 409, "overlap", "Das Auto ist in diesem Zeitraum bereits gebucht.");
-      break;
-    case BR_NOT_EXTENSION:
-      api_error(res, 400, "only_extend",
-                "Buchungen können nur verlängert werden. Zum Verkürzen bitte stornieren und neu buchen.");
-      break;
-    case BR_NOT_MODIFIABLE:
-      api_error(res, 400, "not_modifiable", "Diese Buchung kann nicht mehr geändert werden.");
-      break;
-    case BR_FORBIDDEN:
-    default: api_not_found(res); break;
-  }
-}
-
 void h_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   (void)req;
   (void)ctx;
@@ -168,7 +146,7 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   b.booked_end = end;
   b.state = BK_RESERVED;
   br_result_t r = br_check_create(&a->db, ctx->user, &b, req->now);
-  if (r != BR_OK) { br_error(res, r); return; }
+  if (r != BR_OK) { api_br_error(res, r); return; }
   b.created_at = b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
@@ -195,7 +173,7 @@ void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
     return;
   }
   br_result_t r = br_check_update(&a->db, ctx->user, &old, &nb, req->now);
-  if (r != BR_OK) { br_error(res, r); return; }
+  if (r != BR_OK) { api_br_error(res, r); return; }
   nb.modified_at = req->now;
   nb.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
@@ -207,7 +185,7 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   if (!old_p) return;
   booking_t b = *old_p;
   br_result_t r = br_check_cancel(ctx->user, &b, req->now);
-  if (r != BR_OK) { br_error(res, r); return; }
+  if (r != BR_OK) { api_br_error(res, r); return; }
   b.cancel_fee_cents = br_cancel_fee(&a->db.settings, &b, req->now);
   b.state = BK_CANCELLED;
   b.cancelled_at = req->now;

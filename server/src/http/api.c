@@ -6,6 +6,7 @@
 #include <strings.h>
 
 #include "auth/session.h"
+#include "core/booking_rules.h"
 #include "core/codec.h"
 #include "http/api_internal.h"
 
@@ -33,6 +34,19 @@ static const route_t ROUTES[] = {
     {"PUT", "/api/bookings/*", h_booking_put, MIN_USER},
     {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER},
     {"GET", "/api/settings/public", h_settings_public, MIN_USER},
+    {"GET", "/api/admin/users", h_admin_users_get, MIN_ADMIN},
+    {"POST", "/api/admin/users", h_admin_user_post, MIN_ADMIN},
+    {"PUT", "/api/admin/users/*", h_admin_user_put, MIN_ADMIN},
+    {"POST", "/api/admin/users/*/invite", h_admin_user_invite, MIN_ADMIN},
+    {"GET", "/api/admin/cars", h_admin_cars_get, MIN_ADMIN},
+    {"POST", "/api/admin/cars", h_admin_car_post, MIN_ADMIN},
+    {"PUT", "/api/admin/cars/*", h_admin_car_put, MIN_ADMIN},
+    {"GET", "/api/admin/bookings", h_admin_bookings_get, MIN_ADMIN},
+    {"POST", "/api/admin/bookings", h_admin_booking_post, MIN_ADMIN},
+    {"PUT", "/api/admin/bookings/*", h_admin_booking_put, MIN_ADMIN},
+    {"DELETE", "/api/admin/bookings/*", h_admin_booking_delete, MIN_ADMIN},
+    {"GET", "/api/admin/settings", h_admin_settings_get, MIN_ADMIN},
+    {"PUT", "/api/admin/settings", h_admin_settings_put, MIN_ADMIN},
 };
 
 static bool pattern_match(const char *pat, const char *path) {
@@ -95,6 +109,28 @@ void api_ok(api_res_t *res) {
 void api_invalid(api_res_t *res) { api_error(res, 400, "invalid", "Ungültige Eingabe."); }
 void api_storage_error(api_res_t *res) { api_error(res, 500, "storage", "Speichern fehlgeschlagen."); }
 void api_not_found(api_res_t *res) { api_error(res, 404, "not_found", "Nicht gefunden."); }
+
+void api_br_error(api_res_t *res, int r) {
+  switch ((br_result_t)r) {
+    case BR_INVALID: api_error(res, 400, "invalid", "Ungültige Eingabe."); break;
+    case BR_IN_PAST: api_error(res, 400, "in_past", "Der Beginn liegt in der Vergangenheit."); break;
+    case BR_CAR_INACTIVE:
+      api_error(res, 400, "car_inactive", "Dieses Auto ist derzeit nicht buchbar.");
+      break;
+    case BR_OVERLAP:
+      api_error(res, 409, "overlap", "Das Auto ist in diesem Zeitraum bereits gebucht.");
+      break;
+    case BR_NOT_EXTENSION:
+      api_error(res, 400, "only_extend",
+                "Buchungen können nur verlängert werden. Zum Verkürzen bitte stornieren und neu buchen.");
+      break;
+    case BR_NOT_MODIFIABLE:
+      api_error(res, 400, "not_modifiable", "Diese Buchung kann nicht mehr geändert werden.");
+      break;
+    case BR_FORBIDDEN:
+    default: api_not_found(res); break;
+  }
+}
 
 void api_user_response(api_res_t *res, int status, const user_t *u) {
   cJSON *j = cJSON_CreateObject();
