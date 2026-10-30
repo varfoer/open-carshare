@@ -5,6 +5,7 @@ const ROUTES = {
   '#/login': 'login',
   '#/passwort': 'password',
   '#/kalender': 'calendar',
+  '#/buchen': 'booking_form',
   '#/buchungen': 'my_bookings',
   '#/konto': 'account',
   '#/admin/nutzer': 'admin_users',
@@ -113,6 +114,7 @@ async function route() {
   } catch { /* view not written yet */ }
   if (token !== renderToken) return;
   viewEl.replaceChildren();
+  viewEl.className = 'view';
   if (!mod || typeof mod.render !== 'function') return showPlaceholder();
   try {
     await mod.render(viewEl, params);

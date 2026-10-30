@@ -30,3 +30,32 @@ button:disabled { opacity: .6; cursor: default; }
 .error { color: var(--danger); }
 .success { color: var(--ok); }
 .placeholder { color: var(--muted); text-align: center; padding: 2rem 0; }
+.view.wide { max-width: 72rem; }
+.hint { color: var(--muted); font-size: .9rem; }
+.btn, button.danger, .dialog-actions button { display: inline-flex; align-items: center; justify-content: center;
+  min-height: 44px; padding: 0 1rem; font: inherit; color: var(--fg); background: var(--card);
+  border: 1px solid var(--border); border-radius: 6px; text-decoration: none; cursor: pointer; }
+button.danger { color: var(--danger); border-color: var(--danger); }
+.booking-time { font-weight: 600; margin: 0 0 .25rem; }
+.booking-car { color: var(--muted); margin: 0 0 .75rem; }
+.booking { margin-bottom: .75rem; }
+.dialog-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+dialog.confirm { border: 1px solid var(--border); border-radius: 8px; max-width: 24rem; }
+.cal-bar { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.cal-bar select { margin: 0; width: auto; }
+.cal-nav { display: flex; gap: .4rem; align-items: center; }
+.cal-btn { min-width: 44px; min-height: 44px; font: inherit; background: var(--card);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.cal-title { font-weight: 600; margin-left: .4rem; }
+.cal-grid { display: grid; gap: 1px; background: var(--border); border: 1px solid var(--border); }
+.cal-corner, .cal-head, .cal-time { background: var(--card); font-size: .75rem; color: var(--muted); }
+.cal-head { text-align: center; padding: .3rem 0; font-weight: 600; }
+.cal-time { padding: 0 .25rem; min-height: 28px; }
+.cal-cell { min-height: 28px; padding: 0 .25rem; border: 0; font: inherit; font-size: .75rem;
+  text-align: left; overflow: hidden; white-space: nowrap; display: block; width: 100%; }
+.cal-cell.free { background: var(--card); cursor: pointer; }
+.cal-cell.free:hover:not(:disabled) { background: #e8f0fd; }
+.cal-cell.free:disabled { background: #eef0f3; cursor: default; }
+.cal-cell.own { background: var(--accent); color: var(--accent-fg); cursor: pointer; }
+.cal-cell.other { background: #9aa3b0; color: #fff; }
+.cal-cell.gap { background: #eef0f3; }
