@@ -113,7 +113,9 @@ br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t
 
   if (!find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
   if (nb->state == BK_RESERVED || nb->state == BK_ACTIVE) {
-    br_result_t r = br_check_free(db, nb->car_id, nb->booked_start, nb->booked_end, old->id, now);
+    /* Check what nb will occupy (early actual_start, overdue grace), not just its booked interval. */
+    br_result_t r = br_check_free(db, nb->car_id, booking_occupied_start(nb),
+                                  booking_occupied_end(nb, now), old->id, now);
     if (r != BR_OK) return r;
   }
   if (!admin && start_changed && !start_allowed(db, nb->booked_start, now)) return BR_IN_PAST;

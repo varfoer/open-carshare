@@ -385,6 +385,18 @@ void test_admin_reopen_done_checks_overlap(void) {
   booking_t nb = *o; nb.state = BK_ACTIVE;
   TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_update(&db, ADM, o, &nb, now));
 }
+void test_admin_reopen_overdue_done_checks_grace(void) {
+  booking_t *o = add(1, 1, 1, T - 3 * H, T - H, BK_DONE);
+  add(2, 1, 2, T + 600, T + H, BK_RESERVED); /* inside [now, now + grace) */
+  booking_t nb = *o; nb.state = BK_ACTIVE;
+  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_update(&db, ADM, o, &nb, now));
+}
+void test_admin_early_actual_start_checks_overlap(void) {
+  booking_t *o = add(1, 1, 1, T - H, T + H, BK_DONE);
+  add(2, 1, 2, T - 3 * H, T - 2 * H, BK_RESERVED);
+  booking_t nb = *o; nb.state = BK_ACTIVE; nb.actual_start = T - 4 * H;
+  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_update(&db, ADM, o, &nb, now));
+}
 void test_active_extension_overlap(void) {
   booking_t *o = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
   add(2, 1, 2, T + 2 * H, T + 3 * H, BK_RESERVED);
@@ -459,6 +471,8 @@ int main(void) {
   RUN_TEST(test_damage_phase_rules);
   RUN_TEST(test_club_flag_fixed_after_early_start);
   RUN_TEST(test_admin_reopen_done_checks_overlap);
+  RUN_TEST(test_admin_reopen_overdue_done_checks_grace);
+  RUN_TEST(test_admin_early_actual_start_checks_overlap);
   RUN_TEST(test_active_extension_overlap);
   RUN_TEST(test_user_change_car_or_user_rejected);
   RUN_TEST(test_unaligned_update_invalid);
