@@ -20,14 +20,7 @@ when it is fixed.
 - [P2] Overdue `active` booking not shown as occupied in the user calendar:
   calendar window is `[max(from,now),to)` while occupation is `[start,now)`.
   Show an overdue `active` booking as occupied through now plus one slot.
-- [P2] Free-check gate in `booking_rules.c` uses `old->state` instead of the
-  new state.
-- [P2] `active` booking started early can still have its club-trip flag
-  changed by the user (check is `now >= booked_start`, should also cover
-  `actual_start`).
 - [P2] Web offers "Stornieren" for started bookings (server rejects).
-- [P2] Test gaps in booking rules: `active` extension overlap, user/car
-  change on update, unaligned update, admin update of `done`.
 - [P7] Interim tar backup cron in `deploy/vps/README.md` is replaced by the
   encrypted mail backup.
 

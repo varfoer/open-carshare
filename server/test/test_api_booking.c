@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "core/booking_rules.h"
 #include "auth/session.h"
 #include "cJSON.h"
 #include "helpers.h"
@@ -170,8 +171,10 @@ void test_calendar_active_listed_overdue_not(void) {
   cJSON_Delete(j);
   b.booked_end = T - H / 2;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  /* overdue active stays occupied through now + grace */
   j = call("GET", cal(car1, T - 5 * H, T + 86400), NULL, tok2, 200, NULL);
-  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT(T + BR_OVERDUE_GRACE, num(cJSON_GetArrayItem(j, 0), "end"));
   cJSON_Delete(j);
 }
 

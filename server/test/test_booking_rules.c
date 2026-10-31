@@ -148,7 +148,7 @@ void test_active_late_booking_blocks_until_now(void) {
   a.user_id = 2;
   TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_create(&db, U2, &a, now));
   TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_create(&db, ADM, &a, now));
-  TEST_ASSERT_EQUAL_INT64(now, booking_occupied_end(&bks[0], now));
+  TEST_ASSERT_EQUAL_INT64(now + BR_OVERDUE_GRACE, booking_occupied_end(&bks[0], now));
 }
 void test_cancelled_does_not_block(void) {
   add(1, 1, 2, T + 10 * H, T + 12 * H, BK_CANCELLED);
@@ -278,6 +278,142 @@ void test_club_cancel_fee_zero(void) {
   TEST_ASSERT_EQUAL_INT64(0, br_cancel_fee(&db.settings, &a, now));
 }
 
+void test_overdue_active_blocks_until_now_plus_grace(void) {
+  booking_t *b = add(1, 1, 1, T - 2 * H, T - H, BK_ACTIVE);
+  TEST_ASSERT_EQUAL_INT64(T + BR_OVERDUE_GRACE, booking_occupied_end(b, T));
+  TEST_ASSERT_EQUAL_INT64(T - H, booking_occupied_end(b, T - H - 60));
+}
+void test_early_start_occupies_from_actual_start(void) {
+  booking_t *b = add(1, 1, 1, T + 2 * H, T + 4 * H, BK_ACTIVE); b->actual_start = T;
+  TEST_ASSERT_EQUAL_INT(BR_OVERLAP, br_check_free(&db, 1, T + 1800, T + 5400, 0, T));
+}
+void test_start_in_window_ok(void) {
+  booking_t *b = add(1, 1, 1, T + 10 * 60, T + 2 * H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_start(&db, U1, b, T));
+}
+void test_early_start_free_ok(void) {
+  booking_t *b = add(1, 1, 1, T + 5 * H, T + 6 * H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_start(&db, U1, b, T));
+}
+void test_early_start_blocked_by_reserved(void) {
+  add(1, 1, 2, T + H, T + 2 * H, BK_RESERVED);
+  booking_t *own = add(2, 1, 1, T + 3 * H, T + 4 * H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_CAR_BUSY, br_check_start(&db, U1, own, T));
+}
+void test_start_blocked_by_overdue_active(void) {
+  booking_t *a1 = add(1, 1, 2, T - 2 * H, T - 600, BK_ACTIVE); a1->actual_start = T - 2 * H;
+  booking_t *own = add(2, 1, 1, T - 600, T + H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_CAR_BUSY, br_check_start(&db, &users[0], own, T));
+}
+void test_start_after_booked_end_expired(void) {
+  booking_t *b = add(1, 1, 1, T - 2 * H, T - H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_EXPIRED, br_check_start(&db, U1, b, T));
+}
+void test_start_twice_not_modifiable(void) {
+  booking_t *b = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_start(&db, U1, b, T));
+}
+void test_start_other_user_forbidden(void) {
+  booking_t *b = add(1, 1, 1, T, T + H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_FORBIDDEN, br_check_start(&db, U2, b, T));
+}
+void test_start_inactive_car(void) {
+  booking_t *b = add(1, 2, 1, T, T + H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_CAR_INACTIVE, br_check_start(&db, U1, b, T));
+}
+void test_return_rules(void) {
+  booking_t *b = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_return(U1, b));
+  TEST_ASSERT_EQUAL_INT(BR_FORBIDDEN, br_check_return(U2, b));
+  b->state = BK_RESERVED;
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_return(U1, b));
+  b->state = BK_DONE;
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_return(U1, b));
+}
+void test_apply_trip_derives_state(void) {
+  booking_t b = mk(1, 1, T - 3 * H, T - H);
+  b.km_pending = true;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, b.state);
+  TEST_ASSERT_FALSE(b.km_pending);
+  b.actual_start = T - 3 * H;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, b.state);
+  TEST_ASSERT_FALSE(b.km_pending);
+  b.actual_end = T - H;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BK_DONE, b.state);
+  TEST_ASSERT_TRUE(b.km_pending);
+  b.km_source = KM_MANUAL;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_FALSE(b.km_pending);
+}
+void test_apply_trip_invalid(void) {
+  booking_t b = mk(1, 1, T - 3 * H, T - H);
+  b.actual_end = T - H;
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  b.actual_start = T - H;
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  b.actual_start = T - 2 * H; b.actual_end = T - 2 * H - 1;
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  b.actual_start = T + 1; b.actual_end = 0;
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  b.actual_start = T - H; b.actual_end = T + 1;
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+}
+void test_damage_phase_rules(void) {
+  booking_t *b = add(1, 1, 1, T - H, T + H, BK_RESERVED);
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_damage(U1, b, DMG_START));
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_damage(U1, b, DMG_END));
+  b->state = BK_ACTIVE; b->actual_start = T - H;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_damage(U1, b, DMG_START));
+  TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_damage(U1, b, DMG_END));
+  TEST_ASSERT_EQUAL_INT(BR_FORBIDDEN, br_check_damage(U2, b, DMG_START));
+  b->state = BK_DONE; b->actual_end = T;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_damage(U1, b, DMG_START));
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_check_damage(U1, b, DMG_END));
+}
+void test_club_flag_fixed_after_early_start(void) {
+  booking_t *o = add(1, 1, 1, T + H, T + 3 * H, BK_ACTIVE); o->actual_start = T - H;
+  U1->may_club_trip = true;
+  booking_t nb = *o; nb.club_trip = true;
+  TEST_ASSERT_EQUAL(BR_NOT_MODIFIABLE, br_check_update(&db, U1, o, &nb, now));
+}
+void test_admin_reopen_done_checks_overlap(void) {
+  booking_t *o = add(1, 1, 1, T - 3 * H, T - H, BK_DONE);
+  add(2, 1, 2, T - 2 * H, T + H, BK_RESERVED);
+  booking_t nb = *o; nb.state = BK_ACTIVE;
+  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_update(&db, ADM, o, &nb, now));
+}
+void test_active_extension_overlap(void) {
+  booking_t *o = add(1, 1, 1, T - H, T + H, BK_ACTIVE);
+  add(2, 1, 2, T + 2 * H, T + 3 * H, BK_RESERVED);
+  booking_t nb = *o; nb.booked_end = T + 2 * H + 60;
+  TEST_ASSERT_EQUAL(BR_OVERLAP, br_check_update(&db, U1, o, &nb, now));
+}
+void test_user_change_car_or_user_rejected(void) {
+  booking_t *r = add(1, 1, 1, T + 10 * H, T + 11 * H, BK_RESERVED);
+  booking_t nb = *r; nb.booked_end += H; nb.user_id = 2;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, r, &nb, now));
+  nb = *r; nb.booked_end += H; nb.car_id = 2;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, r, &nb, now));
+  booking_t *a = add(2, 1, 1, T - H, T + H, BK_ACTIVE);
+  nb = *a; nb.booked_end += H; nb.user_id = 2;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, a, &nb, now));
+  nb = *a; nb.booked_end += H; nb.car_id = 2;
+  TEST_ASSERT_EQUAL(BR_NOT_EXTENSION, br_check_update(&db, U1, a, &nb, now));
+}
+void test_unaligned_update_invalid(void) {
+  booking_t *o = add(1, 1, 1, T + 10 * H, T + 11 * H, BK_RESERVED);
+  booking_t nb = *o; nb.booked_end += H + 1;
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_update(&db, U1, o, &nb, now));
+}
+void test_admin_update_done_ok(void) {
+  booking_t *o = add(1, 1, 1, T - 3 * H, T - H, BK_DONE);
+  booking_t nb = *o; nb.booked_start -= H; nb.booked_end += 600;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, o, &nb, now));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_touching_intervals_do_not_overlap);
@@ -307,5 +443,25 @@ int main(void) {
   RUN_TEST(test_club_admin_override);
   RUN_TEST(test_club_cancel_fee_zero);
   RUN_TEST(test_time_range);
+  RUN_TEST(test_overdue_active_blocks_until_now_plus_grace);
+  RUN_TEST(test_early_start_occupies_from_actual_start);
+  RUN_TEST(test_start_in_window_ok);
+  RUN_TEST(test_early_start_free_ok);
+  RUN_TEST(test_early_start_blocked_by_reserved);
+  RUN_TEST(test_start_blocked_by_overdue_active);
+  RUN_TEST(test_start_after_booked_end_expired);
+  RUN_TEST(test_start_twice_not_modifiable);
+  RUN_TEST(test_start_other_user_forbidden);
+  RUN_TEST(test_start_inactive_car);
+  RUN_TEST(test_return_rules);
+  RUN_TEST(test_apply_trip_derives_state);
+  RUN_TEST(test_apply_trip_invalid);
+  RUN_TEST(test_damage_phase_rules);
+  RUN_TEST(test_club_flag_fixed_after_early_start);
+  RUN_TEST(test_admin_reopen_done_checks_overlap);
+  RUN_TEST(test_active_extension_overlap);
+  RUN_TEST(test_user_change_car_or_user_rejected);
+  RUN_TEST(test_unaligned_update_invalid);
+  RUN_TEST(test_admin_update_done_ok);
   return UNITY_END();
 }
