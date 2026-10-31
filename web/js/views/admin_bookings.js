@@ -115,8 +115,10 @@ export async function render(root) {
     const e = dateTime(b.booked_end);
     const as = optionalDateTime(b.actual_start, b.booked_start);
     const ae = optionalDateTime(b.actual_end, b.booked_end);
-    const kmS = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: b.km_source === 'none' ? '' : b.km_start });
-    const kmE = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: b.km_source === 'none' ? '' : b.km_end });
+    const kmS0 = b.km_source === 'none' ? '' : String(b.km_start);
+    const kmE0 = b.km_source === 'none' ? '' : String(b.km_end);
+    const kmS = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: kmS0 });
+    const kmE = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: kmE0 });
     const club = checkField('Vereinsfahrt (wird nicht berechnet)', !!b.club_trip);
     const fErr = messageBox('error');
     const cancel = el('button', { type: 'button', text: 'Abbrechen', className: 'btn' });
@@ -135,11 +137,20 @@ export async function render(root) {
       const start = toEpoch(s), end = toEpoch(e);
       if (end <= start) return fErr.show('Das Ende muss nach dem Start liegen.');
       const body = { car_id: Number(carF.input.value), user_id: Number(userF.input.value), start, end,
-        club_trip: club.input.checked, actual_start: as.value(), actual_end: ae.value() };
+        club_trip: club.input.checked };
+      // Any present actual_* key makes the server re-derive the state: send both, only on change.
+      const nas = as.value(), nae = ae.value();
+      if (nas !== (b.actual_start || null) || nae !== (b.actual_end || null)) {
+        body.actual_start = nas;
+        body.actual_end = nae;
+      }
+      // Sending km turns the source into manual: only when the admin changed a value.
       if (kmS.value !== '' || kmE.value !== '') {
         if (kmS.value === '' || kmE.value === '') return fErr.show('Bitte km Start und km Ende angeben.');
-        body.km_start = Number(kmS.value);
-        body.km_end = Number(kmE.value);
+        if (kmS.value !== kmS0 || kmE.value !== kmE0) {
+          body.km_start = Number(kmS.value);
+          body.km_end = Number(kmE.value);
+        }
       }
       try {
         await api('PUT', `/api/admin/bookings/${b.id}`, body);
