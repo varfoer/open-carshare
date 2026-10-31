@@ -1,3 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "unity.h"
 #include "helpers.h"
@@ -225,10 +227,83 @@ static void test_settings_roundtrip_and_wrong_type(void) {
     cJSON_Delete(j);
 }
 
+static void test_booking_trip_roundtrip(void) {
+    booking_t b = {.id = 1, .car_id = 2, .user_id = 3, .booked_start = 600, .booked_end = 1200,
+                   .state = BK_DONE, .actual_start = 590, .actual_end = 1300, .km_start = 1000,
+                   .km_end = 1042, .km_source = KM_MANUAL, .km_pending = false};
+    cJSON *j = booking_to_json(&b);
+    TEST_ASSERT_EQUAL_STRING("manual", cJSON_GetObjectItem(j, "km_source")->valuestring);
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(590, r.actual_start);
+    TEST_ASSERT_EQUAL_INT64(1300, r.actual_end);
+    TEST_ASSERT_EQUAL_INT64(1000, r.km_start);
+    TEST_ASSERT_EQUAL_INT64(1042, r.km_end);
+    TEST_ASSERT_EQUAL_INT(KM_MANUAL, r.km_source);
+    cJSON_Delete(j);
+}
+
+static void test_booking_loads_phase1_line(void) {
+    cJSON *j = cJSON_Parse("{\"id\":1,\"car_id\":1,\"user_id\":1,\"booked_start\":600,\"booked_end\":1200,"
+                           "\"state\":\"active\",\"cancelled_at\":0,\"cancel_fee_cents\":0,\"created_at\":1,"
+                           "\"modified_at\":1,\"modified_by\":1}");
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(BK_ACTIVE, r.state);
+    TEST_ASSERT_EQUAL_INT64(0, r.actual_start);
+    TEST_ASSERT_EQUAL_INT(KM_NONE, r.km_source);
+    TEST_ASSERT_FALSE(r.km_pending);
+    cJSON_Delete(j);
+}
+
+static void test_booking_rejects_bad_km_source(void) {
+    booking_t b = {.id = 1, .booked_start = 600, .booked_end = 1200};
+    cJSON *j = booking_to_json(&b);
+    cJSON_ReplaceItemInObject(j, "km_source", cJSON_CreateString("gps"));
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(-1, booking_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
+static void test_damage_roundtrip(void) {
+    damage_report_t d = {.id = 4, .booking_id = 9, .user_id = 3, .created_at = 777,
+                         .phase = DMG_END, .n_photos = 2};
+    snprintf(d.text, sizeof d.text, "Kratzer an der Stoßstange, Tür links: \xC3\xBCberall");
+    cJSON *j = damage_report_to_json(&d);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_STRING("end", cJSON_GetObjectItem(j, "phase")->valuestring);
+    damage_report_t r;
+    TEST_ASSERT_EQUAL_INT(0, damage_report_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&d, &r, sizeof d);
+    cJSON_Delete(j);
+}
+
+static void test_damage_rejects_long_text(void) {
+    damage_report_t d = {.id = 1, .booking_id = 1, .user_id = 1};
+    memset(d.text, 'a', 1023);
+    cJSON *j = damage_report_to_json(&d);
+    TEST_ASSERT_NOT_NULL(j); /* 1023 chars is the maximum and survives untruncated */
+    damage_report_t r;
+    TEST_ASSERT_EQUAL_INT(0, damage_report_from_json(j, &r));
+    TEST_ASSERT_EQUAL_size_t(1023, strlen(r.text));
+    char *big = malloc(1025);
+    memset(big, 'b', 1024);
+    big[1024] = '\0';
+    cJSON_ReplaceItemInObject(j, "text", cJSON_CreateString(big));
+    free(big);
+    TEST_ASSERT_EQUAL_INT(-1, damage_report_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
     RUN_TEST(test_club_flags_roundtrip_and_default);
+    RUN_TEST(test_booking_trip_roundtrip);
+    RUN_TEST(test_booking_loads_phase1_line);
+    RUN_TEST(test_booking_rejects_bad_km_source);
+    RUN_TEST(test_damage_roundtrip);
+    RUN_TEST(test_damage_rejects_long_text);
     RUN_TEST(test_booking_all_states);
     RUN_TEST(test_user_umlaut_roundtrip);
     RUN_TEST(test_user_public_json_has_no_pw_hash);

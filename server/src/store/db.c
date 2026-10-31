@@ -105,6 +105,7 @@ static int put_at(const db_t *db, void **arr, size_t *n, size_t *cap, size_t esz
 DEFINE_LOADER_X(users, user_t, users, n_users, cap_users, user_from_json)
 DEFINE_LOADER_X(cars, car_t, cars, n_cars, cap_cars, car_from_json)
 DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking_from_json)
+DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
 
@@ -123,6 +124,7 @@ void db_free(db_t *db) {
   free(db->users);
   free(db->cars);
   free(db->bookings);
+  free(db->damages);
   free(db->sessions);
   free(db->tokens);
   memset(db, 0, sizeof *db);
@@ -141,6 +143,12 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "users.jsonl", load_users);
   if (rc == 0) rc = load_file(db, "cars.jsonl", load_cars);
   if (rc == 0) rc = load_file(db, "bookings.jsonl", load_bookings);
+  if (rc == 0) rc = load_file(db, "damage_reports.jsonl", load_damages);
+  if (rc == 0) {
+    char photos[512];
+    rc = table_path(db, "photos", photos, sizeof photos);
+    if (rc == 0) rc = store_ensure_dir(photos);
+  }
   if (rc == 0) rc = load_file(db, "sessions.jsonl", load_sessions);
   if (rc == 0) rc = load_file(db, "tokens.jsonl", load_tokens);
   if (rc == 0) rc = load_file(db, "settings.json", load_settings);
@@ -185,6 +193,12 @@ booking_t *db_booking(db_t *db, int64_t id) {
   return NULL;
 }
 
+damage_report_t *db_damage(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_damages; i++)
+    if (db->damages[i].id == id) return &db->damages[i];
+  return NULL;
+}
+
 token_t *db_token(db_t *db, const char *token_hash) {
   for (size_t i = 0; i < db->n_tokens; i++)
     if (strcmp(db->tokens[i].token_hash, token_hash) == 0) return &db->tokens[i];
@@ -215,6 +229,13 @@ DEFINE_PUT_ENTITY(db_put_user, user_t, users, n_users, cap_users, "users.jsonl",
 DEFINE_PUT_ENTITY(db_put_car, car_t, cars, n_cars, cap_cars, "cars.jsonl", car_to_json)
 DEFINE_PUT_ENTITY(db_put_booking, booking_t, bookings, n_bookings, cap_bookings,
                   "bookings.jsonl", booking_to_json)
+DEFINE_PUT_ENTITY(db_put_damage, damage_report_t, damages, n_damages, cap_damages,
+                  "damage_reports.jsonl", damage_report_to_json)
+
+int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap) {
+  int n = snprintf(out, cap, "%s/photos/r%lld-%d.jpg", db->dir, (long long)report_id, k);
+  return (n < 0 || (size_t)n >= cap) ? -1 : 0;
+}
 
 int db_put_settings(db_t *db, const settings_t *s) {
   char path[512];

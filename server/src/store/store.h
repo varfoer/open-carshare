@@ -14,4 +14,11 @@ int store_read_lines(const char *path, int (*cb)(const cJSON *obj, void *ctx), v
  * fsync failure still returns 0 (only power-loss durability is degraded). */
 int store_write_atomic(const char *path, const char *data, size_t len);
 
+/* Reads the whole file into a malloc'd, NUL-terminated buffer (caller frees *out).
+ * 0 ok; -1 if missing, unreadable or larger than max bytes. */
+int store_read_file(const char *path, size_t max, char **out, size_t *len);
+
+/* mkdir mode 0700; an existing path (EEXIST) is success. 0 ok, -1 otherwise. */
+int store_ensure_dir(const char *path);
+
 #endif

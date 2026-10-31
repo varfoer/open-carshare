@@ -39,6 +39,12 @@ static int get_bool_opt(const cJSON *j, const char *key, bool *out) {
   return get_bool(j, key, out);
 }
 
+/* Optional integer: a missing key leaves *out untouched (caller preset 0). */
+static int get_i64_opt(const cJSON *j, const char *key, int64_t *out) {
+  if (!cJSON_GetObjectItemCaseSensitive(j, key)) return 0;
+  return get_i64(j, key, out);
+}
+
 /* Copies into a fixed buffer of size cap; rejects strings that do not fit with NUL. */
 static int get_str(const cJSON *j, const char *key, char *dst, size_t cap) {
   const cJSON *it = cJSON_GetObjectItemCaseSensitive(j, key);
@@ -60,6 +66,13 @@ static int get_enum(const cJSON *j, const char *key, const char *const *names, i
     }
   }
   return -1;
+}
+
+/* Optional enum: a missing key leaves *out untouched (caller preset to the first value). */
+static int get_enum_opt(const cJSON *j, const char *key, const char *const *names, int count,
+                        int *out) {
+  if (!cJSON_GetObjectItemCaseSensitive(j, key)) return 0;
+  return get_enum(j, key, names, count, out);
 }
 
 /* ---- write helpers: return 0 ok, -1 on OOM or a value the reader would reject ---- */
@@ -97,6 +110,8 @@ static int put_bool(cJSON *o, const char *key, bool v) {
 static const char *const ROLE_NAMES[] = {"user", "admin"};
 static const char *const STATE_NAMES[] = {"reserved", "active", "done", "cancelled"};
 static const char *const KIND_NAMES[] = {"reset", "invite"};
+static const char *const KM_SOURCE_NAMES[] = {"none", "geotab", "manual"};
+static const char *const PHASE_NAMES[] = {"start", "end"};
 
 static const char *enum_name(const char *const *names, int count, int v) {
   return (v >= 0 && v < count) ? names[v] : names[0];
@@ -194,6 +209,12 @@ cJSON *booking_to_json(const booking_t *v) {
   PUT(put_i64(o, "modified_at", v->modified_at));
   PUT(put_i64(o, "modified_by", v->modified_by));
   PUT(put_bool(o, "club_trip", v->club_trip));
+  PUT(put_i64(o, "actual_start", v->actual_start));
+  PUT(put_i64(o, "actual_end", v->actual_end));
+  PUT(put_i64(o, "km_start", v->km_start));
+  PUT(put_i64(o, "km_end", v->km_end));
+  PUT(put_cstr(o, "km_source", enum_name(KM_SOURCE_NAMES, 3, v->km_source)));
+  PUT(put_bool(o, "km_pending", v->km_pending));
   return o;
 }
 
@@ -214,6 +235,46 @@ int booking_from_json(const cJSON *j, booking_t *out) {
   TRY(get_i64(j, "modified_at", &out->modified_at));
   TRY(get_i64(j, "modified_by", &out->modified_by));
   TRY(get_bool_opt(j, "club_trip", &out->club_trip));
+  TRY(get_i64_opt(j, "actual_start", &out->actual_start));
+  TRY(get_i64_opt(j, "actual_end", &out->actual_end));
+  TRY(get_i64_opt(j, "km_start", &out->km_start));
+  TRY(get_i64_opt(j, "km_end", &out->km_end));
+  int km_source = KM_NONE;
+  TRY(get_enum_opt(j, "km_source", KM_SOURCE_NAMES, 3, &km_source));
+  out->km_source = (km_source_t)km_source;
+  TRY(get_bool_opt(j, "km_pending", &out->km_pending));
+  return 0;
+}
+
+/* ---- damage report ---- */
+
+cJSON *damage_report_to_json(const damage_report_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  /* put_str truncates at 255; text is up to 1023, so it is length-checked here. */
+  if (strnlen(v->text, sizeof v->text) >= sizeof v->text) PUT(-1);
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "booking_id", v->booking_id));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_cstr(o, "phase", enum_name(PHASE_NAMES, 2, v->phase)));
+  PUT(put_cstr(o, "text", v->text));
+  PUT(put_i64(o, "n_photos", v->n_photos));
+  PUT(put_i64(o, "created_at", v->created_at));
+  return o;
+}
+
+int damage_report_from_json(const cJSON *j, damage_report_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  int phase;
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "booking_id", &out->booking_id));
+  TRY(get_i64(j, "user_id", &out->user_id));
+  TRY(get_enum(j, "phase", PHASE_NAMES, 2, &phase));
+  out->phase = (damage_phase_t)phase;
+  TRY(get_str(j, "text", out->text, sizeof out->text));
+  TRY(get_int(j, "n_photos", &out->n_photos));
+  TRY(get_i64(j, "created_at", &out->created_at));
   return 0;
 }
 

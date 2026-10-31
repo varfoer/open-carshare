@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "platform/platform.h"
 
@@ -84,4 +85,29 @@ int store_write_atomic(const char *path, const char *data, size_t len) {
    * degrades power-loss durability, so it is not reported as a write failure. */
   (void)platform_fsync_dir(dir);
   return 0;
+}
+
+int store_read_file(const char *path, size_t max, char **out, size_t *len) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return -1;
+  char *buf = malloc(max + 2);
+  if (!buf) {
+    fclose(f);
+    return -1;
+  }
+  size_t n = fread(buf, 1, max + 1, f);
+  int bad = ferror(f) || n > max;
+  fclose(f);
+  if (bad) {
+    free(buf);
+    return -1;
+  }
+  buf[n] = '\0';
+  *out = buf;
+  *len = n;
+  return 0;
+}
+
+int store_ensure_dir(const char *path) {
+  return (mkdir(path, 0700) == 0 || errno == EEXIST) ? 0 : -1;
 }

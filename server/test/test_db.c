@@ -224,6 +224,69 @@ void test_put_rejects_unsafe_int(void) {
   db_free(&db);
 }
 
+void test_damage_put_and_reload(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  damage_report_t d;
+  memset(&d, 0, sizeof d);
+  d.booking_id = 5; d.user_id = 2; d.phase = DMG_START; d.created_at = 99; d.n_photos = 1;
+  snprintf(d.text, sizeof d.text, "Delle");
+  TEST_ASSERT_EQUAL_INT(0, db_put_damage(&db, &d));
+  TEST_ASSERT_EQUAL_INT64(1, d.id);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_damages);
+  damage_report_t *r = db_damage(&db, 1);
+  TEST_ASSERT_NOT_NULL(r);
+  TEST_ASSERT_EQUAL_INT64(5, r->booking_id);
+  TEST_ASSERT_EQUAL_STRING("Delle", r->text);
+  TEST_ASSERT_EQUAL_INT(1, r->n_photos);
+  db_free(&db);
+}
+
+void test_load_creates_photos_dir(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  char p[300];
+  snprintf(p, sizeof p, "%s/photos", dir);
+  struct stat st;
+  TEST_ASSERT_EQUAL_INT(0, stat(p, &st));
+  TEST_ASSERT_TRUE(S_ISDIR(st.st_mode));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir)); /* existing dir is fine */
+  db_free(&db);
+}
+
+void test_photo_path(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  char p[300];
+  TEST_ASSERT_EQUAL_INT(0, db_photo_path(&db, 7, 2, p, sizeof p));
+  size_t n = strlen(p);
+  TEST_ASSERT_TRUE(n > 16 && strcmp(p + n - 16, "/photos/r7-2.jpg") == 0);
+  char small[8];
+  TEST_ASSERT_EQUAL_INT(-1, db_photo_path(&db, 7, 2, small, sizeof small));
+  db_free(&db);
+}
+
+void test_store_read_file_limit(void) {
+  char p[300];
+  snprintf(p, sizeof p, "%s/f.bin", dir);
+  FILE *f = fopen(p, "wb");
+  TEST_ASSERT_NOT_NULL(f);
+  fwrite("0123456789", 1, 10, f);
+  fclose(f);
+  char *buf = NULL;
+  size_t len = 0;
+  TEST_ASSERT_EQUAL_INT(0, store_read_file(p, 10, &buf, &len));
+  TEST_ASSERT_EQUAL_size_t(10, len);
+  TEST_ASSERT_EQUAL_MEMORY("0123456789", buf, 10);
+  free(buf);
+  TEST_ASSERT_EQUAL_INT(-1, store_read_file(p, 9, &buf, &len));
+  snprintf(p, sizeof p, "%s/missing", dir);
+  TEST_ASSERT_EQUAL_INT(-1, store_read_file(p, 10, &buf, &len));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
@@ -237,5 +300,9 @@ int main(void) {
   RUN_TEST(test_prune_drops_expired_sessions);
   RUN_TEST(test_delete_sessions_and_token_replace);
   RUN_TEST(test_settings_persist);
+  RUN_TEST(test_damage_put_and_reload);
+  RUN_TEST(test_load_creates_photos_dir);
+  RUN_TEST(test_photo_path);
+  RUN_TEST(test_store_read_file_limit);
   return UNITY_END();
 }
