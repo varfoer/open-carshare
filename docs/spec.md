@@ -221,9 +221,12 @@ encrypted at rest with a key from the server config file (not in `data/`).
 5. Admin downloads the SEPA XML and imports it into Hibiscus.
 
 A club trip appears on the invoice as a line with date/times and km, amount
-0 EUR, marked "Vereinsfahrt". Users with total 0 get no invoice (so such lines
-show only on an invoice that exists for other chargeable bookings). Users without a valid mandate block
-finalization (listed in the draft).
+0 EUR, marked "Vereinsfahrt". A user whose month has only club trips gets a
+0 EUR invoice listing them: it takes the next invoice number and is mailed
+like any other, but has no SEPA entry, the mail carries no pre-notification,
+and it needs no mandate. Users with no invoice lines at all get no invoice.
+Users with a total above 0 and without a valid mandate block finalization
+(listed in the draft).
 
 ### SEPA
 
