@@ -321,7 +321,8 @@ skeleton, JSONL store, auth (login, sessions, invite, password reset, rate
 limits), users and cars admin, booking rules (§5), calendar, PWA, VPS
 deployment with interim tar backup. Includes club trips (§5 Club trips).
 
-### Phase 2: Trip lifecycle
+### Phase 2: Trip lifecycle — done (merged 2026-11-01)
+Plan: `docs/superpowers/plans/2026-10-31-phase2-trip-lifecycle.md`.
 Depends on: Phase 1.
 - `POST /api/bookings/{id}/start` and `/return`: state `reserved` →
   `active` → `done`, `actual_start`/`actual_end` recorded, early start
