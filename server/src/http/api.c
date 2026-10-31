@@ -33,6 +33,8 @@ static const route_t ROUTES[] = {
     {"POST", "/api/bookings", h_booking_post, MIN_USER},
     {"PUT", "/api/bookings/*", h_booking_put, MIN_USER},
     {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER},
+    {"POST", "/api/bookings/*/start", h_booking_start, MIN_USER},
+    {"POST", "/api/bookings/*/return", h_booking_return, MIN_USER},
     {"GET", "/api/settings/public", h_settings_public, MIN_USER},
     {"GET", "/api/admin/users", h_admin_users_get, MIN_ADMIN},
     {"POST", "/api/admin/users", h_admin_user_post, MIN_ADMIN},
@@ -127,6 +129,12 @@ void api_br_error(api_res_t *res, int r) {
     case BR_NOT_MODIFIABLE:
       api_error(res, 400, "not_modifiable", "Diese Buchung kann nicht mehr geändert werden.");
       break;
+    case BR_CAR_BUSY:
+      api_error(res, 409, "car_busy", "Das Auto ist zu diesem Zeitpunkt nicht frei.");
+      break;
+    case BR_EXPIRED:
+      api_error(res, 400, "expired", "Die Buchungszeit ist bereits abgelaufen.");
+      break;
     case BR_CLUB_FORBIDDEN:
       api_error(res, 403, "forbidden", "Du darfst keine Vereinsfahrten buchen.");
       break;
@@ -173,6 +181,21 @@ bool api_path_id(const char *path, const char *prefix, int64_t *id) {
     rest++;
   }
   return parse_digits(rest, strlen(rest), id);
+}
+
+/* Id of the path segment right after prefix (ends at '/' or end of path). */
+bool api_segment_id(const char *path, const char *prefix, int64_t *id) {
+  size_t pl = strlen(prefix);
+  if (strncmp(path, prefix, pl) != 0) return false;
+  const char *rest = path + pl;
+  const char *slash = strchr(rest, '/');
+  size_t n = slash ? (size_t)(slash - rest) : strlen(rest);
+  char tmp[48];
+  if (n == 0 || n > 20) return false;
+  tmp[0] = '/';
+  memcpy(tmp + 1, rest, n);
+  tmp[n + 1] = 0;
+  return api_path_id(tmp, "/", id);
 }
 
 bool api_query_int(const char *query, const char *key, int64_t *out) {

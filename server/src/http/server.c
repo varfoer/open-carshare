@@ -10,6 +10,7 @@
 
 #define MAX_BODY 65536
 #define PRUNE_INTERVAL_MS (3600ULL * 1000ULL)
+#define EXPIRE_INTERVAL_MS (300ULL * 1000ULL)
 
 #define SEC_HEADERS \
   "Content-Security-Policy: default-src 'self'; img-src 'self' data:\r\n" \
@@ -183,6 +184,11 @@ static void prune_cb(void *arg) {
   if (db_prune(&a->db, platform_now()) != 0) fprintf(stderr, "ocs-server: db_prune failed\n");
 }
 
+static void expire_cb(void *arg) {
+  app_t *a = arg;
+  if (api_expire_bookings(a, platform_now()) < 0) fprintf(stderr, "ocs-server: api_expire_bookings failed\n");
+}
+
 int server_run(app_t *a) {
   g_stop = 0;
   signal(SIGTERM, on_signal);
@@ -196,6 +202,7 @@ int server_run(app_t *a) {
     return -1;
   }
   mg_timer_add(&mgr, PRUNE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, prune_cb, a);
+  mg_timer_add(&mgr, EXPIRE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, expire_cb, a);
   while (!g_stop) mg_mgr_poll(&mgr, 200);
   mg_mgr_free(&mgr);
   return 0;

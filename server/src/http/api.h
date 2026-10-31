@@ -27,12 +27,19 @@ size_t api_route_count(void);
 const char *api_route_method(size_t i);
 const char *api_route_pattern(size_t i);
 
+/* Closes every RESERVED booking with booked_end <= now (never started) as DONE without
+ * actual times. Returns the number closed, -1 on storage error. */
+int api_expire_bookings(app_t *a, int64_t now);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);
 /* "/api/bookings/12" with prefix "/api/bookings/" (or "/api/bookings") -> 12.
  * Rejects empty, signs, non-digits, trailing chars and int64 overflow. */
 bool api_path_id(const char *path, const char *prefix, int64_t *id);
+/* Id of the path segment right after prefix (ends at '/' or end of path): "/api/bookings/12/start"
+ * with prefix "/api/bookings/" -> 12. Same rejections as api_path_id. */
+bool api_segment_id(const char *path, const char *prefix, int64_t *id);
 /* Exact key match in "a=1&b=-2"; optional '-', digits only, no overflow. */
 bool api_query_int(const char *query, const char *key, int64_t *out);
 /* 0 ok, -1 if no mailer configured or sending failed. */

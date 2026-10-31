@@ -22,21 +22,6 @@ static void err_duplicate_email(api_res_t *res) {
   api_error(res, 409, "duplicate_email", "Diese E-Mail-Adresse ist bereits registriert.");
 }
 
-/* Id of the path segment right after prefix (ends at '/' or end of path). */
-static bool segment_id(const char *path, const char *prefix, int64_t *id) {
-  size_t pl = strlen(prefix);
-  if (strncmp(path, prefix, pl) != 0) return false;
-  const char *rest = path + pl;
-  const char *slash = strchr(rest, '/');
-  size_t n = slash ? (size_t)(slash - rest) : strlen(rest);
-  char tmp[48];
-  if (n == 0 || n > 20) return false;
-  tmp[0] = '/';
-  memcpy(tmp + 1, rest, n);
-  tmp[n + 1] = 0;
-  return api_path_id(tmp, "/", id);
-}
-
 /* Query key present at all (so a malformed value is 400, not "absent"). */
 static bool query_has(const char *q, const char *key) {
   size_t kl = strlen(key);
@@ -149,7 +134,7 @@ void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 void h_admin_user_invite(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   (void)ctx;
   int64_t id;
-  if (!segment_id(req->path, "/api/admin/users/", &id)) { api_invalid(res); return; }
+  if (!api_segment_id(req->path, "/api/admin/users/", &id)) { api_invalid(res); return; }
   int rc = api_send_token_mail(a, id, TOKEN_INVITE, req->now);
   if (rc == -2) api_not_found(res);
   else if (rc == -1) api_storage_error(res);

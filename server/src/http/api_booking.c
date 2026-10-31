@@ -30,6 +30,8 @@ void h_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t 
   api_json(res, 200, arr);
 }
 
+typedef enum { SCOPE_CALENDAR, SCOPE_UPCOMING, SCOPE_HISTORY } scope_t;
+
 static const db_t *sort_db;
 static int cmp_idx(const void *x, const void *y) {
   const booking_t *p = &sort_db->bookings[*(const size_t *)x];
@@ -37,19 +39,25 @@ static int cmp_idx(const void *x, const void *y) {
   if (p->booked_start != q->booked_start) return p->booked_start < q->booked_start ? -1 : 1;
   return p->id < q->id ? -1 : p->id > q->id;
 }
+static int cmp_idx_desc(const void *x, const void *y) { return cmp_idx(y, x); }
 
-/* Indices of bookings passing the filter, sorted by start. */
+/* Indices of bookings passing the scope filter, sorted by start (history: newest first). */
 static size_t *collect(const db_t *db, int64_t car_id, int64_t user_id, int64_t w0, int64_t w1,
-                       int64_t now, bool calendar, size_t *n_out) {
+                       int64_t now, scope_t scope, size_t *n_out) {
   size_t *idx = malloc((db->n_bookings + 1) * sizeof *idx);
   if (!idx) return NULL;
   size_t n = 0;
   for (size_t i = 0; i < db->n_bookings; i++) {
     const booking_t *b = &db->bookings[i];
-    if (b->state != BK_RESERVED && b->state != BK_ACTIVE) continue;
-    if (calendar) {
+    bool live = b->state == BK_RESERVED || b->state == BK_ACTIVE;
+    if (scope == SCOPE_HISTORY) {
+      if (live || b->user_id != user_id) continue;
+      if (b->state != BK_DONE && b->state != BK_CANCELLED) continue;
+    } else if (!live) {
+      continue;
+    } else if (scope == SCOPE_CALENDAR) {
       if (b->car_id != car_id) continue;
-      if (!interval_overlaps(b->booked_start, booking_occupied_end(b, now), w0, w1)) continue;
+      if (!interval_overlaps(booking_occupied_start(b), booking_occupied_end(b, now), w0, w1)) continue;
     } else {
       if (b->user_id != user_id) continue;
       if (b->state != BK_ACTIVE && b->booked_end <= now) continue;
@@ -57,7 +65,7 @@ static size_t *collect(const db_t *db, int64_t car_id, int64_t user_id, int64_t 
     idx[n++] = i;
   }
   sort_db = db;
-  qsort(idx, n, sizeof *idx, cmp_idx);
+  qsort(idx, n, sizeof *idx, scope == SCOPE_HISTORY ? cmp_idx_desc : cmp_idx);
   *n_out = n;
   return idx;
 }
@@ -79,14 +87,14 @@ void h_calendar_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   size_t n = 0;
   size_t *idx = NULL;
   if (w0 < to) {
-    idx = collect(&a->db, car, 0, w0, to, req->now, true, &n);
+    idx = collect(&a->db, car, 0, w0, to, req->now, SCOPE_CALENDAR, &n);
     if (!idx) { cJSON_Delete(arr); api_storage_error(res); return; }
   }
   for (size_t k = 0; k < n; k++) {
     const booking_t *b = &a->db.bookings[idx[k]];
     bool own = b->user_id == ctx->user->id;
     cJSON *o = cJSON_CreateObject();
-    bool ok = o && cJSON_AddNumberToObject(o, "start", (double)b->booked_start) &&
+    bool ok = o && cJSON_AddNumberToObject(o, "start", (double)booking_occupied_start(b)) &&
               cJSON_AddNumberToObject(o, "end", (double)booking_occupied_end(b, req->now));
     if (ok && own)
       ok = cJSON_AddNumberToObject(o, "id", (double)b->id) &&
@@ -108,9 +116,29 @@ void h_calendar_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   api_json(res, 200, arr);
 }
 
+/* Value of a "scope=" pair in the query as upcoming|history; false if malformed. */
+static bool query_scope(const char *query, scope_t *out) {
+  for (const char *p = query; p;) {
+    const char *end = strchr(p, '&');
+    size_t len = end ? (size_t)(end - p) : strlen(p);
+    if (len >= 6 && strncmp(p, "scope=", 6) == 0) {
+      if (len - 6 == 8 && strncmp(p + 6, "upcoming", 8) == 0) { *out = SCOPE_UPCOMING; return true; }
+      if (len - 6 == 7 && strncmp(p + 6, "history", 7) == 0) { *out = SCOPE_HISTORY; return true; }
+      return false;
+    }
+    p = end ? end + 1 : NULL;
+  }
+  return true;
+}
+
 void h_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  scope_t scope = SCOPE_UPCOMING;
+  if (req->query && !query_scope(req->query, &scope)) {
+    api_invalid(res);
+    return;
+  }
   size_t n = 0;
-  size_t *idx = collect(&a->db, 0, ctx->user->id, 0, 0, req->now, false, &n);
+  size_t *idx = collect(&a->db, 0, ctx->user->id, 0, 0, req->now, scope, &n);
   cJSON *arr = cJSON_CreateArray();
   if (!idx || !arr) {
     free(idx);
@@ -169,7 +197,7 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
 static const booking_t *own_booking(app_t *a, const api_req_t *req, const api_ctx_t *ctx,
                                     api_res_t *res) {
   int64_t id;
-  if (!api_path_id(req->path, "/api/bookings/", &id)) { api_invalid(res); return NULL; }
+  if (!api_segment_id(req->path, "/api/bookings/", &id)) { api_invalid(res); return NULL; }
   const booking_t *b = db_booking(&a->db, id);
   if (!b || b->user_id != ctx->user->id) { api_not_found(res); return NULL; }
   return b;
@@ -211,6 +239,52 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_json(res, 200, booking_to_json(&b));
+}
+
+void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  const booking_t *old_p = own_booking(a, req, ctx, res);
+  if (!old_p) return;
+  booking_t b = *old_p;
+  br_result_t r = br_check_start(&a->db, ctx->user, &b, req->now);
+  if (r != BR_OK) { api_br_error(res, r); return; }
+  b.state = BK_ACTIVE;
+  b.actual_start = req->now;
+  b.modified_at = req->now;
+  b.modified_by = ctx->user->id;
+  if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_json(res, 200, booking_to_json(&b));
+}
+
+void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  const booking_t *old_p = own_booking(a, req, ctx, res);
+  if (!old_p) return;
+  booking_t b = *old_p;
+  br_result_t r = br_check_return(ctx->user, &b);
+  if (r != BR_OK) { api_br_error(res, r); return; }
+  b.state = BK_DONE;
+  b.actual_end = req->now;
+  b.km_pending = true;
+  b.modified_at = req->now;
+  b.modified_by = ctx->user->id;
+  if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_json(res, 200, booking_to_json(&b));
+}
+
+int api_expire_bookings(app_t *a, int64_t now) {
+  int n = 0;
+  /* db_put_booking may invalidate pointers into the table: index, copy, put. */
+  for (size_t i = 0; i < a->db.n_bookings; i++) {
+    const booking_t *p = &a->db.bookings[i];
+    if (p->state != BK_RESERVED || p->booked_end > now) continue;
+    booking_t b = *p;
+    b.state = BK_DONE;
+    b.km_pending = false;
+    b.modified_at = now;
+    b.modified_by = 0;
+    if (db_put_booking(&a->db, &b) != 0) return -1;
+    n++;
+  }
+  return n;
 }
 
 void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {

@@ -17,9 +17,6 @@ when it is fixed.
 
 ## Phase-bound
 
-- [P2] Overdue `active` booking not shown as occupied in the user calendar:
-  calendar window is `[max(from,now),to)` while occupation is `[start,now)`.
-  Show an overdue `active` booking as occupied through now plus one slot.
 - [P2] Web offers "Stornieren" for started bookings (server rejects).
 - [P7] Interim tar backup cron in `deploy/vps/README.md` is replaced by the
   encrypted mail backup.

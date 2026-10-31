@@ -284,7 +284,7 @@ POST /api/login | /api/logout | /api/password-reset
 GET/PUT /api/me
 GET  /api/cars
 GET  /api/calendar?car=&from=&to=
-GET  /api/bookings?scope=mine|upcoming
+GET  /api/bookings?scope=upcoming|history
 POST /api/bookings                PUT /api/bookings/{id}     DELETE /api/bookings/{id}
 POST /api/bookings/{id}/start     POST /api/bookings/{id}/return
 POST /api/bookings/{id}/damage    (multipart photo)

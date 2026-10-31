@@ -47,9 +47,9 @@ void setUp(void) {
 
 void tearDown(void) { th_free(a); }
 
-static cJSON *call(const char *m, const char *p, const char *body, const char *tok, int status,
-                   const char *code) {
-  api_res_t r = th_req(a, m, p, body, tok, T);
+static cJSON *call_at(const char *m, const char *p, const char *body, const char *tok, int status,
+                      const char *code, int64_t now) {
+  api_res_t r = th_req(a, m, p, body, tok, now);
   TEST_ASSERT_NOT_NULL(r.body);
   TEST_ASSERT_EQUAL_INT_MESSAGE(status, r.status, r.body);
   cJSON *j = cJSON_Parse(r.body);
@@ -62,6 +62,11 @@ static cJSON *call(const char *m, const char *p, const char *body, const char *t
     TEST_ASSERT_EQUAL_STRING(code, e->valuestring);
   }
   return j;
+}
+
+static cJSON *call(const char *m, const char *p, const char *body, const char *tok, int status,
+                   const char *code) {
+  return call_at(m, p, body, tok, status, code, T);
 }
 
 static void call_free(const char *m, const char *p, const char *body, const char *tok, int status,
@@ -156,8 +161,8 @@ void test_calendar_hides_other_users_details(void) {
   cJSON_Delete(j);
 }
 
-/* Overdue ACTIVE occupies [start, now), which never intersects [max(from,now), to). */
-void test_calendar_active_listed_overdue_not(void) {
+/* Overdue ACTIVE stays occupied through now + grace, inside the [max(from,now), to) window. */
+void test_calendar_active_and_overdue_listed(void) {
   int64_t id = book(tok2, car1, T, T + H);
   booking_t b = *db_booking(&a->db, id);
   b.state = BK_ACTIVE;
@@ -512,13 +517,160 @@ void test_club_admin_on_user_endpoint_needs_permission(void) {
   call_free("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tadm, 201, NULL);
 }
 
+static const char *start_path(int64_t id) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld/start", (long long)id);
+  return p;
+}
+
+static const char *return_path(int64_t id) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld/return", (long long)id);
+  return p;
+}
+
+/* Puts a booking straight into the db in the given state. */
+static int64_t put_booking(int64_t user, int64_t car, int64_t s, int64_t e, booking_state_t st) {
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = car;
+  b.user_id = user;
+  b.booked_start = s;
+  b.booked_end = e;
+  b.state = st;
+  b.created_at = b.modified_at = T;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  return b.id;
+}
+
+void test_start_and_return_flow(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  cJSON *j = call("POST", start_path(id), NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("active", cJSON_GetObjectItemCaseSensitive(j, "state")->valuestring);
+  TEST_ASSERT_EQUAL_INT(T, num(j, "actual_start"));
+  cJSON_Delete(j);
+  j = call_at("POST", return_path(id), NULL, tok1, 200, NULL, T + H);
+  TEST_ASSERT_EQUAL_STRING("done", cJSON_GetObjectItemCaseSensitive(j, "state")->valuestring);
+  TEST_ASSERT_EQUAL_INT(T + H, num(j, "actual_end"));
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
+}
+
+void test_start_twice_400(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  call_free("POST", start_path(id), NULL, tok1, 200, NULL);
+  call_free("POST", start_path(id), NULL, tok1, 400, "not_modifiable");
+}
+
+void test_return_reserved_400(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  call_free("POST", return_path(id), NULL, tok1, 400, "not_modifiable");
+}
+
+void test_start_other_users_booking_404(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  call_free("POST", start_path(id), NULL, tok2, 404, "not_found");
+  call_free("POST", return_path(id), NULL, tok2, 404, "not_found");
+}
+
+void test_start_blocked_409_car_busy(void) {
+  put_booking(u2, car1, T - 2 * H, T - H, BK_ACTIVE);
+  int64_t id = book(tok1, car1, T + H, T + 2 * H);
+  call_free("POST", start_path(id), NULL, tok1, 409, "car_busy");
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, db_booking(&a->db, id)->state);
+}
+
+void test_start_expired_400(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  cJSON_Delete(call_at("POST", start_path(id), NULL, tok1, 400, "expired", T + 2 * H));
+}
+
+void test_cancel_after_start_rejected(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  call_free("POST", start_path(id), NULL, tok1, 200, NULL);
+  char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld", (long long)id);
+  call_free("DELETE", p, NULL, tok1, 400, "not_modifiable");
+}
+
+void test_extend_active_ok(void) {
+  int64_t id = book(tok1, car1, T + 600, T + 2 * H);
+  call_free("POST", start_path(id), NULL, tok1, 200, NULL);
+  char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld", (long long)id);
+  cJSON *j = call("PUT", p, body2(T + 600, T + 3 * H), tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(T + 3 * H, num(j, "booked_end"));
+  cJSON_Delete(j);
+}
+
+void test_calendar_shows_overdue_active(void) {
+  put_booking(u2, car1, T - 2 * H, T - H, BK_ACTIVE);
+  cJSON *j = call("GET", cal(car1, T, T + 86400), NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  cJSON *e = cJSON_GetArrayItem(j, 0);
+  TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(e, "own")));
+  TEST_ASSERT_EQUAL_INT(T + BR_OVERDUE_GRACE, num(e, "end"));
+  cJSON_Delete(j);
+}
+
+void test_calendar_shows_early_start(void) {
+  int64_t id = put_booking(u2, car1, T + 2 * H, T + 3 * H, BK_ACTIVE);
+  booking_t b = *db_booking(&a->db, id);
+  b.actual_start = T + 600;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  /* window ends before booked_start: only the early start makes it overlap */
+  cJSON *j = call("GET", cal(car1, T, T + H), NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT(T + 600, num(cJSON_GetArrayItem(j, 0), "start"));
+  cJSON_Delete(j);
+}
+
+void test_history_scope(void) {
+  int64_t d1 = put_booking(u1, car1, T - 5 * H, T - 4 * H, BK_DONE);
+  int64_t c1 = put_booking(u1, car1, T - 3 * H, T - 2 * H, BK_CANCELLED);
+  int64_t d2 = put_booking(u1, car2, T - 9 * H, T - 8 * H, BK_DONE);
+  put_booking(u1, car1, T + 2 * H, T + 3 * H, BK_RESERVED);
+  put_booking(u2, car1, T - 7 * H, T - 6 * H, BK_DONE);
+  cJSON *j = call("GET", "/api/bookings?scope=history", NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(3, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT(c1, num(cJSON_GetArrayItem(j, 0), "id"));
+  TEST_ASSERT_EQUAL_INT(d1, num(cJSON_GetArrayItem(j, 1), "id"));
+  TEST_ASSERT_EQUAL_INT(d2, num(cJSON_GetArrayItem(j, 2), "id"));
+  cJSON_Delete(j);
+  j = call("GET", "/api/bookings?scope=upcoming", NULL, tok1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  cJSON_Delete(j);
+}
+
+void test_scope_invalid_400(void) {
+  call_free("GET", "/api/bookings?scope=all", NULL, tok1, 400, "invalid");
+  call_free("GET", "/api/bookings?scope=", NULL, tok1, 400, "invalid");
+}
+
+void test_expire_sweep(void) {
+  int64_t r = put_booking(u1, car1, T - 2 * H, T - 60, BK_RESERVED);
+  int64_t fut = put_booking(u1, car1, T + H, T + 2 * H, BK_RESERVED);
+  int64_t act = put_booking(u2, car2, T - 2 * H, T - 60, BK_ACTIVE);
+  TEST_ASSERT_EQUAL_INT(1, api_expire_bookings(a, T));
+  const booking_t *b = db_booking(&a->db, r);
+  TEST_ASSERT_EQUAL_INT(BK_DONE, b->state);
+  TEST_ASSERT_EQUAL_INT(0, b->actual_start);
+  TEST_ASSERT_FALSE(b->km_pending);
+  TEST_ASSERT_EQUAL_INT(T, b->modified_at);
+  TEST_ASSERT_EQUAL_INT(0, b->modified_by);
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, db_booking(&a->db, fut)->state);
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, act)->state);
+  TEST_ASSERT_EQUAL_INT(0, api_expire_bookings(a, T));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_auth_required);
   RUN_TEST(test_settings_public);
   RUN_TEST(test_cars_lists_only_active);
   RUN_TEST(test_calendar_hides_other_users_details);
-  RUN_TEST(test_calendar_active_listed_overdue_not);
+  RUN_TEST(test_calendar_active_and_overdue_listed);
   RUN_TEST(test_calendar_hides_past_bookings);
   RUN_TEST(test_calendar_cancelled_not_listed);
   RUN_TEST(test_calendar_range_limit_400);
@@ -542,5 +694,18 @@ int main(void) {
   RUN_TEST(test_club_update_flag_after_start_400);
   RUN_TEST(test_club_cancel_fee_zero_inside_deadline);
   RUN_TEST(test_club_admin_on_user_endpoint_needs_permission);
+  RUN_TEST(test_start_and_return_flow);
+  RUN_TEST(test_start_twice_400);
+  RUN_TEST(test_return_reserved_400);
+  RUN_TEST(test_start_other_users_booking_404);
+  RUN_TEST(test_start_blocked_409_car_busy);
+  RUN_TEST(test_start_expired_400);
+  RUN_TEST(test_cancel_after_start_rejected);
+  RUN_TEST(test_extend_active_ok);
+  RUN_TEST(test_calendar_shows_overdue_active);
+  RUN_TEST(test_calendar_shows_early_start);
+  RUN_TEST(test_history_scope);
+  RUN_TEST(test_scope_invalid_400);
+  RUN_TEST(test_expire_sweep);
   return UNITY_END();
 }

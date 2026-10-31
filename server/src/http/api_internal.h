@@ -69,6 +69,8 @@ void h_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
 void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_admin.c (all MIN_ADMIN) */
