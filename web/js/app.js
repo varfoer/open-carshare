@@ -7,6 +7,7 @@ const ROUTES = {
   '#/kalender': 'calendar',
   '#/buchen': 'booking_form',
   '#/buchungen': 'my_bookings',
+  '#/verlauf': 'history',
   '#/konto': 'account',
   '#/admin/nutzer': 'admin_users',
   '#/admin/autos': 'admin_cars',
@@ -72,6 +73,7 @@ function updateChrome() {
   const items = [
     ['#/kalender', 'Kalender'],
     ['#/buchungen', 'Meine Buchungen'],
+    ['#/verlauf', 'Verlauf'],
     ['#/konto', 'Konto'],
   ];
   if (user.role === 'admin') items.push(['#/admin/nutzer', 'Admin']);

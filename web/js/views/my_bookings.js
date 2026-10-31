@@ -2,6 +2,23 @@ import { api } from '../api.js';
 import { navigate } from '../app.js';
 import { formatDateTime } from '../time.js';
 import { formatEuro } from '../money.js';
+import { tripActions } from '../trip.js';
+import { apiUpload, resizeToJpeg } from '../photo.js';
+import { damageDialog } from './damage_dialog.js';
+
+// Start or return: confirm damage state, call the trip endpoint, then file the report.
+// Server-side trip state stays as is when a later step fails; the caller reloads the list.
+async function runTrip(b, action, title, phase) {
+  const damage = await damageDialog(title);
+  if (damage === null) return false;
+  await api('POST', `/api/bookings/${b.id}/${action}`);
+  if (damage === 'none') return true;
+  const report = await api('POST', `/api/bookings/${b.id}/damage`, { phase, text: damage.text });
+  for (const f of damage.files) {
+    await apiUpload(`/api/damage/${report.id}/photos`, await resizeToJpeg(f));
+  }
+  return true;
+}
 
 function confirmDialog(text) {
   return new Promise((resolve) => {
@@ -29,9 +46,13 @@ function confirmDialog(text) {
   });
 }
 
+// Error from a failed trip step; shown after the list reloads.
+let carriedError = '';
+
 export async function render(root) {
   const [list, cars] = await Promise.all([api('GET', '/api/bookings'), api('GET', '/api/cars')]);
   const names = new Map(cars.map((c) => [c.id, c.name]));
+  const now = Math.floor(Date.now() / 1000);
   const upcoming = list.filter((b) => !b.cancelled_at && b.state !== 'cancelled')
     .sort((a, b) => a.booked_start - b.booked_start);
 
@@ -40,7 +61,9 @@ export async function render(root) {
   const err = document.createElement('p');
   err.className = 'error';
   err.setAttribute('role', 'alert');
-  err.hidden = true;
+  err.hidden = !carriedError;
+  err.textContent = carriedError;
+  carriedError = '';
   root.append(h1, err);
   if (!upcoming.length) {
     const p = document.createElement('p');
@@ -64,34 +87,63 @@ export async function render(root) {
       badge.textContent = 'Vereinsfahrt';
       c.append(' ', badge);
     }
+    const act = tripActions(b, now);
     const actions = document.createElement('div');
     actions.className = 'dialog-actions';
-    const ext = document.createElement('a');
-    ext.className = 'btn';
-    ext.href = `#/buchen?id=${b.id}`;
-    ext.textContent = 'Verlängern';
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'danger';
-    del.textContent = 'Stornieren';
-    del.addEventListener('click', async () => {
-      err.hidden = true;
-      try {
-        const s = await api('GET', '/api/settings/public');
-        const inWindow = b.booked_start - Math.floor(Date.now() / 1000) < s.cancel_deadline_min * 60;
-        const fee = !b.club_trip && s.cancel_fee_cents > 0 && inWindow ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
-        const ok = await confirmDialog(
-          `Buchung ${formatDateTime(b.booked_start)} stornieren? Stornierung: ${fee}.`);
-        if (!ok) return;
-        await api('DELETE', `/api/bookings/${b.id}`);
+    const trip = (label, action, title, phase) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'primary';
+      btn.textContent = label;
+      btn.addEventListener('click', async () => {
+        err.hidden = true;
+        btn.disabled = true;
+        try {
+          if (!await runTrip(b, action, title, phase)) { btn.disabled = false; return; }
+        } catch (x) {
+          carriedError = x.message;
+        }
         navigate('#/buchungen');
-      } catch (x) {
-        err.textContent = x.message;
-        err.hidden = false;
-      }
-    });
-    actions.append(ext, del);
-    card.append(t, c, actions);
+      });
+      return btn;
+    };
+    if (act.start) actions.append(trip('Starten', 'start', 'Fahrt starten', 'start'));
+    if (act.ret) actions.append(trip('Zurückgeben', 'return', 'Fahrzeug zurückgeben', 'end'));
+    const since = document.createElement('p');
+    since.className = 'booking-car';
+    since.textContent = `Unterwegs seit ${formatDateTime(b.actual_start)}`;
+    since.hidden = b.state !== 'active';
+    if (act.extend) {
+      const ext = document.createElement('a');
+      ext.className = 'btn';
+      ext.href = `#/buchen?id=${b.id}`;
+      ext.textContent = 'Verlängern';
+      actions.append(ext);
+    }
+    if (act.cancel) {
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'danger';
+      del.textContent = 'Stornieren';
+      del.addEventListener('click', async () => {
+        err.hidden = true;
+        try {
+          const s = await api('GET', '/api/settings/public');
+          const inWindow = b.booked_start - Math.floor(Date.now() / 1000) < s.cancel_deadline_min * 60;
+          const fee = !b.club_trip && s.cancel_fee_cents > 0 && inWindow ? formatEuro(s.cancel_fee_cents) : 'kostenlos';
+          const ok = await confirmDialog(
+            `Buchung ${formatDateTime(b.booked_start)} stornieren? Stornierung: ${fee}.`);
+          if (!ok) return;
+          await api('DELETE', `/api/bookings/${b.id}`);
+          navigate('#/buchungen');
+        } catch (x) {
+          err.textContent = x.message;
+          err.hidden = false;
+        }
+      });
+      actions.append(del);
+    }
+    card.append(t, c, since, actions);
     root.append(card);
   }
 }

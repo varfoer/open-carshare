@@ -11,13 +11,9 @@ when it is fixed.
   on `/api/admin/users/{id}/invite`) is rejected with 413 `too_large`.
   Browsers send `Content-Length: 0` and are unaffected. Look at the body
   length check in `server/src/http/server.c` `on_event`.
-- [any] "Vereinsfahrt" badge in "Meine Buchungen" renders as plain grey text
-  (`web/js/views/my_bookings.js`, `p.booking-car`); admin bookings shows a
-  proper pill.
 
 ## Phase-bound
 
-- [P2] Web offers "Stornieren" for started bookings (server rejects).
 - [P7] Interim tar backup cron in `deploy/vps/README.md` is replaced by the
   encrypted mail backup.
 

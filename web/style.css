@@ -38,6 +38,9 @@ button:disabled { opacity: .6; cursor: default; }
 button.danger { color: var(--danger); border-color: var(--danger); }
 .booking-time { font-weight: 600; margin: 0 0 .25rem; }
 .booking-car { color: var(--muted); margin: 0 0 .75rem; }
+.booking-car .badge { background: var(--border); color: var(--fg); }
+dialog.confirm h2 { margin-top: 0; }
+dialog.confirm label { display: block; margin-bottom: .75rem; }
 .booking { margin-bottom: .75rem; }
 .dialog-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 dialog.confirm { border: 1px solid var(--border); border-radius: 8px; max-width: 24rem; }
