@@ -77,3 +77,5 @@ label.check input { display: inline-block; width: auto; margin: 0; }
 .view h2 { font-size: 1.15rem; margin-top: 0; }
 .view .card + .card, .view button.primary + .card, .view form.card { margin-top: 1rem; }
 .view form.card button.btn { margin-top: .5rem; }
+.damage-photos { display: flex; flex-wrap: wrap; gap: .5rem; }
+.damage-photos img { width: 8rem; height: 8rem; object-fit: cover; border-radius: .25rem; }
