@@ -300,3 +300,93 @@ admin:
 
 ESP32 port (LittleFS store, own ACME client with DNS-01 via deSEC, dynamic
 DNS, flash encryption), keysafe PIN algorithm, app store wrappers.
+
+## 15. Phases
+
+Each phase is started in a fresh session. Start of a phase: read this spec
+and `docs/backlog.md`, clarify open questions with the product owner, write
+the plan to `docs/superpowers/plans/YYYY-MM-DD-phaseN-<topic>.md`, implement
+it on a branch `phaseN-<topic>`, merge to `main`, then mark the phase done
+here and update the backlog. Items in the backlog tagged with the phase are
+part of its scope.
+
+### Phase 1: Booking core — done (merged 2026-10-31)
+Plan: `docs/superpowers/plans/2026-10-30-phase1-booking-core.md`. Server
+skeleton, JSONL store, auth (login, sessions, invite, password reset, rate
+limits), users and cars admin, booking rules (§5), calendar, PWA, VPS
+deployment with interim tar backup. Includes club trips (§5 Club trips).
+
+### Phase 2: Trip lifecycle
+Depends on: Phase 1.
+- `POST /api/bookings/{id}/start` and `/return`: state `reserved` →
+  `active` → `done`, `actual_start`/`actual_end` recorded, early start
+  allowed when the car is free, `start_tolerance_min` applied.
+- Calendar and overlap rules for `active` bookings, including overdue ones
+  (an overdue `active` booking occupies the car until returned).
+- Damage reports at start and return (§4 damage_report): text and photos,
+  client-side resize, multipart upload, files under `data/photos/`, admin
+  view.
+- Booking history for users (past bookings with actual times) and admin.
+- Manual km entry by admin (`km_source = manual`); the Geotab path comes in
+  Phase 3, so `km_pending` is set on return and resolved manually for now.
+- UI: start/return flow in "Meine Buchungen", no "Stornieren" on started
+  bookings.
+Done when: a booking can be started, returned, reported on and shows up in
+history with actual times and km.
+
+### Phase 3: Odometer (Geotab)
+Depends on: Phase 2.
+- MyGeotab client (§8) in `platform/posix/` (libcurl), credentials in
+  settings, `geotab_device_id` per car.
+- Background job every 5 min resolves `km_pending`; retries until found.
+- Admin mail when the Geotab sync keeps failing.
+- Tests against a recorded/fake Geotab endpoint.
+Done when: returned bookings get km automatically, admin can still
+override manually.
+
+### Phase 4: Tariffs and pricing
+Depends on: Phase 2 (actual times); Phase 3 km optional (manual km works).
+- Tariff entity (§4), versioned per car, admin CRUD.
+- Pricing engine (§6) as a pure function in `core/`: day/night per minute,
+  unused factor, per-day time cap, combined cap, late fee, cancel fee,
+  club trip = 0. Exhaustive unit tests including DST days and caps.
+- Price shown per booking in history (user) and admin bookings.
+Done when: every `done` or `cancelled` booking has a computed price that
+matches hand-calculated test cases.
+
+### Phase 5: SEPA mandates
+Depends on: Phase 1.
+- User enters account holder, IBAN (mod-97), optional BIC; reads the
+  versioned mandate text and confirms online (§9 SEPA).
+- `mandate_ref` generation (`OCS-000012`), `mandate_date`, evidence
+  (timestamp, client IP, text version); changing IBAN/holder creates a new
+  mandate.
+- Admin: mandate status per user; settings for creditor ID, IBAN, BIC.
+Done when: users can give and replace a mandate and admin sees who lacks one.
+
+### Phase 6: Billing run
+Depends on: Phases 4 and 5 (Phase 3 for the `km_pending` gate).
+- Billing run per month (§9): draft, admin edits and recompute, finalize
+  (gapless invoice numbers, bookings locked via `invoice_id`), send.
+- Finalize blocked by `km_pending` and by users with total > 0 without a
+  valid mandate; 0 EUR invoices for months with only club trips.
+- Invoice PDF writer (§9 Invoice PDF), invoice mail with SEPA
+  pre-notification.
+- SEPA `pain.008.001.02` export for Hibiscus, `sepa lead days` setting.
+Done when: a month can be billed end-to-end and the XML imports into
+Hibiscus.
+
+### Phase 7: Notifications and operations
+Depends on: Phase 2 (reminders reference start/return); can run before
+Phase 6 except the "billing run done" mail.
+- Booking mails: created, modified, cancelled; reminder before start
+  (default 1 h); late return reminder (§10).
+- Nightly encrypted backup by mail (age, admin public key), 30-day local
+  retention, weekly photo backup (§12); replaces the interim tar cron.
+- GDPR: user data export (admin), deactivation; invoice retention 10 years.
+Done when: all §10 mails are sent and the encrypted backup arrives and
+restores.
+
+### Later (see §14)
+Keysafe entity and PIN (`access_pin`, §7) once the algorithm is delivered;
+ESP32 port; app store wrappers.
