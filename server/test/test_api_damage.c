@@ -288,6 +288,21 @@ void test_photo_index_out_of_range_404(void) {
   }
 }
 
+void test_report_access_follows_booking_owner(void) {
+  int64_t rid = report();
+  cJSON_Delete(upload(rid, JPG, sizeof JPG, tok1, "image/jpeg", 201, NULL));
+  booking_t b = *db_booking(&a->db, bk);
+  b.user_id = u2; /* admin reassigned the booking */
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  api_res_t r = th_req(a, "GET", photo_path(rid, "1"), NULL, tok2, T);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  api_res_free(&r);
+  r = th_req(a, "GET", photo_path(rid, "1"), NULL, tok1, T);
+  cJSON_Delete(parse_res(&r, 404, "not_found"));
+  cJSON_Delete(upload(rid, JPG, sizeof JPG, tok1, "image/jpeg", 404, "not_found"));
+  cJSON_Delete(upload(rid, JPG, sizeof JPG, tok2, "image/jpeg", 201, NULL));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_report_create_and_list);
@@ -302,5 +317,6 @@ int main(void) {
   RUN_TEST(test_photo_upload_by_admin_404);
   RUN_TEST(test_photo_storage_failure_unlinks);
   RUN_TEST(test_photo_index_out_of_range_404);
+  RUN_TEST(test_report_access_follows_booking_owner);
   return UNITY_END();
 }

@@ -19,14 +19,16 @@ static const booking_t *path_booking(app_t *a, const api_req_t *req, const api_c
   return b;
 }
 
-/* Report by path id, same access rule as path_booking. */
+/* Report by path id, same access rule as path_booking applied to the report's booking:
+ * access follows the booking's current owner, not the report's author. */
 static const damage_report_t *path_report(app_t *a, const api_req_t *req, const api_ctx_t *ctx,
                                           bool allow_admin, api_res_t *res) {
   int64_t id;
   if (!api_segment_id(req->path, "/api/damage/", &id)) { api_invalid(res); return NULL; }
   const damage_report_t *d = db_damage(&a->db, id);
+  const booking_t *b = d ? db_booking(&a->db, d->booking_id) : NULL;
   bool admin = allow_admin && ctx->user->role == ROLE_ADMIN;
-  if (!d || (d->user_id != ctx->user->id && !admin)) { api_not_found(res); return NULL; }
+  if (!b || (b->user_id != ctx->user->id && !admin)) { api_not_found(res); return NULL; }
   return d;
 }
 
