@@ -6,6 +6,16 @@ import { tripActions } from '../trip.js';
 import { apiUpload, resizeToJpeg } from '../photo.js';
 import { damageDialog } from './damage_dialog.js';
 
+// Description of a failed start report per booking id, offered again by "Schaden melden".
+const retryText = new Map();
+
+async function fileReport(b, phase, damage) {
+  const report = await api('POST', `/api/bookings/${b.id}/damage`, { phase, text: damage.text });
+  for (const f of damage.files) {
+    await apiUpload(`/api/damage/${report.id}/photos`, await resizeToJpeg(f));
+  }
+}
+
 // Start or return: confirm damage state, call the trip endpoint, then file the report.
 // Server-side trip state stays as is when a later step fails; the caller reloads the list.
 async function runTrip(b, action, title, phase) {
@@ -13,10 +23,27 @@ async function runTrip(b, action, title, phase) {
   if (damage === null) return false;
   await api('POST', `/api/bookings/${b.id}/${action}`);
   if (damage === 'none') return true;
-  const report = await api('POST', `/api/bookings/${b.id}/damage`, { phase, text: damage.text });
-  for (const f of damage.files) {
-    await apiUpload(`/api/damage/${report.id}/photos`, await resizeToJpeg(f));
+  try {
+    await fileReport(b, phase, damage);
+  } catch (x) {
+    if (phase === 'start') retryText.set(b.id, damage.text);
+    const done = phase === 'start' ? 'Fahrt gestartet' : 'Fahrzeug zurückgegeben';
+    throw new Error(`${done}, aber die Schadensmeldung ist fehlgeschlagen: ${x.message.replace(/\.$/, '')}. Bitte erneut melden.`);
   }
+  return true;
+}
+
+// Damage found during an active trip (or a failed start report): files a start-phase report.
+async function runReport(b) {
+  const damage = await damageDialog('Schaden melden', { reportOnly: true, text: retryText.get(b.id) });
+  if (damage === null) return false;
+  try {
+    await fileReport(b, 'start', damage);
+  } catch (x) {
+    retryText.set(b.id, damage.text);
+    throw x;
+  }
+  retryText.delete(b.id);
   return true;
 }
 
@@ -90,16 +117,16 @@ export async function render(root) {
     const act = tripActions(b, now);
     const actions = document.createElement('div');
     actions.className = 'dialog-actions';
-    const trip = (label, action, title, phase) => {
+    const step = (label, className, run) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'primary';
+      btn.className = className;
       btn.textContent = label;
       btn.addEventListener('click', async () => {
         err.hidden = true;
         btn.disabled = true;
         try {
-          if (!await runTrip(b, action, title, phase)) { btn.disabled = false; return; }
+          if (!await run()) { btn.disabled = false; return; }
         } catch (x) {
           carriedError = x.message;
         }
@@ -107,8 +134,9 @@ export async function render(root) {
       });
       return btn;
     };
-    if (act.start) actions.append(trip('Starten', 'start', 'Fahrt starten', 'start'));
-    if (act.ret) actions.append(trip('Zurückgeben', 'return', 'Fahrzeug zurückgeben', 'end'));
+    if (act.start) actions.append(step('Starten', 'primary', () => runTrip(b, 'start', 'Fahrt starten', 'start')));
+    if (act.ret) actions.append(step('Zurückgeben', 'primary', () => runTrip(b, 'return', 'Fahrzeug zurückgeben', 'end')));
+    if (act.report) actions.append(step('Schaden melden', 'danger', () => runReport(b)));
     const since = document.createElement('p');
     since.className = 'booking-car';
     since.textContent = `Unterwegs seit ${formatDateTime(b.actual_start)}`;

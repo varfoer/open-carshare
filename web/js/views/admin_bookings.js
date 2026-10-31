@@ -88,11 +88,10 @@ export async function render(root) {
         });
         actions.append(del);
       }
-      if (b.actual_start) {
-        const dmg = el('button', { type: 'button', text: 'Schäden' });
-        dmg.addEventListener('click', () => showDamage(b));
-        actions.append(dmg);
-      }
+      // Every row: reports outlive cleared actual times.
+      const dmg = el('button', { type: 'button', text: 'Schäden' });
+      dmg.addEventListener('click', () => showDamage(b));
+      actions.append(dmg);
       const trip = [];
       if (b.actual_start) {
         trip.push(el('p', { text: `Gefahren: ${formatDateTime(b.actual_start)} – ${b.actual_end ? formatDateTime(b.actual_end) : 'läuft'}` }));
