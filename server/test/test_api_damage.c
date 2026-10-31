@@ -187,8 +187,8 @@ void test_photo_upload_and_get(void) {
 void test_photo_rejects_non_jpeg(void) {
   static const unsigned char PNG[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
   int64_t rid = report();
-  cJSON_Delete(upload(rid, PNG, sizeof PNG, tok1, "image/jpeg", 415, "unsupported_media"));
-  cJSON_Delete(upload(rid, JPG, 2, tok1, "image/jpeg", 415, "unsupported_media"));
+  cJSON_Delete(upload(rid, PNG, sizeof PNG, tok1, "image/jpeg", 415, "unsupported_media_type"));
+  cJSON_Delete(upload(rid, JPG, 2, tok1, "image/jpeg", 415, "unsupported_media_type"));
   cJSON_Delete(upload(rid, JPG, sizeof JPG, tok1, "application/json", 415, NULL));
   cJSON_Delete(upload(rid, JPG, sizeof JPG, tok1, NULL, 415, NULL));
   TEST_ASSERT_EQUAL_INT(0, db_damage(&a->db, rid)->n_photos);

@@ -82,7 +82,7 @@ void h_photo_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_
   damage_report_t d = *dp;
   const unsigned char *p = (const unsigned char *)req->body;
   if (!p || req->body_len < 3 || p[0] != 0xFF || p[1] != 0xD8 || p[2] != 0xFF) {
-    api_error(res, 415, "unsupported_media", "Bitte ein JPEG-Foto hochladen.");
+    api_error(res, 415, "unsupported_media_type", "Bitte ein JPEG-Foto hochladen.");
     return;
   }
   if (d.n_photos >= DMG_MAX_PHOTOS) {
