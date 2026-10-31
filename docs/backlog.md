@@ -53,6 +53,29 @@ when it is fixed.
 - [any] Test gaps: argon2id known-answer vector, store failure paths
   (`delete_sessions`, `prune`, `put_settings`), PUT path of
   `admin_lacks_club`.
+- [any] Damage: `damage_report_to_json` non-NUL text branch untested;
+  `db_load` fails if `photos/` cannot be created (read-only data dir).
+- [any] `test_codec.c:271` hex-escape warning (split the literal).
+- [any] Booking rules test gaps: `now == booked_end` boundary
+  (`occupied_end`, `BR_EXPIRED`); `DMG_START` on ACTIVE with
+  `actual_start == 0`.
+- [any] Overdue grace (`now + 1800`) blocks extension of the next
+  reservation and unrelated admin edits of either booking with 409 overlap
+  while the car is overdue (closing the trip still works).
+- [any] Trip API: `test_start_blocked_409_car_busy` relies on early start;
+  `?scope` without `=` treated as upcoming; `api_expire_bookings` partial
+  progress on storage failure undocumented; expiry rewrites `bookings.jsonl`
+  once per expired booking (O(n²) on first sweep).
+- [any] Admin trip edit: clearing/reopening actuals keeps km (a "Nicht
+  angetreten" card can show manual km); combined `actual_end` + km and
+  non-integer `actual_*` PUT untested; return sets `km_pending` even if the
+  admin entered km during the trip.
+- [any] Photo files mode 0644 inside 0700 `photos/`; `fuzz_api.c` literal
+  65536; binary reply reason phrase only OK/Error; stale "Tasks 8/9: add
+  rows here" comment above `ROUTES` in `api.c`.
+- [any] Damage reports unlimited per booking (10 × 2 MiB each, anytime);
+  unauthenticated clients can make the server buffer 2 MiB on photo routes
+  (check the session cookie at HDRS for `BODY_JPEG` routes).
 
 ## Web
 
@@ -72,6 +95,12 @@ when it is fixed.
   `cache: 'reload'`); no check that the shell list matches `git ls-files web`.
 - [any] Tests: no guard that device TZ differs from Berlin; no year-boundary
   or midnight cases; no DOM test of form_time helpers.
+- [any] My bookings: "since" paragraph built for every card; "Starten"
+  offered days ahead with only the damage dialog as confirmation (show the
+  booked start in the dialog title when early).
+- [any] Admin bookings: `showDamage` stale-fetch race and error `<p>` not
+  `messageBox`; clearing both km fields sends nothing; time select keeps the
+  old value after "leeren".
 
 ## Deployment docs
 
