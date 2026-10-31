@@ -256,6 +256,32 @@ static bool read_booking_fields(const cJSON *body, booking_t *b) {
   return true;
 }
 
+/* actual_start/actual_end: integer or null (= 0), absent keeps b. km_start/km_end: both or neither. */
+static bool read_trip_fields(const cJSON *body, booking_t *b, bool *has_actual) {
+  static const char *const keys[2] = {"actual_start", "actual_end"};
+  int64_t *const dst[2] = {&b->actual_start, &b->actual_end};
+  for (int i = 0; i < 2; i++) {
+    const cJSON *v = cJSON_GetObjectItemCaseSensitive(body, keys[i]);
+    if (!v) continue;
+    *has_actual = true;
+    if (cJSON_IsNull(v)) *dst[i] = 0;
+    else if (!api_get_int(body, keys[i], dst[i])) return false;
+  }
+  bool has_ks = cJSON_GetObjectItemCaseSensitive(body, "km_start") != NULL;
+  bool has_ke = cJSON_GetObjectItemCaseSensitive(body, "km_end") != NULL;
+  if (has_ks != has_ke) return false;
+  if (has_ks) {
+    int64_t ks, ke;
+    if (!api_get_int(body, "km_start", &ks) || !api_get_int(body, "km_end", &ke)) return false;
+    if (ks < 0 || ke < ks || ke > 10000000) return false;
+    b->km_start = ks;
+    b->km_end = ke;
+    b->km_source = KM_MANUAL;
+    b->km_pending = false;
+  }
+  return true;
+}
+
 void h_admin_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   booking_t b;
   memset(&b, 0, sizeof b);
@@ -275,8 +301,16 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   const booking_t *old_p = db_booking(&a->db, id);
   if (!old_p) { api_not_found(res); return; }
   booking_t old = *old_p, nb = old;
-  if (!read_booking_fields(ctx->body, &nb)) { api_invalid(res); return; }
-  br_result_t r = br_check_update(&a->db, ctx->user, &old, &nb, req->now);
+  bool has_actual = false;
+  if (!read_booking_fields(ctx->body, &nb) || !read_trip_fields(ctx->body, &nb, &has_actual)) {
+    api_invalid(res);
+    return;
+  }
+  br_result_t r = BR_OK;
+  /* A cancelled booking is left to br_check_update (not_modifiable); apply_trip would revive it. */
+  if (has_actual && old.state != BK_CANCELLED) r = br_apply_trip(&nb, req->now);
+  if (r != BR_OK) { api_br_error(res, r); return; }
+  r = br_check_update(&a->db, ctx->user, &old, &nb, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
   nb.modified_at = req->now;
   nb.modified_by = ctx->user->id;
