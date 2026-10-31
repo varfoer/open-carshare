@@ -1,6 +1,7 @@
 /* libFuzzer target for api_handle.
  * Input: byte 0 route (POST/PUT/DELETE, modulo count), byte 1 session
- * (0 none, 1 user, 2 admin), byte 2 id selector (ids 1-3 for each '*'), rest body. */
+ * (0 none, 1 user, 2 admin), byte 2 id selector (ids 1-3 for each '*'), rest body
+ * (sent as image/jpeg on JPEG upload routes, else application/json). */
 #include <assert.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -111,7 +112,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   req.query = NULL;
   req.body = body;
   req.body_len = blen;
-  req.content_type = "application/json";
+  /* Only BODY_JPEG routes have the larger limit; they take the input as image/jpeg. */
+  req.content_type = api_body_limit(req.method, path) > 65536 ? "image/jpeg" : "application/json";
   req.session_token = tok;
   req.client_ip = "1.2.3.4";
   req.now = FUZZ_NOW;

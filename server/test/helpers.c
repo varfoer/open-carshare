@@ -33,6 +33,7 @@ void th_mail_fail(int fail) { mail_fail = fail; }
 
 /* ---- app ---- */
 
+/* Recursive: the data dir holds photos/ (and tests may plant directories). */
 static void rm_dir(const char *dir) {
   DIR *d = opendir(dir);
   if (d) {
@@ -41,7 +42,7 @@ static void rm_dir(const char *dir) {
     while ((e = readdir(d)) != NULL) {
       if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
       snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
-      unlink(path);
+      if (unlink(path) != 0) rm_dir(path);
     }
     closedir(d);
   }
@@ -95,9 +96,9 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
 
 /* ---- requests ---- */
 
-static api_res_t req_full(app_t *a, const char *method, const char *path, const char *body,
-                          const char *token, int64_t now, const char *content_type,
-                          const char *ip) {
+static api_res_t req_full(app_t *a, const char *method, const char *path, const void *body,
+                          size_t body_len, const char *token, int64_t now,
+                          const char *content_type, const char *ip) {
   api_res_t res;
   memset(&res, 0, sizeof res);
   size_t pl = path ? strlen(path) : 0;
@@ -113,7 +114,7 @@ static api_res_t req_full(app_t *a, const char *method, const char *path, const 
   req.path = path ? p : NULL;
   req.query = q;
   req.body = body;
-  req.body_len = body ? strlen(body) : 0;
+  req.body_len = body_len;
   req.content_type = content_type;
   req.session_token = token;
   req.client_ip = ip;
@@ -125,12 +126,19 @@ static api_res_t req_full(app_t *a, const char *method, const char *path, const 
 
 api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *body,
                     const char *token, int64_t now, const char *content_type) {
-  return req_full(a, method, path, body, token, now, content_type, "1.2.3.4");
+  return req_full(a, method, path, body, body ? strlen(body) : 0, token, now, content_type,
+                  "1.2.3.4");
+}
+
+api_res_t th_req_bin(app_t *a, const char *method, const char *path, const void *body, size_t len,
+                     const char *token, int64_t now, const char *content_type) {
+  return req_full(a, method, path, body, len, token, now, content_type, "1.2.3.4");
 }
 
 api_res_t th_req_ip(app_t *a, const char *method, const char *path, const char *body,
                     int64_t now, const char *ip) {
-  return req_full(a, method, path, body, NULL, now, "application/json", ip);
+  return req_full(a, method, path, body, body ? strlen(body) : 0, NULL, now, "application/json",
+                  ip);
 }
 
 api_res_t th_req(app_t *a, const char *method, const char *path, const char *body,

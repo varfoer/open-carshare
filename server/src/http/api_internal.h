@@ -1,7 +1,7 @@
 #ifndef OCS_HTTP_API_INTERNAL_H
 #define OCS_HTTP_API_INTERNAL_H
 
-/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_admin.c).
+/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c).
  * To add an endpoint: declare its handler here, implement it in the endpoint
  * file, and add a row to ROUTES in api.c. */
 
@@ -16,11 +16,17 @@
 
 typedef enum { MIN_PUBLIC = 0, MIN_USER, MIN_ADMIN } min_role_t;
 
+/* BODY_JPEG: Content-Type must be image/jpeg; the handler reads req->body raw. */
+typedef enum { BODY_JSON = 0, BODY_JPEG } body_kind_t;
+
+#define API_JSON_MAX_BYTES 65536
+#define API_PHOTO_MAX_BYTES 2097152
+
 typedef struct {
   /* Copy of the authenticated user (stable across db writes); NULL on PUBLIC routes. */
   const user_t *user;
-  /* Parsed request body: a JSON object, or NULL if the body was empty or the
-   * method is GET. Owned by api_handle. */
+  /* Parsed request body: a JSON object, or NULL if the body was empty, the
+   * method is GET or the route is BODY_JPEG. Owned by api_handle. */
   const cJSON *body;
 } api_ctx_t;
 
@@ -37,6 +43,8 @@ void api_ok(api_res_t *res);                       /* 200 {"ok":true} */
 void api_invalid(api_res_t *res);                  /* 400 invalid */
 void api_storage_error(api_res_t *res);            /* 500 storage */
 void api_not_found(api_res_t *res);                /* 404 not_found */
+/* Binary response; takes ownership of the malloc'd body. */
+void api_binary(api_res_t *res, int status, const char *content_type, char *body, size_t len);
 /* 200/201 {"user":<public json>} */
 void api_user_response(api_res_t *res, int status, const user_t *u);
 
@@ -72,6 +80,12 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_damage.c */
+void h_damage_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_damage_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_photo_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_photo_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_admin.c (all MIN_ADMIN) */
 void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

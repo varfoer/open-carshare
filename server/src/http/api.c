@@ -17,38 +17,43 @@ typedef struct {
   const char *method, *pattern;
   api_handler_fn handler;
   min_role_t min_role;
+  body_kind_t body_kind;
 } route_t;
 
 static const route_t ROUTES[] = {
-    {"POST", "/api/login", h_login, MIN_PUBLIC},
-    {"POST", "/api/logout", h_logout, MIN_PUBLIC},
-    {"POST", "/api/password/forgot", h_password_forgot, MIN_PUBLIC},
-    {"POST", "/api/password/set", h_password_set, MIN_PUBLIC},
-    {"GET", "/api/me", h_me_get, MIN_USER},
-    {"PUT", "/api/me", h_me_put, MIN_USER},
-    {"PUT", "/api/me/password", h_me_password, MIN_USER},
-    {"GET", "/api/cars", h_cars_get, MIN_USER},
-    {"GET", "/api/calendar", h_calendar_get, MIN_USER},
-    {"GET", "/api/bookings", h_bookings_get, MIN_USER},
-    {"POST", "/api/bookings", h_booking_post, MIN_USER},
-    {"PUT", "/api/bookings/*", h_booking_put, MIN_USER},
-    {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER},
-    {"POST", "/api/bookings/*/start", h_booking_start, MIN_USER},
-    {"POST", "/api/bookings/*/return", h_booking_return, MIN_USER},
-    {"GET", "/api/settings/public", h_settings_public, MIN_USER},
-    {"GET", "/api/admin/users", h_admin_users_get, MIN_ADMIN},
-    {"POST", "/api/admin/users", h_admin_user_post, MIN_ADMIN},
-    {"PUT", "/api/admin/users/*", h_admin_user_put, MIN_ADMIN},
-    {"POST", "/api/admin/users/*/invite", h_admin_user_invite, MIN_ADMIN},
-    {"GET", "/api/admin/cars", h_admin_cars_get, MIN_ADMIN},
-    {"POST", "/api/admin/cars", h_admin_car_post, MIN_ADMIN},
-    {"PUT", "/api/admin/cars/*", h_admin_car_put, MIN_ADMIN},
-    {"GET", "/api/admin/bookings", h_admin_bookings_get, MIN_ADMIN},
-    {"POST", "/api/admin/bookings", h_admin_booking_post, MIN_ADMIN},
-    {"PUT", "/api/admin/bookings/*", h_admin_booking_put, MIN_ADMIN},
-    {"DELETE", "/api/admin/bookings/*", h_admin_booking_delete, MIN_ADMIN},
-    {"GET", "/api/admin/settings", h_admin_settings_get, MIN_ADMIN},
-    {"PUT", "/api/admin/settings", h_admin_settings_put, MIN_ADMIN},
+    {"POST", "/api/login", h_login, MIN_PUBLIC, BODY_JSON},
+    {"POST", "/api/logout", h_logout, MIN_PUBLIC, BODY_JSON},
+    {"POST", "/api/password/forgot", h_password_forgot, MIN_PUBLIC, BODY_JSON},
+    {"POST", "/api/password/set", h_password_set, MIN_PUBLIC, BODY_JSON},
+    {"GET", "/api/me", h_me_get, MIN_USER, BODY_JSON},
+    {"PUT", "/api/me", h_me_put, MIN_USER, BODY_JSON},
+    {"PUT", "/api/me/password", h_me_password, MIN_USER, BODY_JSON},
+    {"GET", "/api/cars", h_cars_get, MIN_USER, BODY_JSON},
+    {"GET", "/api/calendar", h_calendar_get, MIN_USER, BODY_JSON},
+    {"GET", "/api/bookings", h_bookings_get, MIN_USER, BODY_JSON},
+    {"POST", "/api/bookings", h_booking_post, MIN_USER, BODY_JSON},
+    {"PUT", "/api/bookings/*", h_booking_put, MIN_USER, BODY_JSON},
+    {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER, BODY_JSON},
+    {"POST", "/api/bookings/*/start", h_booking_start, MIN_USER, BODY_JSON},
+    {"POST", "/api/bookings/*/return", h_booking_return, MIN_USER, BODY_JSON},
+    {"POST", "/api/bookings/*/damage", h_damage_post, MIN_USER, BODY_JSON},
+    {"GET", "/api/bookings/*/damage", h_damage_get, MIN_USER, BODY_JSON},
+    {"POST", "/api/damage/*/photos", h_photo_post, MIN_USER, BODY_JPEG},
+    {"GET", "/api/damage/*/photos/*", h_photo_get, MIN_USER, BODY_JSON},
+    {"GET", "/api/settings/public", h_settings_public, MIN_USER, BODY_JSON},
+    {"GET", "/api/admin/users", h_admin_users_get, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/users", h_admin_user_post, MIN_ADMIN, BODY_JSON},
+    {"PUT", "/api/admin/users/*", h_admin_user_put, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/users/*/invite", h_admin_user_invite, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/cars", h_admin_cars_get, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/cars", h_admin_car_post, MIN_ADMIN, BODY_JSON},
+    {"PUT", "/api/admin/cars/*", h_admin_car_put, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/bookings", h_admin_bookings_get, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/bookings", h_admin_booking_post, MIN_ADMIN, BODY_JSON},
+    {"PUT", "/api/admin/bookings/*", h_admin_booking_put, MIN_ADMIN, BODY_JSON},
+    {"DELETE", "/api/admin/bookings/*", h_admin_booking_delete, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/settings", h_admin_settings_get, MIN_ADMIN, BODY_JSON},
+    {"PUT", "/api/admin/settings", h_admin_settings_put, MIN_ADMIN, BODY_JSON},
 };
 
 static bool pattern_match(const char *pat, const char *path) {
@@ -72,12 +77,21 @@ void api_res_free(api_res_t *res) {
   if (!res) return;
   free(res->body);
   res->body = NULL;
+  res->body_len = 0;
 }
 
 static void set_body(api_res_t *res, int status, char *body) {
   free(res->body);
   res->status = status;
   res->body = body;
+  res->content_type[0] = 0;
+  res->body_len = 0;
+}
+
+void api_binary(api_res_t *res, int status, const char *content_type, char *body, size_t len) {
+  set_body(res, status, body);
+  snprintf(res->content_type, sizeof res->content_type, "%s", content_type);
+  res->body_len = len;
 }
 
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de) {
@@ -298,9 +312,9 @@ int api_send_token_mail(app_t *a, int64_t user_id, token_kind_t kind, int64_t no
 
 /* ---- dispatch ---- */
 
-static bool has_json_content_type(const char *ct) {
-  static const char want[] = "application/json";
-  size_t n = sizeof want - 1;
+/* Media type of ct is want (case-insensitive), optionally followed by parameters. */
+static bool has_content_type(const char *ct, const char *want) {
+  size_t n = strlen(want);
   if (!ct || strncasecmp(ct, want, n) != 0) return false;
   char c = ct[n];
   return c == 0 || c == ';' || c == ' ' || c == '\t';
@@ -335,21 +349,35 @@ size_t api_route_count(void) { return sizeof ROUTES / sizeof ROUTES[0]; }
 const char *api_route_method(size_t i) { return i < api_route_count() ? ROUTES[i].method : NULL; }
 const char *api_route_pattern(size_t i) { return i < api_route_count() ? ROUTES[i].pattern : NULL; }
 
+/* Route for method+path, or NULL; *path_known tells whether any method matches the path. */
+static const route_t *find_route(const char *method, const char *path, bool *path_known) {
+  *path_known = false;
+  for (size_t i = 0; i < sizeof ROUTES / sizeof ROUTES[0]; i++) {
+    if (!pattern_match(ROUTES[i].pattern, path)) continue;
+    *path_known = true;
+    if (strcmp(ROUTES[i].method, method) == 0) return &ROUTES[i];
+  }
+  return NULL;
+}
+
+size_t api_body_limit(const char *method, const char *path) {
+  bool known;
+  const route_t *r = method && path ? find_route(method, path, &known) : NULL;
+  return r && r->body_kind == BODY_JPEG ? API_PHOTO_MAX_BYTES : API_JSON_MAX_BYTES;
+}
+
 static void dispatch(app_t *a, const api_req_t *req, api_res_t *res) {
   if (!req->method || !req->path) {
     api_error(res, 400, "invalid", "Ungültige Anfrage.");
     return;
   }
-  const route_t *route = NULL;
-  bool path_known = false;
-  for (size_t i = 0; i < sizeof ROUTES / sizeof ROUTES[0]; i++) {
-    if (!pattern_match(ROUTES[i].pattern, req->path)) continue;
-    path_known = true;
-    if (strcmp(ROUTES[i].method, req->method) == 0) {
-      route = &ROUTES[i];
-      break;
-    }
+  /* Before auth, like the HTTP adapter's check at the headers. */
+  if (req->body_len > api_body_limit(req->method, req->path)) {
+    api_error(res, 413, "too_large", "Die Anfrage ist zu groß.");
+    return;
   }
+  bool path_known;
+  const route_t *route = find_route(req->method, req->path, &path_known);
   if (!route) {
     if (path_known)
       api_error(res, 405, "method_not_allowed", "Methode nicht erlaubt.");
@@ -358,8 +386,13 @@ static void dispatch(app_t *a, const api_req_t *req, api_res_t *res) {
     return;
   }
 
+  bool jpeg = route->body_kind == BODY_JPEG;
   bool body_method = is_body_method(req->method);
-  if (body_method && !has_json_content_type(req->content_type)) {
+  if (jpeg && !has_content_type(req->content_type, "image/jpeg")) {
+    api_error(res, 415, "unsupported_media_type", "Content-Type muss image/jpeg sein.");
+    return;
+  }
+  if (!jpeg && body_method && !has_content_type(req->content_type, "application/json")) {
     api_error(res, 415, "unsupported_media_type", "Content-Type muss application/json sein.");
     return;
   }
@@ -381,7 +414,7 @@ static void dispatch(app_t *a, const api_req_t *req, api_res_t *res) {
   }
 
   cJSON *body = NULL;
-  if (body_method) {
+  if (body_method && !jpeg) {
     bool ok;
     body = parse_body(req, &ok);
     if (!ok) {

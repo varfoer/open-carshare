@@ -97,9 +97,12 @@ cancelled_at, club_trip (default false), invoice_id, created_at, modified_at,
 modified_by.
 
 ### damage_report
-id, booking_id, phase (`start`|`end`), text, photo files (0..n), created_at.
-Photos are resized client-side to ≤1600 px JPEG before upload and stored as
-files under `data/photos/`.
+id, booking_id, user_id, phase (`start`|`end`), text (required, < 1024 bytes),
+n_photos (0..10), created_at. Photos are resized client-side to ≤1600 px JPEG
+before upload; each upload is one raw `image/jpeg` body of at most 2 MiB
+(2097152 bytes) starting with `FF D8 FF`, stored as
+`data/photos/r<report id>-<k>.jpg` (k = 1..n_photos). "Keine Schäden" stores
+nothing; only real damage creates a report.
 
 ### invoice
 number (gapless sequence, assigned at finalize), user_id, period (YYYY-MM),
@@ -287,7 +290,9 @@ GET  /api/calendar?car=&from=&to=
 GET  /api/bookings?scope=upcoming|history
 POST /api/bookings                PUT /api/bookings/{id}     DELETE /api/bookings/{id}
 POST /api/bookings/{id}/start     POST /api/bookings/{id}/return
-POST /api/bookings/{id}/damage    (multipart photo)
+POST /api/bookings/{id}/damage    GET /api/bookings/{id}/damage
+POST /api/damage/{id}/photos      (raw image/jpeg body, ≤ 2 MiB)
+GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
 GET  /api/bookings/{id}/pin
 admin:
   /api/admin/users, /cars, /keysafes, /tariffs, /bookings, /settings

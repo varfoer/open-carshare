@@ -295,6 +295,21 @@ static void test_damage_rejects_long_text(void) {
     cJSON_Delete(j);
 }
 
+static void test_damage_rejects_bad_n_photos(void) {
+    damage_report_t d = {.id = 1, .booking_id = 1, .user_id = 1, .n_photos = DMG_MAX_PHOTOS};
+    snprintf(d.text, sizeof d.text, "Delle");
+    cJSON *j = damage_report_to_json(&d);
+    TEST_ASSERT_NOT_NULL(j);
+    damage_report_t r;
+    TEST_ASSERT_EQUAL_INT(0, damage_report_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(DMG_MAX_PHOTOS, r.n_photos);
+    cJSON_ReplaceItemInObject(j, "n_photos", cJSON_CreateNumber(DMG_MAX_PHOTOS + 1));
+    TEST_ASSERT_EQUAL_INT(-1, damage_report_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "n_photos", cJSON_CreateNumber(-1));
+    TEST_ASSERT_EQUAL_INT(-1, damage_report_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
@@ -304,6 +319,7 @@ int main(void) {
     RUN_TEST(test_booking_rejects_bad_km_source);
     RUN_TEST(test_damage_roundtrip);
     RUN_TEST(test_damage_rejects_long_text);
+    RUN_TEST(test_damage_rejects_bad_n_photos);
     RUN_TEST(test_booking_all_states);
     RUN_TEST(test_user_umlaut_roundtrip);
     RUN_TEST(test_user_public_json_has_no_pw_hash);

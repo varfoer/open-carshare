@@ -274,6 +274,8 @@ int damage_report_from_json(const cJSON *j, damage_report_t *out) {
   out->phase = (damage_phase_t)phase;
   TRY(get_str(j, "text", out->text, sizeof out->text));
   TRY(get_int(j, "n_photos", &out->n_photos));
+  /* Photo handlers index files r<id>-1..n_photos. */
+  if (out->n_photos < 0 || out->n_photos > DMG_MAX_PHOTOS) return -1;
   TRY(get_i64(j, "created_at", &out->created_at));
   return 0;
 }

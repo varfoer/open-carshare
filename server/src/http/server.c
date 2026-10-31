@@ -8,7 +8,6 @@
 #include "mongoose.h"
 #include "platform/platform.h"
 
-#define MAX_BODY 65536
 #define PRUNE_INTERVAL_MS (3600ULL * 1000ULL)
 #define EXPIRE_INTERVAL_MS (300ULL * 1000ULL)
 
@@ -101,6 +100,14 @@ static void handle_api(struct mg_connection *c, struct mg_http_message *hm, app_
   api_handle(a, &req, &res);
   if (!res.body) {
     reply_error(c, 500, "internal", "Interner Fehler.");
+  } else if (res.content_type[0]) {
+    /* Binary body (may contain NUL): headers via mg_printf, body via mg_send. */
+    size_t len = res.body_len ? res.body_len : strlen(res.body);
+    mg_printf(c,
+              "HTTP/1.1 %d %s\r\nContent-Type: %s\r\nContent-Length: %lu\r\n"
+              "Cache-Control: no-store\r\n" SEC_HEADERS "\r\n",
+              res.status, res.status == 200 ? "OK" : "Error", res.content_type, (unsigned long)len);
+    mg_send(c, res.body, len);
   } else {
     char hdr[768];
     snprintf(hdr, sizeof hdr, "Content-Type: application/json\r\nCache-Control: no-store\r\n" SEC_HEADERS "%s%s%s",
@@ -108,6 +115,15 @@ static void handle_api(struct mg_connection *c, struct mg_http_message *hm, app_
     mg_http_reply(c, res.status, hdr, "%s", res.body);
   }
   api_res_free(&res);
+}
+
+/* api_body_limit for the request line; unknown or over-long ones get the JSON limit. */
+static size_t body_limit(struct mg_http_message *hm) {
+  char method[16], path[2048];
+  if (hm->method.len >= sizeof method || hm->uri.len >= sizeof path) return api_body_limit(NULL, NULL);
+  copy_str(method, sizeof method, hm->method);
+  copy_str(path, sizeof path, hm->uri);
+  return api_body_limit(method, path);
 }
 
 static bool is_api_path(struct mg_str uri) {
@@ -164,12 +180,12 @@ static void on_event(struct mg_connection *c, int ev, void *ev_data) {
   app_t *a = c->fn_data;
   if (ev == MG_EV_HTTP_HDRS) {
     struct mg_http_message *hm = ev_data;
-    if (hm->body.len > MAX_BODY) reply_too_large(c);
+    if (hm->body.len > body_limit(hm)) reply_too_large(c);
   } else if (ev == MG_EV_HTTP_MSG) {
     struct mg_http_message *hm = ev_data;
     if (REJECTED(c)) {
       /* 413 already sent from HDRS */
-    } else if (hm->body.len > MAX_BODY) {
+    } else if (hm->body.len > body_limit(hm)) {
       reply_too_large(c);
     } else if (is_api_path(hm->uri)) {
       handle_api(c, hm, a);

@@ -16,11 +16,21 @@ typedef struct {
 } api_req_t;
 
 /* body: malloc'd JSON (NULL only if even the error body could not be
- * allocated). set_cookie: empty or a full Set-Cookie header value. */
-typedef struct { int status; char *body; char set_cookie[256]; } api_res_t;
+ * allocated). set_cookie: empty or a full Set-Cookie header value.
+ * content_type: empty = application/json; otherwise body is binary and
+ * body_len is its length (0 = strlen(body)). */
+typedef struct {
+  int status; char *body; char set_cookie[256];
+  char content_type[32]; size_t body_len;
+} api_res_t;
 
 void api_handle(app_t *a, const api_req_t *req, api_res_t *res);
 void api_res_free(api_res_t *res);
+
+/* Largest accepted request body for method+path: 2097152 on JPEG upload
+ * routes, 65536 otherwise (unknown routes included). api_handle answers
+ * 413 too_large above it; the HTTP adapter checks it before reading the body. */
+size_t api_body_limit(const char *method, const char *path);
 
 /* Route table introspection (fuzzers, docs). Patterns use '*' for one path segment. */
 size_t api_route_count(void);

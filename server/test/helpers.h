@@ -4,6 +4,7 @@
 /* Test helpers. No Unity asserts in here, so a libFuzzer harness can use them:
  * failures are reported as NULL / -1. */
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "app.h"
@@ -34,5 +35,8 @@ api_res_t th_req_ct(app_t *a, const char *method, const char *path, const char *
 /* Unauthenticated JSON request from client ip. */
 api_res_t th_req_ip(app_t *a, const char *method, const char *path, const char *body,
                     int64_t now, const char *ip);
+/* Binary body of len bytes with explicit content type (NULL allowed). */
+api_res_t th_req_bin(app_t *a, const char *method, const char *path, const void *body, size_t len,
+                     const char *token, int64_t now, const char *content_type);
 
 #endif
