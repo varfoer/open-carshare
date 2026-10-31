@@ -430,6 +430,42 @@ void test_admin_put_without_actuals_keeps_state(void) {
   TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
 }
 
+void test_admin_close_trip_on_inactive_car(void) {
+  int64_t id = mk_trip(BK_ACTIVE, T - 3 * H, 0);
+  car_t c = *db_car(&a->db, car1);
+  c.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  char x[80];
+  snprintf(x, sizeof x, "\"actual_end\":%lld", (long long)T);
+  cJSON *j = trip_put(id, x, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("done", str(j, "state"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
+  /* Reopening on the inactive car is still refused. */
+  cJSON_Delete(trip_put(id, "\"actual_end\":null", 400, "car_inactive"));
+}
+
+void test_admin_km_for_inactive_user(void) {
+  int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
+  user_t u = *db_user(&a->db, u1);
+  u.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
+  cJSON *j = trip_put(id, "\"km_start\":1000,\"km_end\":1042", 200, NULL);
+  TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(KM_MANUAL, db_booking(&a->db, id)->km_source);
+}
+
+void test_admin_reserved_on_inactive_car_rejected(void) {
+  int64_t id = mk_booking(car1, u1, T + H, T + 2 * H);
+  car_t c = *db_car(&a->db, car1);
+  c.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  cJSON_Delete(trip_put(id, "", 400, "car_inactive"));
+  adm_free("POST", "/api/admin/bookings", bk_body(car1, u1, T + 3 * H, T + 4 * H), 400,
+           "car_inactive");
+}
+
 void test_admin_cancel_booking_fee_zero(void) {
   int64_t id = mk_booking(car1, u1, T + 60, T + H); /* inside the fee deadline */
   char p[64];
@@ -708,6 +744,9 @@ int main(void) {
   RUN_TEST(test_admin_actual_in_future_invalid);
   RUN_TEST(test_admin_trip_on_cancelled_400);
   RUN_TEST(test_admin_put_without_actuals_keeps_state);
+  RUN_TEST(test_admin_close_trip_on_inactive_car);
+  RUN_TEST(test_admin_km_for_inactive_user);
+  RUN_TEST(test_admin_reserved_on_inactive_car_rejected);
   RUN_TEST(test_admin_cancel_booking_fee_zero);
   RUN_TEST(test_admin_bookings_list_filters);
   RUN_TEST(test_settings_roundtrip_and_negative_400);

@@ -8,6 +8,8 @@
  *   BR_FORBIDDEN -> BR_NOT_MODIFIABLE -> BR_EXPIRED -> BR_CAR_INACTIVE -> BR_CAR_BUSY
  * BR_INVALID covers times (range per br_time_in_range, order, 60 s alignment) and existence of the car and,
  * for admin writes, of an active target user.
+ * An admin update resulting in BK_DONE (closing a trip, entering km) skips both "active" checks: car and
+ * user only have to exist, so finished trips stay editable after a deactivation.
  */
 
 static const car_t *find_car(const db_t *db, int64_t id) {
@@ -69,7 +71,7 @@ static bool write_valid(const db_t *db, const user_t *actor, const booking_t *nb
   if (!times_valid(nb, now) || !find_car(db, nb->car_id)) return false;
   if (actor->role == ROLE_ADMIN) {
     const user_t *u = find_user(db, nb->user_id);
-    if (!u || !u->active) return false;
+    if (!u || (!u->active && nb->state != BK_DONE)) return false;
   }
   return true;
 }
@@ -111,7 +113,7 @@ br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t
     }
   }
 
-  if (!find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
+  if (nb->state != BK_DONE && !find_car(db, nb->car_id)->active) return BR_CAR_INACTIVE;
   if (nb->state == BK_RESERVED || nb->state == BK_ACTIVE) {
     /* Check what nb will occupy (early actual_start, overdue grace), not just its booked interval. */
     br_result_t r = br_check_free(db, nb->car_id, booking_occupied_start(nb),

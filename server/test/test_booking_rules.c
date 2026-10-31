@@ -426,6 +426,33 @@ void test_admin_update_done_ok(void) {
   TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, o, &nb, now));
 }
 
+void test_admin_done_skips_active_checks(void) {
+  /* Closing a forgotten trip on a deactivated car, km on a deactivated member's booking. */
+  booking_t *o = add(1, 2, 1, T - 3 * H, T - H, BK_ACTIVE);
+  booking_t nb = *o; nb.state = BK_DONE; nb.actual_start = T - 3 * H; nb.actual_end = T;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, o, &nb, now));
+  booking_t *d = add(2, 1, 2, T - 6 * H, T - 5 * H, BK_DONE);
+  users[1].active = false;
+  nb = *d; nb.km_start = 10; nb.km_end = 20;
+  TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, d, &nb, now));
+  nb = *d; nb.user_id = 77; /* the user must still exist */
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_update(&db, ADM, d, &nb, now));
+  nb = *d; nb.car_id = 99;
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_update(&db, ADM, d, &nb, now));
+}
+void test_admin_reserved_or_active_keeps_active_checks(void) {
+  booking_t *r = add(1, 2, 1, T + 10 * H, T + 11 * H, BK_RESERVED);
+  booking_t nb = *r; nb.booked_end += H;
+  TEST_ASSERT_EQUAL(BR_CAR_INACTIVE, br_check_update(&db, ADM, r, &nb, now));
+  booking_t *d = add(2, 2, 1, T - 3 * H, T - H, BK_DONE);
+  nb = *d; nb.state = BK_ACTIVE;
+  TEST_ASSERT_EQUAL(BR_CAR_INACTIVE, br_check_update(&db, ADM, d, &nb, now));
+  booking_t *r2 = add(3, 1, 2, T + 20 * H, T + 21 * H, BK_RESERVED);
+  users[1].active = false;
+  nb = *r2;
+  TEST_ASSERT_EQUAL(BR_INVALID, br_check_update(&db, ADM, r2, &nb, now));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_touching_intervals_do_not_overlap);
@@ -477,5 +504,7 @@ int main(void) {
   RUN_TEST(test_user_change_car_or_user_rejected);
   RUN_TEST(test_unaligned_update_invalid);
   RUN_TEST(test_admin_update_done_ok);
+  RUN_TEST(test_admin_done_skips_active_checks);
+  RUN_TEST(test_admin_reserved_or_active_keeps_active_checks);
   return UNITY_END();
 }
