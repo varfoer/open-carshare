@@ -13,6 +13,7 @@
 
 #define PRUNE_INTERVAL_MS (3600ULL * 1000ULL)
 #define EXPIRE_INTERVAL_MS (300ULL * 1000ULL)
+#define KM_INTERVAL_MS (300ULL * 1000ULL)
 #define TRACKER_MAX_CONNS 16
 #define TRACKER_MAX_BUFFERED (TLT_MAX_DATA_LEN + 12) /* header 8 + data + CRC 4 */
 
@@ -260,12 +261,21 @@ static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
 
 static void prune_cb(void *arg) {
   app_t *a = arg;
-  if (db_prune(&a->db, platform_now()) != 0) fprintf(stderr, "ocs-server: db_prune failed\n");
+  int64_t now = platform_now();
+  if (db_prune(&a->db, now) != 0) fprintf(stderr, "ocs-server: db_prune failed\n");
+  if (db_prune_readings(&a->db, now - 90 * 86400) != 0) fprintf(stderr, "ocs-server: db_prune_readings failed\n");
 }
 
 static void expire_cb(void *arg) {
   app_t *a = arg;
   if (api_expire_bookings(a, platform_now()) < 0) fprintf(stderr, "ocs-server: api_expire_bookings failed\n");
+}
+
+static void km_cb(void *arg) {
+  app_t *a = arg;
+  int64_t now = platform_now();
+  if (api_resolve_km(a, now) < 0) fprintf(stderr, "ocs-server: api_resolve_km failed\n");
+  if (api_km_pending_mail(a, now) < 0) fprintf(stderr, "ocs-server: api_km_pending_mail failed\n");
 }
 
 int server_run(app_t *a) {
@@ -291,6 +301,7 @@ int server_run(app_t *a) {
   }
   mg_timer_add(&mgr, PRUNE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, prune_cb, a);
   mg_timer_add(&mgr, EXPIRE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, expire_cb, a);
+  mg_timer_add(&mgr, KM_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, km_cb, a);
   while (!g_stop) mg_mgr_poll(&mgr, 200);
   mg_mgr_free(&mgr);
   return 0;

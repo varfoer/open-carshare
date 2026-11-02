@@ -41,6 +41,13 @@ const char *api_route_pattern(size_t i);
  * actual times. Returns the number closed, -1 on storage error. */
 int api_expire_bookings(app_t *a, int64_t now);
 
+/* Resolves km_pending DONE bookings of cars with tracker_imei (spec §8). Sets km, km_source
+ * TELEMATICS, km_pending false, modified_at now, modified_by 0. Returns number resolved, -1 storage error. */
+int api_resolve_km(app_t *a, int64_t now);
+/* Daily mail to all active admins listing km_pending bookings of tracker cars with
+ * now - actual_end > 86400. 1 sent, 0 nothing to send or already sent this UTC day, -1 all sends failed. */
+int api_km_pending_mail(app_t *a, int64_t now);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);
