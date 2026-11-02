@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "auth/password.h"
 #include "core/sepa.h"
 #include "http/api_internal.h"
 
@@ -78,18 +79,22 @@ static void trim(char *s) {
   if (i) memmove(s, s + i, strlen(s + i) + 1);
 }
 
-/* Ends every ACTIVE mandate of user_id except keep_id. Index loop with copy-then-put:
- * pointers into the db die on a put. 0 ok, -1 storage failure. */
-static int end_other_active(app_t *a, int64_t user_id, int64_t keep_id, int64_t now) {
+/* Ends every ACTIVE mandate of user_id except keep_id (0 = none kept) with status/actor.
+ * Index loop with copy-then-put: pointers into the db die on a put.
+ * Returns the number of rows ended, -1 on storage failure. */
+static int end_active(app_t *a, int64_t user_id, int64_t keep_id, int64_t now,
+                      mandate_status_t status, int64_t actor_id) {
+  int n = 0;
   for (size_t i = 0; i < a->db.n_mandates; i++) {
     mandate_t m = a->db.mandates[i];
     if (m.user_id != user_id || m.status != MANDATE_ACTIVE || m.id == keep_id) continue;
-    m.status = MANDATE_REPLACED;
+    m.status = status;
     m.ended_at = now;
-    m.ended_by = user_id;
+    m.ended_by = actor_id;
     if (db_put_mandate(&a->db, &m) != 0) return -1;
+    n++;
   }
-  return 0;
+  return n;
 }
 
 void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -138,7 +143,7 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     old = *cur; /* copy: db pointers die on the next put */
     if (strcmp(old.holder, n.holder) == 0 && strcmp(old.iban, n.iban) == 0 &&
         strcmp(old.bic, n.bic) == 0) {
-      if (end_other_active(a, old.user_id, old.id, req->now) != 0) {
+      if (end_active(a, old.user_id, old.id, req->now, MANDATE_REPLACED, old.user_id) < 0) {
         api_storage_error(res);
         return;
       }
@@ -158,7 +163,7 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     api_storage_error(res);
     return;
   }
-  if (end_other_active(a, n.user_id, n.id, req->now) != 0) {
+  if (end_active(a, n.user_id, n.id, req->now, MANDATE_REPLACED, n.user_id) < 0) {
     api_storage_error(res);
     return;
   }
@@ -166,4 +171,112 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   bool sent = mandate_mail_body(body, sizeof body, ctx->user->name, &n) >= 0 &&
               api_send_mail(a, ctx->user->email, "SEPA-Lastschriftmandat erteilt", body) == 0;
   respond(res, 201, &n, sent);
+}
+
+int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now) {
+  int n = end_active(a, user_id, 0, now, MANDATE_REVOKED, actor_id);
+  if (n < 0) return -1;
+  if (n == 0) return -2;
+  for (size_t i = 0; i < a->db.n_bookings; i++) {
+    booking_t b = a->db.bookings[i];
+    if (b.user_id != user_id || b.state != BK_RESERVED) continue;
+    b.state = BK_CANCELLED;
+    b.cancel_fee_cents = 0;
+    b.cancelled_at = now;
+    b.modified_at = now;
+    b.modified_by = actor_id;
+    if (db_put_booking(&a->db, &b) != 0) return -1;
+  }
+  const user_t *up = db_user(&a->db, user_id);
+  if (!up) return -1;
+  user_t u = *up;
+  u.active = false;
+  if (db_put_user(&a->db, &u) != 0) return -1;
+  return db_delete_sessions(&a->db, NULL, user_id) == 0 ? 0 : -1;
+}
+
+static void revoke_result(api_res_t *res, int rc) {
+  if (rc == 0) api_ok(res);
+  else if (rc == -2) api_not_found(res);
+  else api_storage_error(res);
+}
+
+void h_me_mandate_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  const char *pw = api_get_str(ctx->body, "password", API_PW_MAX_BYTES + 1);
+  const user_t *me = ctx->user;
+  if (!pw || !me->pw_hash[0] || !pw_verify(pw, me->pw_hash)) {
+    api_error(res, 400, "bad_credentials", "E-Mail oder Passwort ist falsch.");
+    return;
+  }
+  int64_t uid = me->id;
+  if (!db_mandate_current(&a->db, uid)) {
+    api_not_found(res);
+    return;
+  }
+  if (me->role == ROLE_ADMIN) {
+    bool other = false;
+    for (size_t i = 0; i < a->db.n_users; i++) {
+      const user_t *u = &a->db.users[i];
+      other = other || (u->role == ROLE_ADMIN && u->active && u->id != uid);
+    }
+    if (!other) {
+      api_error(res, 409, "last_admin",
+                "Du bist der letzte aktive Admin. Bitte ernenne zuerst einen weiteren Admin.");
+      return;
+    }
+  }
+  int rc = api_mandate_revoke(a, uid, uid, req->now);
+  if (rc != 0) {
+    revoke_result(res, rc);
+    return;
+  }
+  api_clear_session_cookie(res);
+  api_ok(res);
+}
+
+void h_admin_user_mandates_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)ctx;
+  int64_t id;
+  if (!api_segment_id(req->path, "/api/admin/users/", &id)) {
+    api_invalid(res);
+    return;
+  }
+  if (!db_user(&a->db, id)) {
+    api_not_found(res);
+    return;
+  }
+  cJSON *arr = cJSON_CreateArray();
+  if (!arr) {
+    api_storage_error(res);
+    return;
+  }
+  for (size_t i = a->db.n_mandates; i-- > 0;) {
+    const mandate_t *m = &a->db.mandates[i];
+    if (m->user_id != id) continue;
+    cJSON *o = mandate_api_json(m);
+    if (!o) {
+      cJSON_Delete(arr);
+      api_json(res, 500, NULL);
+      return;
+    }
+    cJSON_AddItemToArray(arr, o);
+  }
+  api_json(res, 200, arr);
+}
+
+void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  int64_t id;
+  if (!api_segment_id(req->path, "/api/admin/users/", &id)) {
+    api_invalid(res);
+    return;
+  }
+  if (id == ctx->user->id) {
+    api_error(res, 400, "self", "Du kannst dich nicht selbst deaktivieren oder herabstufen.");
+    return;
+  }
+  if (!db_user(&a->db, id)) {
+    api_not_found(res);
+    return;
+  }
+  revoke_result(res, api_mandate_revoke(a, id, ctx->user->id, req->now));
 }

@@ -886,6 +886,31 @@ void test_admin_license_checked_at_out_of_range_400(void) {
   assert_dir_loads();
 }
 
+void test_users_list_mandate_field(void) {
+  int64_t bare = th_add_user_bare(a, "bare@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(bare > 0);
+  cJSON *j = call("GET", "/api/admin/users", NULL, tadm, 200, NULL);
+  int seen = 0;
+  cJSON *u;
+  cJSON_ArrayForEach(u, j) {
+    cJSON *id = cJSON_GetObjectItemCaseSensitive(u, "id");
+    cJSON *m = cJSON_GetObjectItemCaseSensitive(u, "mandate");
+    TEST_ASSERT_NOT_NULL(m);
+    if ((int64_t)id->valuedouble == u1) {
+      TEST_ASSERT_TRUE(cJSON_IsObject(m));
+      TEST_ASSERT_EQUAL_INT(0, strncmp(cJSON_GetObjectItemCaseSensitive(m, "ref")->valuestring, "OCS-", 4));
+      TEST_ASSERT_EQUAL_STRING("DE89 **** 3000", cJSON_GetObjectItemCaseSensitive(m, "iban_masked")->valuestring);
+      TEST_ASSERT_NOT_NULL(cJSON_GetObjectItemCaseSensitive(m, "created_at"));
+      seen++;
+    } else if ((int64_t)id->valuedouble == bare) {
+      TEST_ASSERT_TRUE(cJSON_IsNull(m));
+      seen++;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT(2, seen);
+  cJSON_Delete(j);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_user_role_gets_403_on_admin);
@@ -934,5 +959,6 @@ int main(void) {
   RUN_TEST(test_admin_license_checked_at_out_of_range_400);
   RUN_TEST(test_admin_user_may_club_trip);
   RUN_TEST(test_admin_booking_club_trip_override);
+  RUN_TEST(test_users_list_mandate_field);
   return UNITY_END();
 }

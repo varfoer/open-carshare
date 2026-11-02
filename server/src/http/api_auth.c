@@ -76,13 +76,17 @@ void h_login(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *re
   api_user_response(res, 200, &copy);
 }
 
+void api_clear_session_cookie(api_res_t *res) {
+  snprintf(res->set_cookie, sizeof res->set_cookie, "ocs_session=; " COOKIE_ATTRS "; Max-Age=0");
+}
+
 void h_logout(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   (void)ctx;
   if (req->session_token && session_destroy(a, req->session_token) != 0) {
     api_storage_error(res);
     return;
   }
-  snprintf(res->set_cookie, sizeof res->set_cookie, "ocs_session=; " COOKIE_ATTRS "; Max-Age=0");
+  api_clear_session_cookie(res);
   api_ok(res);
 }
 

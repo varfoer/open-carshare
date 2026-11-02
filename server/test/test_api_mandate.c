@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "cJSON.h"
@@ -10,15 +11,18 @@
 
 static app_t *a;
 static int64_t uid;
-static char *tok;
+static const char *tok;
+static char tokbuf[65];
 
 void setUp(void) {
   a = th_app();
   TEST_ASSERT_NOT_NULL(a);
   uid = th_add_user_bare(a, "anna@x.de", "correct horse", ROLE_USER);
   TEST_ASSERT_TRUE(uid > 0);
-  tok = th_login_at(a, "anna@x.de", "correct horse", T);
-  TEST_ASSERT_NOT_NULL(tok);
+  const char *t = th_login_at(a, "anna@x.de", "correct horse", T);
+  TEST_ASSERT_NOT_NULL(t);
+  memcpy(tokbuf, t, sizeof tokbuf);
+  tok = tokbuf;
 }
 
 void tearDown(void) { th_free(a); }
@@ -179,6 +183,213 @@ void test_post_heals_second_active_row(void) {
   TEST_ASSERT_EQUAL_INT64(2, db_mandate_current(&a->db, uid)->id);
 }
 
+/* ---- revoke ---- */
+
+/* th_login_at returns a shared static buffer: copy before the next login. */
+static void login_copy(char out[65], const char *email, const char *pw) {
+  const char *t = th_login_at(a, email, pw, T);
+  TEST_ASSERT_NOT_NULL(t);
+  memcpy(out, t, 65);
+}
+
+static int64_t add_booking(int64_t user, booking_state_t st, int64_t start) {
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = 1;
+  b.user_id = user;
+  b.booked_start = start;
+  b.booked_end = start + 3600;
+  b.state = st;
+  b.created_at = T - 100;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  return b.id;
+}
+
+static int64_t add_mandate(int64_t user) {
+  mandate_t m;
+  memset(&m, 0, sizeof m);
+  m.user_id = user;
+  m.status = MANDATE_ACTIVE;
+  m.created_at = T - 1000;
+  snprintf(m.holder, sizeof m.holder, "Anna Beispiel");
+  snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+  return m.id;
+}
+
+static int n_sessions_of(int64_t user) {
+  int n = 0;
+  for (size_t i = 0; i < a->db.n_sessions; i++) n += a->db.sessions[i].user_id == user;
+  return n;
+}
+
+static void check_revoked(int64_t user, int64_t actor, int64_t mid, int64_t res_id, int64_t act_id,
+                          int64_t other_id) {
+  TEST_ASSERT_EQUAL_INT(MANDATE_REVOKED, db_mandate(&a->db, mid)->status);
+  TEST_ASSERT_EQUAL_INT64(actor, db_mandate(&a->db, mid)->ended_by);
+  TEST_ASSERT_EQUAL_INT64(T, db_mandate(&a->db, mid)->ended_at);
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, res_id)->state);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, res_id)->cancel_fee_cents);
+  TEST_ASSERT_EQUAL_INT64(T, db_booking(&a->db, res_id)->cancelled_at);
+  TEST_ASSERT_EQUAL_INT64(actor, db_booking(&a->db, res_id)->modified_by);
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, other_id)->state);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, other_id)->cancel_fee_cents);
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, act_id)->state);
+  TEST_ASSERT_FALSE(db_user(&a->db, user)->active);
+  TEST_ASSERT_EQUAL_INT(0, n_sessions_of(user));
+}
+
+void test_revoke_cancels_reserved_keeps_active(void) {
+  settings_t s = a->db.settings;
+  s.cancel_fee_cents = 500;
+  s.cancel_deadline_min = 1440;
+  TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
+  int64_t mid = add_mandate(uid);
+  int64_t act = add_booking(uid, BK_ACTIVE, T - 600);
+  int64_t r1 = add_booking(uid, BK_RESERVED, T + 600);
+  int64_t r2 = add_booking(uid, BK_RESERVED, T + 86400 * 5);
+  api_res_t r = th_req(a, "DELETE", "/api/me/mandate", "{\"password\":\"correct horse\"}", tok, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(200, r.status, r.body);
+  TEST_ASSERT_NOT_NULL(strstr(r.set_cookie, "ocs_session=;"));
+  TEST_ASSERT_NOT_NULL(strstr(r.set_cookie, "Max-Age=0"));
+  api_res_free(&r);
+  check_revoked(uid, uid, mid, r1, act, r2);
+}
+
+void test_revoke_wrong_password_400(void) {
+  int64_t mid = add_mandate(uid);
+  int64_t r1 = add_booking(uid, BK_RESERVED, T + 600);
+  const char *bodies[] = {"{\"password\":\"nope\"}", "{}", NULL};
+  for (int i = 0; i < 3; i++) {
+    api_res_t r = th_req(a, "DELETE", "/api/me/mandate", bodies[i], tok, T);
+    TEST_ASSERT_EQUAL_INT_MESSAGE(400, r.status, r.body);
+    TEST_ASSERT_NOT_NULL(strstr(r.body, "bad_credentials"));
+    api_res_free(&r);
+  }
+  TEST_ASSERT_EQUAL_INT(MANDATE_ACTIVE, db_mandate(&a->db, mid)->status);
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, db_booking(&a->db, r1)->state);
+  TEST_ASSERT_TRUE(db_user(&a->db, uid)->active);
+  TEST_ASSERT_EQUAL_INT(1, n_sessions_of(uid));
+}
+
+void test_revoke_without_mandate_404(void) {
+  api_res_t r = th_req(a, "DELETE", "/api/me/mandate", "{\"password\":\"correct horse\"}", tok, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(404, r.status, r.body);
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "not_found"));
+  api_res_free(&r);
+  TEST_ASSERT_TRUE(db_user(&a->db, uid)->active);
+}
+
+void test_revoke_last_admin_409(void) {
+  int64_t adm = th_add_user(a, "admin@x.de", "admin pass 1234", ROLE_ADMIN);
+  char ta[65];
+  login_copy(ta, "admin@x.de", "admin pass 1234");
+  const char *body = "{\"password\":\"admin pass 1234\"}";
+  api_res_t r = th_req(a, "DELETE", "/api/me/mandate", body, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(409, r.status, r.body);
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "last_admin"));
+  api_res_free(&r);
+  TEST_ASSERT_TRUE(db_user(&a->db, adm)->active);
+  TEST_ASSERT_EQUAL_INT(MANDATE_ACTIVE, db_mandate_current(&a->db, adm)->status);
+  int64_t adm2 = th_add_user(a, "admin2@x.de", "admin pass 1234", ROLE_ADMIN);
+  TEST_ASSERT_TRUE(adm2 > 0);
+  r = th_req(a, "DELETE", "/api/me/mandate", body, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(200, r.status, r.body);
+  api_res_free(&r);
+  TEST_ASSERT_FALSE(db_user(&a->db, adm)->active);
+}
+
+void test_admin_revoke_other_user(void) {
+  int64_t adm = th_add_user_bare(a, "admin@x.de", "admin pass 1234", ROLE_ADMIN);
+  char ta[65];
+  login_copy(ta, "admin@x.de", "admin pass 1234");
+  int64_t mid = add_mandate(uid);
+  int64_t act = add_booking(uid, BK_ACTIVE, T - 600);
+  int64_t r1 = add_booking(uid, BK_RESERVED, T + 600);
+  int64_t r2 = add_booking(uid, BK_RESERVED, T + 86400 * 5);
+  char path[64];
+  snprintf(path, sizeof path, "/api/admin/users/%lld/mandate/revoke", (long long)uid);
+  api_res_t r = th_req(a, "POST", path, NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(200, r.status, r.body);
+  api_res_free(&r);
+  check_revoked(uid, adm, mid, r1, act, r2);
+  TEST_ASSERT_TRUE(db_user(&a->db, adm)->active);
+  r = th_req(a, "POST", path, NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT(404, r.status);
+  api_res_free(&r);
+  snprintf(path, sizeof path, "/api/admin/users/%lld/mandate/revoke", 9999LL);
+  r = th_req(a, "POST", path, NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT(404, r.status);
+  api_res_free(&r);
+}
+
+void test_admin_revoke_self_400(void) {
+  int64_t adm = th_add_user(a, "admin@x.de", "admin pass 1234", ROLE_ADMIN);
+  char ta[65];
+  login_copy(ta, "admin@x.de", "admin pass 1234");
+  char path[64];
+  snprintf(path, sizeof path, "/api/admin/users/%lld/mandate/revoke", (long long)adm);
+  api_res_t r = th_req(a, "POST", path, NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(400, r.status, r.body);
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "\"self\""));
+  api_res_free(&r);
+  TEST_ASSERT_EQUAL_INT(MANDATE_ACTIVE, db_mandate_current(&a->db, adm)->status);
+}
+
+void test_admin_mandates_history_newest_first(void) {
+  th_add_user_bare(a, "admin@x.de", "admin pass 1234", ROLE_ADMIN);
+  char ta[65];
+  login_copy(ta, "admin@x.de", "admin pass 1234");
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  cJSON_Delete(do_req("POST", GOOD, 201, NULL));
+  cJSON_Delete(do_req("POST",
+      "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"DE02 1203 0000 0000 2020 51\",\"text_version\":1,\"accept\":true}",
+      201, NULL));
+  char path[64];
+  snprintf(path, sizeof path, "/api/admin/users/%lld/mandates", (long long)uid);
+  api_res_t r = th_req(a, "GET", path, NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(200, r.status, r.body);
+  TEST_ASSERT_NULL(strstr(r.body, "\"iban\""));
+  TEST_ASSERT_NULL(strstr(r.body, "0532013000"));
+  cJSON *j = cJSON_Parse(r.body);
+  api_res_free(&r);
+  TEST_ASSERT_TRUE(cJSON_IsArray(j));
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArrayItem(j, 0)->child->valueint);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArrayItem(j, 1)->child->valueint);
+  cJSON_Delete(j);
+  r = th_req(a, "GET", "/api/admin/users/9999/mandates", NULL, ta, T);
+  TEST_ASSERT_EQUAL_INT(404, r.status);
+  api_res_free(&r);
+  r = th_req(a, "GET", path, NULL, tok, T);
+  TEST_ASSERT_EQUAL_INT(403, r.status);
+  api_res_free(&r);
+}
+
+void test_reactivated_user_has_no_mandate(void) {
+  int64_t adm = th_add_user(a, "admin@x.de", "admin pass 1234", ROLE_ADMIN);
+  (void)adm;
+  char ta[65];
+  login_copy(ta, "admin@x.de", "admin pass 1234");
+  add_mandate(uid);
+  api_res_t r = th_req(a, "DELETE", "/api/me/mandate", "{\"password\":\"correct horse\"}", tok, T);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  api_res_free(&r);
+  user_t u = *db_user(&a->db, uid);
+  char path[48], body[512];
+  snprintf(path, sizeof path, "/api/admin/users/%lld", (long long)uid);
+  snprintf(body, sizeof body,
+           "{\"email\":\"%s\",\"name\":\"%s\",\"street\":\"\",\"zip\":\"\",\"city\":\"\",\"role\":\"user\",\"active\":true}",
+           u.email, u.name);
+  r = th_req(a, "PUT", path, body, ta, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(200, r.status, r.body);
+  api_res_free(&r);
+  login_copy(tokbuf, "anna@x.de", "correct horse");
+  cJSON *j = do_req("GET", NULL, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "mandate")));
+  cJSON_Delete(j);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_get_not_ready);
@@ -192,5 +403,13 @@ int main(void) {
   RUN_TEST(test_mandate_keeps_creditor_snapshot);
   RUN_TEST(test_post_mail_failure_still_201);
   RUN_TEST(test_post_heals_second_active_row);
+  RUN_TEST(test_revoke_cancels_reserved_keeps_active);
+  RUN_TEST(test_revoke_wrong_password_400);
+  RUN_TEST(test_revoke_without_mandate_404);
+  RUN_TEST(test_revoke_last_admin_409);
+  RUN_TEST(test_admin_revoke_other_user);
+  RUN_TEST(test_admin_revoke_self_400);
+  RUN_TEST(test_admin_mandates_history_newest_first);
+  RUN_TEST(test_reactivated_user_has_no_mandate);
   return UNITY_END();
 }

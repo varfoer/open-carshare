@@ -50,6 +50,21 @@ void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   for (size_t i = 0; i < a->db.n_users; i++) {
     cJSON *o = user_to_public_json(&a->db.users[i]);
     if (!o) { cJSON_Delete(arr); api_json(res, 500, NULL); return; }
+    const mandate_t *m = db_mandate_current(&a->db, a->db.users[i].id);
+    cJSON *mj = m ? cJSON_CreateObject() : cJSON_CreateNull();
+    if (mj && m) {
+      char ref[24], masked[48];
+      mandate_ref(m->id, ref, sizeof ref);
+      iban_mask(m->iban, masked, sizeof masked);
+      if (!cJSON_AddStringToObject(mj, "ref", ref) ||
+          !cJSON_AddNumberToObject(mj, "created_at", (double)m->created_at) ||
+          !cJSON_AddStringToObject(mj, "iban_masked", masked)) {
+        cJSON_Delete(mj);
+        mj = NULL;
+      }
+    }
+    if (!mj) { cJSON_Delete(o); cJSON_Delete(arr); api_json(res, 500, NULL); return; }
+    cJSON_AddItemToObject(o, "mandate", mj);
     cJSON_AddItemToArray(arr, o);
   }
   api_json(res, 200, arr);

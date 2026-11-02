@@ -121,5 +121,15 @@ void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 cJSON *mandate_api_json(const mandate_t *m);
 void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+/* Ends every ACTIVE mandate of user_id as REVOKED (ended_by actor_id), cancels every RESERVED
+ * booking of the user (cancel_fee_cents 0, cancelled_at/modified_at now, modified_by actor_id),
+ * sets the user inactive and deletes the user's sessions, in this order.
+ * 0 ok, -1 storage error (steps done so far stay), -2 no current mandate. */
+int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
+void h_me_mandate_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_mandates_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+/* api_auth.c: sets the expiring ocs_session cookie (Max-Age=0) on res. */
+void api_clear_session_cookie(api_res_t *res);
 
 #endif
