@@ -14,6 +14,15 @@ when it is fixed.
 
 ## Phase-bound
 
+- [P4] Tracker abuse with a known IMEI (prerequisite for Phase 4 billing):
+  the IMEI is printed on the device, so anyone with it can send readings:
+  fake trip-end km within the 90-day window, unbounded readings growth,
+  event-loop stall via many packets (fsync + O(n) duplicate scan). Also
+  hold the 16 connection slots by reconnecting every 30 s; half-open
+  connections linger up to 900 s. Decide: per-connection packet rate limit,
+  readings cap per car per day, one live connection per IMEI (close older
+  on handshake), plausibility check at resolve (km/h), TLS or source-IP
+  pinning once firmware is verified.
 - [P7] Interim tar backup cron in `deploy/vps/README.md` is replaced by the
   encrypted mail backup.
 
@@ -55,7 +64,6 @@ when it is fixed.
   `admin_lacks_club`.
 - [any] Damage: `damage_report_to_json` non-NUL text branch untested;
   `db_load` fails if `photos/` cannot be created (read-only data dir).
-- [any] `test_codec.c:271` hex-escape warning (split the literal).
 - [any] Booking rules test gaps: `now == booked_end` boundary
   (`occupied_end`, `BR_EXPIRED`); `DMG_START` on ACTIVE with
   `actual_start == 0`.

@@ -135,7 +135,7 @@ its IMEI within 30 s; idle connections are closed after 900 s. The handshake
 accepts an IMEI only if it is set on a car (active or deactivated). Unknown
 IMEIs are logged as `tracker: unknown IMEI <imei>` (`journalctl -u
 ocs-server`). Only `car_id`, `ts`, `odometer_m` and `received_at` are stored,
-in `data/odometer_readings.jsonl` in the data directory; readings are pruned
+in `odometer_readings.jsonl` in the data directory; readings are pruned
 after 90 days.
 
 Settings in the Teltonika Configurator. Option names differ between
@@ -149,6 +149,10 @@ firmware versions: check names in your firmware's Configurator.
 - Data acquisition: on moving every 300 s, on stop every 3600 s; records on
   movement start/stop; movement source movement sensor + GNSS (not
   ignition). Check names in your firmware's Configurator.
+- Records sorting: oldest first. Check names in your firmware's
+  Configurator. The server waits for the trip-end records before it
+  resolves km; newest-first sending can deliver the post-return record
+  ahead of them.
 - I/O: Total Odometer enabled, odometer source GNSS, initial value =
   dashboard km x 1000 (metres). Check names in your firmware's
   Configurator.
