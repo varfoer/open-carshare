@@ -1,4 +1,6 @@
 #include "helpers.h"
+#include <stdbool.h>
+#include "core/teltonika.h"
 
 #include <dirent.h>
 #include <stdio.h>
@@ -176,4 +178,44 @@ char *th_login_at(app_t *a, const char *email, const char *pw, int64_t now) {
 
 char *th_login(app_t *a, const char *email, const char *pw) {
   return th_login_at(a, email, pw, platform_now());
+}
+
+static size_t put_be(uint8_t *o, uint64_t v, size_t bytes) {
+  for (size_t i = 0; i < bytes; i++) o[i] = (uint8_t)(v >> (8 * (bytes - 1 - i)));
+  return bytes;
+}
+
+size_t th_tlt_packet(uint8_t *out, size_t cap, const int64_t *ts_ms, const int64_t *odo_m, size_t n) {
+  if (n == 0 || n > 255) return 0;
+  size_t dlen = 2 + 1;
+  for (size_t i = 0; i < n; i++) dlen += 8 + 1 + 15 + 2 + 2 + 2 + 2 + 2 + (odo_m[i] >= 0 ? 2 + 4 : 0) + 2 + 2;
+  if (dlen > 0xFFFF || 8 + dlen + 4 > cap) return 0;
+  uint8_t *d = out + 8, *p = d;
+  memset(out, 0, 8);
+  put_be(out + 4, dlen, 4);
+  *p++ = 0x8E;
+  *p++ = (uint8_t)n;
+  for (size_t i = 0; i < n; i++) {
+    bool odo = odo_m[i] >= 0;
+    p += put_be(p, (uint64_t)ts_ms[i], 8);
+    *p++ = 0; /* priority */
+    memset(p, 0, 15); /* GPS */
+    p += 15;
+    p += put_be(p, 0, 2);          /* event IO id */
+    p += put_be(p, odo ? 1 : 0, 2); /* total IO count */
+    p += put_be(p, 0, 2);          /* N1 */
+    p += put_be(p, 0, 2);          /* N2 */
+    if (odo) {
+      p += put_be(p, 1, 2);
+      p += put_be(p, 16, 2);
+      p += put_be(p, (uint64_t)odo_m[i], 4);
+    } else {
+      p += put_be(p, 0, 2);
+    }
+    p += put_be(p, 0, 2); /* N8 */
+    p += put_be(p, 0, 2); /* NX */
+  }
+  *p++ = (uint8_t)n;
+  put_be(p, tlt_crc16(d, dlen), 4);
+  return 8 + dlen + 4;
 }

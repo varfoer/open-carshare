@@ -39,4 +39,8 @@ api_res_t th_req_ip(app_t *a, const char *method, const char *path, const char *
 api_res_t th_req_bin(app_t *a, const char *method, const char *path, const void *body, size_t len,
                      const char *token, int64_t now, const char *content_type);
 
+/* Valid Codec 8E packet with n records (zero GPS), each carrying only IO 16 =
+ * odo_m[i] as N4 (odo_m[i] < 0: no I/O at all). Returns length, 0 if it does not fit. */
+size_t th_tlt_packet(uint8_t *out, size_t cap, const int64_t *ts_ms, const int64_t *odo_m, size_t n);
+
 #endif
