@@ -61,6 +61,13 @@ test('priceLines skips rate lines without tariff', () => {
   assert.deepEqual(priceLines(price({ day_min: 60, tariff: null })), []);
 });
 
+test('unused factor uses decimal comma', () => {
+  const t = { ...TARIFF, unused_factor_permille: 125 };
+  assert.equal(priceNote(t), 'Nicht genutzte Zeit 12,5 %, Verspätung 15,00 € je angefangene Stunde.');
+  assert.ok(tariffSummary(t).includes('ungenutzt 12,5 %'));
+  assert.ok(priceLines(price({ unused_day_min: 60, tariff: t }))[0].label.endsWith('× 12,5 %'));
+});
+
 test('priceNote', () => {
   assert.equal(priceNote(TARIFF), 'Nicht genutzte Zeit 50 %, Verspätung 15,00 € je angefangene Stunde.');
 });

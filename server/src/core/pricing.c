@@ -119,13 +119,13 @@ void price_compute(const tariff_t *t, int tolerance_min, int64_t b0, int64_t b1,
 
 void price_booking(const tariff_t *t, const settings_t *s, const booking_t *b, price_t *out) {
     memset(out, 0, sizeof *out);
+    if (b->club_trip) { out->status = PRICE_OK; return; }
     if (b->state == BK_CANCELLED) {
         out->status = PRICE_OK;
         out->cancel_fee_cents = b->cancel_fee_cents;
         out->total_cents = b->cancel_fee_cents;
         return;
     }
-    if (b->club_trip) { out->status = PRICE_OK; return; }
     if (!t) { out->status = PRICE_NO_TARIFF; return; }
     int64_t a0 = b->booked_start, a1 = b->booked_end, km = -1;
     if (b->state == BK_DONE) {

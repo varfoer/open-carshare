@@ -1,5 +1,6 @@
 #include <string.h>
 
+#include "core/booking_rules.h"
 #include "core/codec.h"
 #include "core/pricing.h"
 #include "http/api_internal.h"
@@ -74,7 +75,8 @@ void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   if (!api_query_int(req->query, "car", &car) || !api_query_int(req->query, "start", &start) ||
       !api_query_int(req->query, "end", &end) || !api_query_int(req->query, "km", &km) ||
       !query_club(req->query, &club) || end <= start || km < 0 || km > ESTIMATE_KM_MAX ||
-      start < 0 || end - start > ESTIMATE_SPAN_MAX) {
+      start <= 0 || !br_time_in_range(start, req->now) || !br_time_in_range(end, req->now) ||
+      end - start > ESTIMATE_SPAN_MAX) {
     api_invalid(res);
     return;
   }

@@ -188,6 +188,11 @@ void test_estimate_rejects_bad_input(void) {
   cJSON_Delete(call(est(car1, B0, B0 + H, "&km=1&club=2"), tu1, 400, "invalid"));
   cJSON_Delete(call(est(car1, B0, B0 + 90 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
   cJSON_Delete(call(est(car1, B0, B0 + 90 * DAY, "&km=1"), tu1, 200, NULL));
+  /* times bounded like booking writes: no huge/zero start (day loop, overflow) */
+  cJSON_Delete(call(est(car1, T + 2 * 365 * DAY + 1, T + 2 * 365 * DAY + H, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(car1, B0, T + 2 * 365 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(car1, INT64_MAX - H, INT64_MAX, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(car1, 0, H, "&km=1"), tu1, 400, "invalid"));
   cJSON_Delete(call(est(999, B0, B0 + H, "&km=1"), tu1, 404, "not_found"));
   car_t *c = db_car(&a->db, car2);
   c->active = false;
@@ -196,6 +201,20 @@ void test_estimate_rejects_bad_input(void) {
   cJSON *j = call(est(car2, B0, B0 + H, "&km=1"), tu1, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("no_tariff", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "tariff")));
+  cJSON_Delete(j);
+}
+
+void test_booking_create_has_price(void) {
+  char body[160];
+  snprintf(body, sizeof body, "{\"car_id\":%lld,\"start\":%lld,\"end\":%lld}", (long long)car1,
+           (long long)(T + DAY), (long long)(T + DAY + H));
+  api_res_t r = th_req(a, "POST", "/api/bookings", body, tu1, T);
+  TEST_ASSERT_NOT_NULL(r.body);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(201, r.status, r.body);
+  cJSON *j = cJSON_Parse(r.body);
+  api_res_free(&r);
+  TEST_ASSERT_NOT_NULL(j);
+  TEST_ASSERT_TRUE(cJSON_IsObject(cJSON_GetObjectItemCaseSensitive(j, "price")));
   cJSON_Delete(j);
 }
 
@@ -213,6 +232,7 @@ int main(void) {
   RUN_TEST(test_estimate_basic);
   RUN_TEST(test_estimate_club);
   RUN_TEST(test_estimate_rejects_bad_input);
+  RUN_TEST(test_booking_create_has_price);
   RUN_TEST(test_estimate_requires_login);
   return UNITY_END();
 }

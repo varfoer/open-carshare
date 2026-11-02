@@ -167,6 +167,15 @@ static void test_booking_cancelled(void) {
     TEST_ASSERT_EQUAL_INT64(500, p.cancel_fee_cents);
 }
 
+static void test_booking_club_trip_cancelled(void) {
+    booking_t b = bk(BK_CANCELLED); price_t p;
+    b.club_trip = true; b.cancel_fee_cents = 500;
+    price_booking(NULL, &S, &b, &p);
+    TEST_ASSERT_EQUAL_INT(PRICE_OK, p.status);
+    TEST_ASSERT_EQUAL_INT64(0, p.total_cents);
+    TEST_ASSERT_EQUAL_INT64(0, p.cancel_fee_cents);
+}
+
 static void test_booking_club_trip(void) {
     tariff_t t = cur(); booking_t b = bk(BK_DONE); price_t p;
     b.club_trip = true; b.actual_start = b.booked_start; b.actual_end = b.booked_end + 2 * H;
@@ -251,6 +260,7 @@ int main(void) {
     RUN_TEST(test_rounding_unused);
     RUN_TEST(test_cap_zero_means_none);
     RUN_TEST(test_booking_cancelled);
+    RUN_TEST(test_booking_club_trip_cancelled);
     RUN_TEST(test_booking_club_trip);
     RUN_TEST(test_booking_done);
     RUN_TEST(test_booking_km_pending);

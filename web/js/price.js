@@ -1,6 +1,9 @@
 // Price display for the server's booking `price` object. Money stays integer cents.
 import { formatEuro } from './money.js';
 
+// Permille -> German percent text: 500 -> "50", 125 -> "12,5".
+const pct = (permille) => String(permille / 10).replace('.', ',');
+
 export function priceSummary(price) {
   if (price.status === 'no_tariff') return 'Kein Tarif';
   if (price.status === 'km_pending') return `${formatEuro(price.total_cents)} + km (km ausstehend)`;
@@ -21,16 +24,16 @@ export function priceLines(price) {
   const t = price.tariff;
   const lines = [];
   if (t) {
-    const pct = `${t.unused_factor_permille / 10} %`;
+    const pctText = `${pct(t.unused_factor_permille)} %`;
     if (price.day_min) lines.push({ label: `${hours(price.day_min)} Tag × ${formatEuro(t.rate_day_cents_per_h)}`,
       cents: activeCents(price.day_min, t.rate_day_cents_per_h) });
     if (price.night_min) lines.push({ label: `${hours(price.night_min)} Nacht × ${formatEuro(t.rate_night_cents_per_h)}`,
       cents: activeCents(price.night_min, t.rate_night_cents_per_h) });
     if (price.unused_day_min) lines.push({
-      label: `${hours(price.unused_day_min)} ungenutzt Tag × ${formatEuro(t.rate_day_cents_per_h)} × ${pct}`,
+      label: `${hours(price.unused_day_min)} ungenutzt Tag × ${formatEuro(t.rate_day_cents_per_h)} × ${pctText}`,
       cents: unusedCents(price.unused_day_min, t.rate_day_cents_per_h, t.unused_factor_permille) });
     if (price.unused_night_min) lines.push({
-      label: `${hours(price.unused_night_min)} ungenutzt Nacht × ${formatEuro(t.rate_night_cents_per_h)} × ${pct}`,
+      label: `${hours(price.unused_night_min)} ungenutzt Nacht × ${formatEuro(t.rate_night_cents_per_h)} × ${pctText}`,
       cents: unusedCents(price.unused_night_min, t.rate_night_cents_per_h, t.unused_factor_permille) });
     if (price.km_cents) lines.push({ label: `${price.km} km × ${formatEuro(t.rate_km_cents)}`, cents: price.km_cents });
   }
@@ -42,7 +45,7 @@ export function priceLines(price) {
 }
 
 export function priceNote(tariff) {
-  return `Nicht genutzte Zeit ${tariff.unused_factor_permille / 10} %, Verspätung ${formatEuro(tariff.late_fee_cents_per_started_h)} je angefangene Stunde.`;
+  return `Nicht genutzte Zeit ${pct(tariff.unused_factor_permille)} %, Verspätung ${formatEuro(tariff.late_fee_cents_per_started_h)} je angefangene Stunde.`;
 }
 
 // Minutes after local midnight <-> "HH:MM"; null when invalid.
@@ -68,6 +71,6 @@ export function parsePercentToPermille(text) {
 export function tariffSummary(t) {
   return `Tag ${formatEuro(t.rate_day_cents_per_h)}/h, Nacht ${formatEuro(t.rate_night_cents_per_h)}/h ` +
     `(${minutesToHHMM(t.night_start)}–${minutesToHHMM(t.night_end)}), ${formatEuro(t.rate_km_cents)}/km, ` +
-    `ungenutzt ${t.unused_factor_permille / 10} %, Deckel ${formatEuro(t.time_cap_cents_per_day)} / ` +
+    `ungenutzt ${pct(t.unused_factor_permille)} %, Deckel ${formatEuro(t.time_cap_cents_per_day)} / ` +
     `${formatEuro(t.combined_cap_cents_per_day)} pro Tag, Verspätung ${formatEuro(t.late_fee_cents_per_started_h)}/h`;
 }
