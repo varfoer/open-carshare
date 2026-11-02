@@ -107,6 +107,7 @@ DEFINE_LOADER_X(users, user_t, users, n_users, cap_users, user_from_json)
 DEFINE_LOADER_X(cars, car_t, cars, n_cars, cap_cars, car_from_json)
 DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking_from_json)
 DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
+DEFINE_LOADER_X(tariffs, tariff_t, tariffs, n_tariffs, cap_tariffs, tariff_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
 DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
@@ -137,6 +138,7 @@ void db_free(db_t *db) {
   free(db->cars);
   free(db->bookings);
   free(db->damages);
+  free(db->tariffs);
   free(db->sessions);
   free(db->tokens);
   free(db->readings);
@@ -157,6 +159,7 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "cars.jsonl", load_cars);
   if (rc == 0) rc = load_file(db, "bookings.jsonl", load_bookings);
   if (rc == 0) rc = load_file(db, "damage_reports.jsonl", load_damages);
+  if (rc == 0) rc = load_file(db, "tariffs.jsonl", load_tariffs);
   if (rc == 0) {
     char photos[512];
     rc = table_path(db, "photos", photos, sizeof photos);
@@ -234,6 +237,22 @@ token_t *db_token(db_t *db, const char *token_hash) {
   return NULL;
 }
 
+tariff_t *db_tariff(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_tariffs; i++)
+    if (db->tariffs[i].id == id) return &db->tariffs[i];
+  return NULL;
+}
+
+const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts) {
+  const tariff_t *best = NULL;
+  for (size_t i = 0; i < db->n_tariffs; i++) {
+    const tariff_t *t = &db->tariffs[i];
+    if (t->car_id == car_id && t->valid_from <= ts && (!best || t->valid_from > best->valid_from))
+      best = t;
+  }
+  return best;
+}
+
 /* ---- writes ---- */
 
 /* Entity tables share the id logic: id==0 -> max+1 insert, else replace or insert. */
@@ -260,6 +279,29 @@ DEFINE_PUT_ENTITY(db_put_booking, booking_t, bookings, n_bookings, cap_bookings,
                   "bookings.jsonl", booking_to_json)
 DEFINE_PUT_ENTITY(db_put_damage, damage_report_t, damages, n_damages, cap_damages,
                   "damage_reports.jsonl", damage_report_to_json)
+DEFINE_PUT_ENTITY(db_put_tariff, tariff_t, tariffs, n_tariffs, cap_tariffs,
+                  "tariffs.jsonl", tariff_to_json)
+
+/* Removes one tariff; RAM restored if persisting fails. */
+int db_delete_tariff(db_t *db, int64_t id) {
+  size_t n = db->n_tariffs, at = n;
+  for (size_t i = 0; i < n; i++)
+    if (db->tariffs[i].id == id) at = i;
+  if (at == n) return -1;
+  tariff_t *copy = malloc(n * sizeof *copy);
+  if (!copy) return -1;
+  memcpy(copy, db->tariffs, n * sizeof *copy);
+  memmove(db->tariffs + at, db->tariffs + at + 1, (n - at - 1) * sizeof *copy);
+  db->n_tariffs = n - 1;
+  int rc = persist_table(db, "tariffs.jsonl", db->tariffs, n - 1, sizeof *copy,
+                         (to_json_fn)tariff_to_json);
+  if (rc != 0) {
+    memcpy(db->tariffs, copy, n * sizeof *copy);
+    db->n_tariffs = n;
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
 
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap) {
   int n = snprintf(out, cap, "%s/photos/r%lld-%d.jpg", db->dir, (long long)report_id, k);

@@ -19,6 +19,7 @@ cJSON *odometer_reading_to_json(const odometer_reading_t *v);
 cJSON *session_to_json(const session_t *v);
 cJSON *token_to_json(const token_t *v);
 cJSON *settings_to_json(const settings_t *v);
+cJSON *tariff_to_json(const tariff_t *v);
 
 int user_from_json(const cJSON *j, user_t *out);
 /* tracker_imei is optional on load (absent -> ""); present must be "" or imei_valid. */
@@ -33,6 +34,11 @@ int session_from_json(const cJSON *j, session_t *out);
 int token_from_json(const cJSON *j, token_t *out);
 /* Missing keys get defaults: start_tolerance_min 15, others 0. */
 int settings_from_json(const cJSON *j, settings_t *out);
+
+/* All keys required; -1 also if !tariff_valid. */
+int tariff_from_json(const cJSON *j, tariff_t *out);
+/* Money fields 0..10000000, night_start/night_end 0..1439, unused_factor_permille 0..1000. */
+bool tariff_valid(const tariff_t *t);
 
 /* True for exactly 15 ASCII digits. */
 bool imei_valid(const char *s);

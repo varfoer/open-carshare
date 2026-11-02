@@ -389,3 +389,57 @@ int settings_from_json(const cJSON *j, settings_t *out) {
     TRY(get_i64(j, "cancel_fee_cents", &out->cancel_fee_cents));
   return 0;
 }
+
+/* ---- tariff ---- */
+
+#define TARIFF_MAX_CENTS 10000000
+
+bool tariff_valid(const tariff_t *t) {
+  const int64_t money[] = {t->rate_day_cents_per_h, t->rate_night_cents_per_h, t->rate_km_cents,
+                           t->time_cap_cents_per_day, t->combined_cap_cents_per_day,
+                           t->late_fee_cents_per_started_h};
+  for (size_t i = 0; i < sizeof money / sizeof *money; i++)
+    if (money[i] < 0 || money[i] > TARIFF_MAX_CENTS) return false;
+  return t->night_start >= 0 && t->night_start <= 1439 && t->night_end >= 0 &&
+         t->night_end <= 1439 && t->unused_factor_permille >= 0 &&
+         t->unused_factor_permille <= 1000;
+}
+
+cJSON *tariff_to_json(const tariff_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "car_id", v->car_id));
+  PUT(put_i64(o, "valid_from", v->valid_from));
+  PUT(put_i64(o, "rate_day_cents_per_h", v->rate_day_cents_per_h));
+  PUT(put_i64(o, "rate_night_cents_per_h", v->rate_night_cents_per_h));
+  PUT(put_i64(o, "rate_km_cents", v->rate_km_cents));
+  PUT(put_i64(o, "night_start", v->night_start));
+  PUT(put_i64(o, "night_end", v->night_end));
+  PUT(put_i64(o, "unused_factor_permille", v->unused_factor_permille));
+  PUT(put_i64(o, "time_cap_cents_per_day", v->time_cap_cents_per_day));
+  PUT(put_i64(o, "combined_cap_cents_per_day", v->combined_cap_cents_per_day));
+  PUT(put_i64(o, "late_fee_cents_per_started_h", v->late_fee_cents_per_started_h));
+  PUT(put_i64(o, "created_at", v->created_at));
+  return o;
+}
+
+int tariff_from_json(const cJSON *j, tariff_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "car_id", &out->car_id));
+  TRY(get_i64(j, "valid_from", &out->valid_from));
+  TRY(get_i64(j, "rate_day_cents_per_h", &out->rate_day_cents_per_h));
+  TRY(get_i64(j, "rate_night_cents_per_h", &out->rate_night_cents_per_h));
+  TRY(get_i64(j, "rate_km_cents", &out->rate_km_cents));
+  TRY(get_int(j, "night_start", &out->night_start));
+  TRY(get_int(j, "night_end", &out->night_end));
+  TRY(get_int(j, "unused_factor_permille", &out->unused_factor_permille));
+  TRY(get_i64(j, "time_cap_cents_per_day", &out->time_cap_cents_per_day));
+  TRY(get_i64(j, "combined_cap_cents_per_day", &out->combined_cap_cents_per_day));
+  TRY(get_i64(j, "late_fee_cents_per_started_h", &out->late_fee_cents_per_started_h));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  if (!tariff_valid(out)) return -1;
+  return 0;
+}

@@ -466,6 +466,100 @@ void test_km_mail_day_persists(void) {
   db_free(&db);
 }
 
+static tariff_t mktariff(int64_t car_id, int64_t valid_from) {
+  tariff_t t;
+  memset(&t, 0, sizeof t);
+  t.car_id = car_id; t.valid_from = valid_from;
+  t.rate_day_cents_per_h = 300; t.rate_night_cents_per_h = 150; t.rate_km_cents = 30;
+  t.night_start = 1200; t.night_end = 360; t.unused_factor_permille = 500;
+  t.time_cap_cents_per_day = 3000; t.combined_cap_cents_per_day = 5000;
+  t.late_fee_cents_per_started_h = 1500; t.created_at = 50;
+  return t;
+}
+
+void test_tariffs_persist(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  tariff_t a = mktariff(1, 100), b = mktariff(1, 200);
+  b.rate_km_cents = 40;
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &b));
+  TEST_ASSERT_EQUAL_INT64(1, a.id);
+  TEST_ASSERT_EQUAL_INT64(2, b.id);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_tariffs);
+  TEST_ASSERT_EQUAL_INT64(100, db_tariff(&db, 1)->valid_from);
+  TEST_ASSERT_EQUAL_INT64(40, db_tariff(&db, 2)->rate_km_cents);
+  TEST_ASSERT_EQUAL_INT(1200, db_tariff(&db, 2)->night_start);
+  db_free(&db);
+}
+
+void test_tariff_at_picks_latest_valid(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  tariff_t b = mktariff(1, 200), a = mktariff(1, 100);
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &a));
+  TEST_ASSERT_EQUAL_INT64(100, db_tariff_at(&db, 1, 150)->valid_from);
+  TEST_ASSERT_EQUAL_INT64(200, db_tariff_at(&db, 1, 200)->valid_from);
+  TEST_ASSERT_NULL(db_tariff_at(&db, 1, 99));
+  db_free(&db);
+}
+
+void test_tariff_at_ignores_future_version(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  tariff_t a = mktariff(1, 500);
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &a));
+  TEST_ASSERT_NULL(db_tariff_at(&db, 1, 400));
+  db_free(&db);
+}
+
+void test_tariff_at_other_car(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  tariff_t a = mktariff(2, 100);
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &a));
+  TEST_ASSERT_NULL(db_tariff_at(&db, 1, 150));
+  TEST_ASSERT_NOT_NULL(db_tariff_at(&db, 2, 150));
+  db_free(&db);
+}
+
+void test_delete_tariff(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  tariff_t a = mktariff(1, 100), b = mktariff(1, 200);
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_delete_tariff(&db, a.id));
+  TEST_ASSERT_NULL(db_tariff(&db, a.id));
+  TEST_ASSERT_EQUAL_INT(-1, db_delete_tariff(&db, 99));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_tariffs);
+  TEST_ASSERT_NULL(db_tariff(&db, a.id));
+  TEST_ASSERT_NOT_NULL(db_tariff(&db, b.id));
+  db_free(&db);
+}
+
+void test_load_without_tariffs_file(void) {
+  db_t db;
+  car_t c;
+  memset(&c, 0, sizeof c);
+  snprintf(c.name, sizeof c.name, "A");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &c));
+  db_free(&db);
+  char p[300];
+  snprintf(p, sizeof p, "%s/tariffs.jsonl", dir);
+  TEST_ASSERT_NOT_EQUAL_INT(0, access(p, F_OK));
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_tariffs);
+  TEST_ASSERT_EQUAL_size_t(1, db.n_cars);
+  db_free(&db);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
@@ -493,5 +587,11 @@ int main(void) {
   RUN_TEST(test_reading_line_has_only_four_keys);
   RUN_TEST(test_car_by_imei);
   RUN_TEST(test_km_mail_day_persists);
+  RUN_TEST(test_tariffs_persist);
+  RUN_TEST(test_tariff_at_picks_latest_valid);
+  RUN_TEST(test_tariff_at_ignores_future_version);
+  RUN_TEST(test_tariff_at_other_car);
+  RUN_TEST(test_delete_tariff);
+  RUN_TEST(test_load_without_tariffs_file);
   return UNITY_END();
 }

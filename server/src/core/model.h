@@ -34,6 +34,16 @@ typedef struct {
 typedef struct { int64_t car_id, ts, odometer_m, received_at; } odometer_reading_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; } session_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; token_kind_t kind; bool used; } token_t;
+/* Versioned price list of one car; the version in force is the largest valid_from <= ts.
+ * Money in cents; night_*: minutes after local midnight; caps 0 = no cap. */
+typedef struct {
+  int64_t id, car_id, valid_from;
+  int64_t rate_day_cents_per_h, rate_night_cents_per_h, rate_km_cents;
+  int night_start, night_end;          /* 0..1439 */
+  int unused_factor_permille;          /* 0..1000 */
+  int64_t time_cap_cents_per_day, combined_cap_cents_per_day, late_fee_cents_per_started_h;
+  int64_t created_at;
+} tariff_t;
 typedef struct { int start_tolerance_min, cancel_deadline_min; int64_t cancel_fee_cents; } settings_t;
 
 #endif

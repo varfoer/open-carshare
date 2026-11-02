@@ -394,6 +394,77 @@ static void test_damage_rejects_bad_n_photos(void) {
     cJSON_Delete(j);
 }
 
+static tariff_t mktariff(void) {
+    tariff_t t;
+    memset(&t, 0, sizeof t);
+    t.id = 1; t.car_id = 1; t.valid_from = 1793919600;
+    t.rate_day_cents_per_h = 300; t.rate_night_cents_per_h = 150; t.rate_km_cents = 30;
+    t.night_start = 1200; t.night_end = 360; t.unused_factor_permille = 500;
+    t.time_cap_cents_per_day = 3000; t.combined_cap_cents_per_day = 5000;
+    t.late_fee_cents_per_started_h = 1500; t.created_at = 1793900000;
+    return t;
+}
+
+static void test_tariff_roundtrip(void) {
+    tariff_t v = mktariff(), r;
+    cJSON *j = tariff_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(13, cJSON_GetArraySize(j));
+    TEST_ASSERT_EQUAL_INT(0, tariff_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(1, r.id);
+    TEST_ASSERT_EQUAL_INT64(1, r.car_id);
+    TEST_ASSERT_EQUAL_INT64(1793919600, r.valid_from);
+    TEST_ASSERT_EQUAL_INT64(300, r.rate_day_cents_per_h);
+    TEST_ASSERT_EQUAL_INT64(150, r.rate_night_cents_per_h);
+    TEST_ASSERT_EQUAL_INT64(30, r.rate_km_cents);
+    TEST_ASSERT_EQUAL_INT(1200, r.night_start);
+    TEST_ASSERT_EQUAL_INT(360, r.night_end);
+    TEST_ASSERT_EQUAL_INT(500, r.unused_factor_permille);
+    TEST_ASSERT_EQUAL_INT64(3000, r.time_cap_cents_per_day);
+    TEST_ASSERT_EQUAL_INT64(5000, r.combined_cap_cents_per_day);
+    TEST_ASSERT_EQUAL_INT64(1500, r.late_fee_cents_per_started_h);
+    TEST_ASSERT_EQUAL_INT64(1793900000, r.created_at);
+    cJSON_Delete(j);
+}
+
+static void test_tariff_rejects_out_of_range(void) {
+    tariff_t v = mktariff(), r;
+    v.night_start = 1440;
+    TEST_ASSERT_FALSE(tariff_valid(&v));
+    cJSON *j = tariff_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(-1, tariff_from_json(j, &r));
+    cJSON_Delete(j);
+    v = mktariff();
+    v.unused_factor_permille = 1001;
+    j = tariff_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(-1, tariff_from_json(j, &r));
+    cJSON_Delete(j);
+    v = mktariff();
+    v.rate_km_cents = -1;
+    j = tariff_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(-1, tariff_from_json(j, &r));
+    cJSON_Delete(j);
+    v = mktariff();
+    v.late_fee_cents_per_started_h = 10000001;
+    TEST_ASSERT_FALSE(tariff_valid(&v));
+}
+
+static void test_tariff_requires_all_keys(void) {
+    const char *keys[] = {"id", "car_id", "valid_from", "rate_day_cents_per_h",
+                          "rate_night_cents_per_h", "rate_km_cents", "night_start", "night_end",
+                          "unused_factor_permille", "time_cap_cents_per_day",
+                          "combined_cap_cents_per_day", "late_fee_cents_per_started_h",
+                          "created_at"};
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        tariff_t v = mktariff(), r;
+        cJSON *j = tariff_to_json(&v);
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, tariff_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
@@ -427,5 +498,8 @@ int main(void) {
     RUN_TEST(test_token_roundtrip);
     RUN_TEST(test_settings_defaults_when_missing);
     RUN_TEST(test_settings_roundtrip_and_wrong_type);
+    RUN_TEST(test_tariff_roundtrip);
+    RUN_TEST(test_tariff_rejects_out_of_range);
+    RUN_TEST(test_tariff_requires_all_keys);
     return UNITY_END();
 }

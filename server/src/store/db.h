@@ -13,6 +13,7 @@ typedef struct {
   session_t *sessions; size_t n_sessions, cap_sessions;
   token_t *tokens; size_t n_tokens, cap_tokens;
   damage_report_t *damages; size_t n_damages, cap_damages;
+  tariff_t *tariffs; size_t n_tariffs, cap_tariffs;
   settings_t settings;
   odometer_reading_t *readings; size_t n_readings, cap_readings;
   int64_t km_mail_day;
@@ -30,6 +31,9 @@ car_t *db_car_by_imei(db_t *db, const char *imei); /* NULL for "" or no match; a
 booking_t *db_booking(db_t *db, int64_t id);
 damage_report_t *db_damage(db_t *db, int64_t id);
 token_t *db_token(db_t *db, const char *token_hash);
+tariff_t *db_tariff(db_t *db, int64_t id);
+/* Version of the car with the largest valid_from <= ts; NULL if none. */
+const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts);
 
 /* All return 0 on success, -1 if persisting failed; RAM is then restored to its
  * state before the call, including the id counter. */
@@ -37,6 +41,8 @@ int db_put_user(db_t *db, user_t *u);  /* id==0: assign max+1 and insert; else r
 int db_put_car(db_t *db, car_t *c);
 int db_put_booking(db_t *db, booking_t *b);
 int db_put_damage(db_t *db, damage_report_t *d);
+int db_put_tariff(db_t *db, tariff_t *t);      /* id==0: assign max+1 and insert; else replace */
+int db_delete_tariff(db_t *db, int64_t id);    /* -1 if unknown id or persisting failed */
 int db_put_settings(db_t *db, const settings_t *s);
 int db_put_session(db_t *db, const session_t *s);
 int db_delete_sessions(db_t *db, const char *token_hash, int64_t user_id); /* by hash if non-NULL, else all of user */
