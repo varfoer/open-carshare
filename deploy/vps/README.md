@@ -99,6 +99,12 @@ If sshd listens on a port other than 22, allow that port before `ufw enable`.
 
 Port 8080 stays closed; the server listens on loopback only.
 
+Only if `tracker_port` is set in `ocs.conf` (section 10), also open it:
+
+```sh
+sudo ufw allow 5027/tcp
+```
+
 ## 9. Interim backup
 
 Until mail backups arrive in a later phase, nightly tar via cron. The
@@ -115,6 +121,45 @@ sudo crontab -e
 
 Copy the archives off the VPS over a secure channel. Never send these
 archives by mail unencrypted (spec section 12).
+
+## 10. Teltonika tracker
+
+Optional. Set `tracker_port = 5027` in `/etc/ocs/ocs.conf` and restart the
+service (`sudo systemctl restart ocs-server`). The server then listens on
+`0.0.0.0:<tracker_port>` for Teltonika trackers: plain TCP (no TLS), Codec 8
+Extended (`0x8E`) only, no UDP, no Codec 8. Without the key the listener is
+disabled. Open the port in the firewall (section 8).
+
+Limits: at most 16 concurrent tracker connections; a connection must send
+its IMEI within 30 s; idle connections are closed after 900 s. The handshake
+accepts an IMEI only if it is set on a car (active or deactivated). Unknown
+IMEIs are logged as `tracker: unknown IMEI <imei>` (`journalctl -u
+ocs-server`). Only `car_id`, `ts`, `odometer_m` and `received_at` are stored,
+in `data/odometer_readings.jsonl` in the data directory; readings are pruned
+after 90 days.
+
+Settings in the Teltonika Configurator. Option names differ between
+firmware versions: check names in your firmware's Configurator.
+
+- GPRS: APN of the SIM (1NCE: `iot.1nce.net`). Server domain = the VPS host
+  name, port `5027` (the `tracker_port`), protocol TCP. Check names in your
+  firmware's Configurator.
+- System / data protocol: Codec 8 Extended. Check names in your firmware's
+  Configurator.
+- Data acquisition: on moving every 300 s, on stop every 3600 s; records on
+  movement start/stop; movement source movement sensor + GNSS (not
+  ignition). Check names in your firmware's Configurator.
+- I/O: Total Odometer enabled, odometer source GNSS, initial value =
+  dashboard km x 1000 (metres). Check names in your firmware's
+  Configurator.
+
+Then add the IMEI (device label) in the admin car form.
+
+Check: after the first drive the car's readings appear:
+
+```sh
+sudo tail /var/lib/ocs/odometer_readings.jsonl
+```
 
 ## Updating
 

@@ -24,3 +24,8 @@ smtp_pass = CHANGE-ME
 
 # Sender address of outgoing mail.
 mail_from = open-carshare <ocs@example.org>
+
+# Teltonika tracker TCP port (Codec 8 Extended, plain TCP, no TLS). Binds
+# 0.0.0.0 and must be open to the internet (see deploy/vps/README.md).
+# Integer 1..65535. Absent = tracker listener disabled.
+# tracker_port = 5027
