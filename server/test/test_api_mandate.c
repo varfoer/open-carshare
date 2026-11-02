@@ -28,6 +28,7 @@ static cJSON *do_req(const char *m, const char *body, int status, const char *co
   TEST_ASSERT_NOT_NULL(r.body);
   TEST_ASSERT_EQUAL_INT_MESSAGE(status, r.status, r.body);
   TEST_ASSERT_NULL(strstr(r.body, "0532013000"));
+  TEST_ASSERT_NULL(strstr(r.body, "98765432"));
   cJSON *j = cJSON_Parse(r.body);
   api_res_free(&r);
   TEST_ASSERT_NOT_NULL(j);
@@ -58,7 +59,7 @@ void test_get_not_ready(void) {
 }
 
 void test_get_ready_has_text(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON *j = do_req("GET", NULL, 200, NULL);
   TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "ready")));
   TEST_ASSERT_NOT_NULL(strstr(str(j, "text"), "Carsharing Testverein e.V."));
@@ -68,7 +69,7 @@ void test_get_ready_has_text(void) {
 void test_post_not_ready_409(void) { post(GOOD, 409, "no_creditor"); }
 
 void test_post_mandate_normalizes(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON *j = do_req("POST", GOOD, 201, NULL);
   cJSON *m = cJSON_GetObjectItemCaseSensitive(j, "mandate");
   TEST_ASSERT_EQUAL_STRING("OCS-000001", str(m, "ref"));
@@ -85,7 +86,7 @@ void test_post_mandate_normalizes(void) {
 }
 
 void test_post_rejects_bad_input(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013001\",\"text_version\":1,\"accept\":true}", 400, "invalid_iban");
   post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"bic\":\"XX\",\"text_version\":1,\"accept\":true}", 400, "invalid_bic");
   post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":false}", 400, "invalid");
@@ -99,12 +100,12 @@ void test_post_rejects_bad_input(void) {
 }
 
 void test_post_stale_text_version_409(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":0,\"accept\":true}", 409, "text_changed");
 }
 
 void test_post_same_data_is_idempotent(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post(GOOD, 201, NULL);
   cJSON *j = do_req("POST", GOOD, 200, NULL);
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "mail_sent")));
@@ -114,7 +115,7 @@ void test_post_same_data_is_idempotent(void) {
 }
 
 void test_post_new_iban_replaces(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post(GOOD, 201, NULL);
   post("{\"account_holder\":\"Anna Beispiel\",\"iban\":\"GB82WEST12345698765432\",\"text_version\":1,\"accept\":true}", 201, NULL);
   TEST_ASSERT_EQUAL_INT(2, (int)a->db.n_mandates);
@@ -130,7 +131,7 @@ void test_post_new_iban_replaces(void) {
 }
 
 void test_mandate_keeps_creditor_snapshot(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post(GOOD, 201, NULL);
   settings_t s = a->db.settings;
   snprintf(s.assoc_name, sizeof s.assoc_name, "Neuer Name e.V.");
@@ -142,12 +143,40 @@ void test_mandate_keeps_creditor_snapshot(void) {
 }
 
 void test_post_mail_failure_still_201(void) {
-  th_set_creditor(a);
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   th_mail_fail(1);
   cJSON *j = do_req("POST", GOOD, 201, NULL);
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "mail_sent")));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(1, (int)a->db.n_mandates);
+}
+
+void test_post_heals_second_active_row(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  mandate_t m;
+  memset(&m, 0, sizeof m);
+  m.user_id = uid;
+  m.status = MANDATE_ACTIVE;
+  m.created_at = 1;
+  m.text_version = 1;
+  snprintf(m.holder, sizeof m.holder, "Anna Beispiel");
+  snprintf(m.iban, sizeof m.iban, "GB82WEST12345698765432");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+  memset(&m, 0, sizeof m);
+  m.user_id = uid;
+  m.status = MANDATE_ACTIVE;
+  m.created_at = 2;
+  m.text_version = 1;
+  snprintf(m.holder, sizeof m.holder, "Anna Beispiel");
+  snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+  cJSON_Delete(do_req("POST", GOOD, 200, NULL));
+  int active = 0;
+  for (size_t i = 0; i < a->db.n_mandates; i++) active += a->db.mandates[i].status == MANDATE_ACTIVE;
+  TEST_ASSERT_EQUAL_INT(1, active);
+  TEST_ASSERT_EQUAL_INT(MANDATE_REPLACED, a->db.mandates[0].status);
+  TEST_ASSERT_EQUAL_INT64(T, a->db.mandates[0].ended_at);
+  TEST_ASSERT_EQUAL_INT64(2, db_mandate_current(&a->db, uid)->id);
 }
 
 int main(void) {
@@ -162,5 +191,6 @@ int main(void) {
   RUN_TEST(test_post_new_iban_replaces);
   RUN_TEST(test_mandate_keeps_creditor_snapshot);
   RUN_TEST(test_post_mail_failure_still_201);
+  RUN_TEST(test_post_heals_second_active_row);
   return UNITY_END();
 }

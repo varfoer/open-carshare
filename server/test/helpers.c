@@ -113,11 +113,11 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
   return id;
 }
 
-void th_set_creditor(app_t *a) {
+int th_set_creditor(app_t *a) {
   settings_t s = a->db.settings;
   snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
   snprintf(s.creditor_id, sizeof s.creditor_id, "DE98ZZZ09999999999");
-  db_put_settings(&a->db, &s);
+  return db_put_settings(&a->db, &s);
 }
 
 /* ---- requests ---- */

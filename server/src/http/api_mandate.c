@@ -78,6 +78,20 @@ static void trim(char *s) {
   if (i) memmove(s, s + i, strlen(s + i) + 1);
 }
 
+/* Ends every ACTIVE mandate of user_id except keep_id. Index loop with copy-then-put:
+ * pointers into the db die on a put. 0 ok, -1 storage failure. */
+static int end_other_active(app_t *a, int64_t user_id, int64_t keep_id, int64_t now) {
+  for (size_t i = 0; i < a->db.n_mandates; i++) {
+    mandate_t m = a->db.mandates[i];
+    if (m.user_id != user_id || m.status != MANDATE_ACTIVE || m.id == keep_id) continue;
+    m.status = MANDATE_REPLACED;
+    m.ended_at = now;
+    m.ended_by = user_id;
+    if (db_put_mandate(&a->db, &m) != 0) return -1;
+  }
+  return 0;
+}
+
 void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   const settings_t *s = &a->db.settings;
   if (!creditor_ready(s)) {
@@ -124,6 +138,10 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     old = *cur; /* copy: db pointers die on the next put */
     if (strcmp(old.holder, n.holder) == 0 && strcmp(old.iban, n.iban) == 0 &&
         strcmp(old.bic, n.bic) == 0) {
+      if (end_other_active(a, old.user_id, old.id, req->now) != 0) {
+        api_storage_error(res);
+        return;
+      }
       respond(res, 200, &old, false);
       return;
     }
@@ -140,14 +158,9 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     api_storage_error(res);
     return;
   }
-  if (have_old) {
-    old.status = MANDATE_REPLACED;
-    old.ended_at = req->now;
-    old.ended_by = ctx->user->id;
-    if (db_put_mandate(&a->db, &old) != 0) {
-      api_storage_error(res);
-      return;
-    }
+  if (end_other_active(a, n.user_id, n.id, req->now) != 0) {
+    api_storage_error(res);
+    return;
   }
   char body[4096];
   bool sent = mandate_mail_body(body, sizeof body, ctx->user->name, &n) >= 0 &&
