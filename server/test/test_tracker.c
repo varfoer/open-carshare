@@ -74,7 +74,7 @@ static size_t packet3(uint8_t *out, size_t cap) {
 }
 
 static void test_handshake_known_imei(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   uint8_t b[17];
   size_t n = imei_msg(b, IMEI);
   feed_t f = feed(&st, b, n);
@@ -91,7 +91,7 @@ static void test_handshake_inactive_car_accepted(void) {
   car_t copy = *c;
   copy.active = false;
   TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &copy));
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   uint8_t b[17];
   feed_t f = feed(&st, b, imei_msg(b, IMEI));
   TEST_ASSERT_EQUAL_INT(0, f.rc);
@@ -101,7 +101,7 @@ static void test_handshake_inactive_car_accepted(void) {
 }
 
 static void test_unknown_imei_rejected(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   uint8_t b[17];
   feed_t f = feed(&st, b, imei_msg(b, "999999999999999"));
   TEST_ASSERT_EQUAL_INT(-1, f.rc);
@@ -112,7 +112,7 @@ static void test_unknown_imei_rejected(void) {
 }
 
 static void test_imei_need_more(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   uint8_t b[17];
   imei_msg(b, IMEI);
   feed_t f = feed(&st, b, 10);
@@ -123,7 +123,7 @@ static void test_imei_need_more(void) {
 }
 
 static void test_packet_stores_readings_and_acks(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint8_t p[1024];
   size_t n = packet3(p, sizeof p);
@@ -146,7 +146,7 @@ static void test_packet_stores_readings_and_acks(void) {
 }
 
 static void test_packet_split_across_calls(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint8_t p[1024];
   size_t n = packet3(p, sizeof p);
@@ -163,7 +163,7 @@ static void test_packet_split_across_calls(void) {
 }
 
 static void test_resend_does_not_duplicate(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint8_t p[1024];
   size_t n = packet3(p, sizeof p);
@@ -176,7 +176,7 @@ static void test_resend_does_not_duplicate(void) {
 }
 
 static void test_duplicate_ts_within_packet_stored_once(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   int64_t ts[2] = {(T - 60) * 1000, (T - 60) * 1000 + 500};
   int64_t odo[2] = {5000, 5000};
@@ -189,7 +189,7 @@ static void test_duplicate_ts_within_packet_stored_once(void) {
 }
 
 static void test_bad_crc_closes_without_ack(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint8_t p[1024];
   size_t n = packet3(p, sizeof p);
@@ -201,7 +201,7 @@ static void test_bad_crc_closes_without_ack(void) {
 }
 
 static void test_oversize_length_closes(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint32_t dl = TLT_MAX_DATA_LEN + 1;
   uint8_t h[8] = {0, 0, 0, 0, (uint8_t)(dl >> 24), (uint8_t)(dl >> 16), (uint8_t)(dl >> 8), (uint8_t)dl};
@@ -211,7 +211,7 @@ static void test_oversize_length_closes(void) {
 }
 
 static void test_packet_before_handshake_rejected(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   uint8_t p[1024];
   size_t n = packet3(p, sizeof p);
   feed_t f = feed(&st, p, n);
@@ -221,7 +221,7 @@ static void test_packet_before_handshake_rejected(void) {
 }
 
 static void test_keepalive_ff(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   uint8_t b[1] = {0xFF};
   feed_t f = feed(&st, b, 1);
@@ -231,7 +231,7 @@ static void test_keepalive_ff(void) {
 }
 
 static void test_empty_input_needs_more(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   feed_t f = feed(&st, (const uint8_t *)"", 0);
   TEST_ASSERT_EQUAL_INT(0, f.rc);
@@ -240,7 +240,7 @@ static void test_empty_input_needs_more(void) {
 }
 
 static void test_implausible_timestamp_skipped(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   int64_t ts[4] = {(T + 3600) * 1000, (T + 600) * 1000, (T - 90 * 86400) * 1000,
                    (T - 90 * 86400 - 1) * 1000};
@@ -256,7 +256,7 @@ static void test_implausible_timestamp_skipped(void) {
 }
 
 static void test_storage_failure_no_ack(void) {
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   handshake(&st);
   char path[512];
   snprintf(path, sizeof path, "%s/odometer_readings.jsonl", a->cfg.data_dir);
@@ -269,6 +269,25 @@ static void test_storage_failure_no_ack(void) {
   TEST_ASSERT_EQUAL_INT(-1, f.rc);
   TEST_ASSERT_EQUAL_UINT(0, f.reply_len);
   TEST_ASSERT_EQUAL_UINT(0, a->db.n_readings);
+}
+
+static void test_expired_before_handshake_after_30s(void) {
+  tracker_conn_t st = {.car_id = 0, .last_rx = T + 25, .accepted_at = T};
+  TEST_ASSERT_FALSE(tracker_expired(&st, T + 29));
+  TEST_ASSERT_FALSE(tracker_expired(&st, T + 30));
+  TEST_ASSERT_TRUE(tracker_expired(&st, T + 31)); /* bytes received meanwhile do not help */
+}
+
+static void test_expired_after_handshake_by_idle(void) {
+  tracker_conn_t st = {.car_id = car_id, .last_rx = T, .accepted_at = T - 5000};
+  TEST_ASSERT_FALSE(tracker_expired(&st, T + 899));
+  TEST_ASSERT_FALSE(tracker_expired(&st, T + 900));
+  TEST_ASSERT_TRUE(tracker_expired(&st, T + 901));
+}
+
+static void test_expired_before_handshake_by_idle(void) {
+  tracker_conn_t st = {.car_id = 0, .last_rx = T - 1000, .accepted_at = T - 10};
+  TEST_ASSERT_TRUE(tracker_expired(&st, T));
 }
 
 int main(void) {
@@ -288,5 +307,8 @@ int main(void) {
   RUN_TEST(test_empty_input_needs_more);
   RUN_TEST(test_implausible_timestamp_skipped);
   RUN_TEST(test_storage_failure_no_ack);
+  RUN_TEST(test_expired_before_handshake_after_30s);
+  RUN_TEST(test_expired_after_handshake_by_idle);
+  RUN_TEST(test_expired_before_handshake_by_idle);
   return UNITY_END();
 }

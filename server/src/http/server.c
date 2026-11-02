@@ -14,7 +14,6 @@
 #define PRUNE_INTERVAL_MS (3600ULL * 1000ULL)
 #define EXPIRE_INTERVAL_MS (300ULL * 1000ULL)
 #define TRACKER_MAX_CONNS 16
-#define TRACKER_IDLE_S 900
 #define TRACKER_MAX_BUFFERED (TLT_MAX_DATA_LEN + 12) /* header 8 + data + CRC 4 */
 
 #define SEC_HEADERS \
@@ -212,6 +211,17 @@ static int tracker_conn_count(struct mg_mgr *mgr) {
   return n;
 }
 
+/* The rejected handshake is still unconsumed at the head of c->recv. Logs the
+ * IMEI only if it parsed; never any other stream bytes. */
+static void log_rejected_handshake(struct mg_connection *c) {
+  char imei[16];
+  size_t used = 0;
+  if (tlt_parse_imei(c->recv.buf, c->recv.len, imei, &used) == 1)
+    fprintf(stderr, "tracker: unknown IMEI %s\n", imei);
+  else
+    fprintf(stderr, "tracker: invalid handshake\n");
+}
+
 /* c->data is a char array: copied in and out, never cast (alignment).
  * Never logs record contents: the payload may carry positions. */
 static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
@@ -222,7 +232,7 @@ static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
   memcpy(&st, c->data, sizeof st);
   if (ev == MG_EV_ACCEPT) {
     memset(&st, 0, sizeof st);
-    st.last_rx = platform_now();
+    st.accepted_at = st.last_rx = platform_now();
     if (tracker_conn_count(c->mgr) > TRACKER_MAX_CONNS) c->is_closing = 1;
   } else if (ev == MG_EV_READ) {
     if (c->is_draining || c->is_closing) return;
@@ -235,6 +245,7 @@ static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
       if (reply_len > 0) mg_send(c, reply, reply_len);
       if (used > 0) mg_iobuf_del(&c->recv, 0, used);
       if (rc < 0) {
+        if (st.car_id == 0) log_rejected_handshake(c);
         c->is_draining = 1;
         break;
       }
@@ -242,7 +253,7 @@ static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
     }
     if (!c->is_draining && c->recv.len > TRACKER_MAX_BUFFERED) c->is_closing = 1;
   } else if (ev == MG_EV_POLL) {
-    if (platform_now() - st.last_rx > TRACKER_IDLE_S) c->is_closing = 1;
+    if (tracker_expired(&st, platform_now())) c->is_closing = 1;
   }
   memcpy(c->data, &st, sizeof st);
 }

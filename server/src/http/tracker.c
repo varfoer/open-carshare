@@ -69,6 +69,11 @@ static int packet(app_t *a, tracker_conn_t *st, const uint8_t *buf, size_t len, 
   return 0;
 }
 
+bool tracker_expired(const tracker_conn_t *st, int64_t now) {
+  if (st->car_id == 0 && now - st->accepted_at > TRACKER_HANDSHAKE_S) return true;
+  return now - st->last_rx > TRACKER_IDLE_S;
+}
+
 int tracker_feed(app_t *a, tracker_conn_t *st, const uint8_t *buf, size_t len, int64_t now,
                  uint8_t *reply, size_t *reply_len, size_t *used) {
   *reply_len = 0;

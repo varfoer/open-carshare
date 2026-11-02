@@ -60,7 +60,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (size > MAX_INPUT) return 0;
   if (!g_app) setup();
   /* Raw input as the first message: the handshake path. */
-  tracker_conn_t st = {0, 0};
+  tracker_conn_t st = {0};
   feed_all(&st, data, size);
   /* IMEI message first, so the input reaches the packet path. */
   static uint8_t buf[17 + MAX_INPUT];
