@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { priceSummary, priceLines, priceNote } from '../js/price.js';
+import { priceSummary, priceLines, priceNote, minutesToHHMM, hhmmToMinutes, parsePercentToPermille, tariffSummary } from '../js/price.js';
 
 const TARIFF = { id: 1, car_id: 1, valid_from: 0, rate_day_cents_per_h: 300, rate_night_cents_per_h: 150,
   rate_km_cents: 30, night_start: 1200, night_end: 360, unused_factor_permille: 500,
@@ -63,4 +63,28 @@ test('priceLines skips rate lines without tariff', () => {
 
 test('priceNote', () => {
   assert.equal(priceNote(TARIFF), 'Nicht genutzte Zeit 50 %, Verspätung 15,00 € je angefangene Stunde.');
+});
+
+test('HH:MM <-> minutes', () => {
+  assert.equal(minutesToHHMM(1200), '20:00');
+  assert.equal(minutesToHHMM(365), '06:05');
+  assert.equal(hhmmToMinutes('20:00'), 1200);
+  assert.equal(hhmmToMinutes('6:05'), 365);
+  assert.equal(hhmmToMinutes('24:00'), null);
+  assert.equal(hhmmToMinutes('12:60'), null);
+  assert.equal(hhmmToMinutes(''), null);
+});
+
+test('parsePercentToPermille', () => {
+  assert.equal(parsePercentToPermille('50'), 500);
+  assert.equal(parsePercentToPermille('12,5'), 125);
+  assert.equal(parsePercentToPermille('100'), 1000);
+  assert.equal(parsePercentToPermille('101'), null);
+  assert.equal(parsePercentToPermille('-1'), null);
+  assert.equal(parsePercentToPermille('1.25'), null);
+});
+
+test('tariffSummary', () => {
+  assert.equal(tariffSummary(TARIFF), 'Tag 3,00 €/h, Nacht 1,50 €/h (20:00–06:00), 0,30 €/km, ungenutzt 50 %, ' +
+    'Deckel 30,00 € / 50,00 € pro Tag, Verspätung 15,00 €/h');
 });

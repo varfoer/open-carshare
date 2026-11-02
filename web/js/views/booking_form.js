@@ -1,6 +1,8 @@
 import { api } from '../api.js';
 import { navigate, currentUser } from '../app.js';
 import { epochToBerlin, formatDateTime } from '../time.js';
+import { priceSummary, priceLines, priceNote } from '../price.js';
+import { formatEuro } from '../money.js';
 import { dateStr, timeStr, field, dateTime, toEpoch } from '../form_time.js';
 
 function parseEpoch(v, fallback) {
@@ -56,10 +58,82 @@ export async function render(root, params) {
   const clubLabel = document.createElement('label');
   clubLabel.className = 'check';
   clubLabel.append(club, ' Vereinsfahrt (wird nicht berechnet)');
+  // Estimate (planned km are only used for the estimate, never sent with the booking).
+  const km = document.createElement('input');
+  km.type = 'text';
+  km.inputMode = 'numeric';
+  km.value = '15';
+  const estimate = document.createElement('div');
+  estimate.className = 'estimate';
+  estimate.hidden = true;
+  const estTotal = document.createElement('p');
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'link';
+  toggle.textContent = 'Details';
+  toggle.setAttribute('aria-expanded', 'false');
+  const details = document.createElement('div');
+  details.hidden = true;
+  toggle.addEventListener('click', () => {
+    details.hidden = !details.hidden;
+    toggle.setAttribute('aria-expanded', String(!details.hidden));
+  });
+  estimate.append(estTotal, toggle, details);
   form.append(h1, carLine,
     field('Start', s.date, s.time), field('Ende', e.date, e.time),
+    field('Geplante Strecke (km)', km), estimate,
     ...(showClub ? [clubLabel] : []), hint, err, submit, back);
   root.append(form);
+
+  const showEstimate = (p) => {
+    estTotal.textContent = `Voraussichtlich ${priceSummary(p)}`;
+    details.replaceChildren();
+    if (p.status !== 'no_tariff') {
+      const dl = document.createElement('dl');
+      dl.className = 'price-lines';
+      const rows = [...priceLines(p), { label: 'Summe', cents: p.total_cents }];
+      for (const r of rows) {
+        const dt = document.createElement('dt');
+        dt.textContent = r.label;
+        const dd = document.createElement('dd');
+        dd.textContent = formatEuro(r.cents);
+        dl.append(dt, dd);
+      }
+      details.append(dl);
+      if (p.tariff) {
+        const note = document.createElement('p');
+        note.className = 'hint';
+        note.textContent = priceNote(p.tariff);
+        details.append(note);
+      }
+    }
+    toggle.hidden = p.status === 'no_tariff';
+    if (toggle.hidden) details.hidden = true;
+    estimate.hidden = false;
+  };
+  let seq = 0, timer = null;
+  const refreshEstimate = async () => {
+    const my = ++seq;
+    const kmText = km.value.trim();
+    if (!s.date.value || !e.date.value || !/^\d{1,8}$/.test(kmText)) { estimate.hidden = true; return; }
+    const start = booking && s.date.disabled ? booking.booked_start : toEpoch(s);
+    const end = toEpoch(e);
+    if (end <= start) { estimate.hidden = true; return; }
+    const q = `car=${carId}&start=${start}&end=${end}&km=${Number(kmText)}${club.checked ? '&club=1' : ''}`;
+    try {
+      const p = await api('GET', `/api/price-estimate?${q}`);
+      if (my === seq) showEstimate(p);
+    } catch { if (my === seq) estimate.hidden = true; }
+  };
+  const scheduleEstimate = () => {
+    ++seq; // drop responses of older requests right away
+    clearTimeout(timer);
+    timer = setTimeout(refreshEstimate, 300);
+  };
+  for (const c of [s.date, s.time, e.date, e.time, km, club]) {
+    c.addEventListener('input', scheduleEstimate);
+    c.addEventListener('change', scheduleEstimate);
+  }
 
   if (booking) {
     // Extend only: end may not move before the current end; start may move
@@ -89,6 +163,8 @@ export async function render(root, params) {
     constrain(e, booking.booked_end, 1);
     if (startEditable) constrain(s, booking.booked_start, -1);
   }
+
+  refreshEstimate();
 
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();

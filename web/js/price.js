@@ -44,3 +44,30 @@ export function priceLines(price) {
 export function priceNote(tariff) {
   return `Nicht genutzte Zeit ${tariff.unused_factor_permille / 10} %, Verspätung ${formatEuro(tariff.late_fee_cents_per_started_h)} je angefangene Stunde.`;
 }
+
+// Minutes after local midnight <-> "HH:MM"; null when invalid.
+export function minutesToHHMM(min) {
+  return `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`;
+}
+
+export function hhmmToMinutes(text) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(text).trim());
+  if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+// "75" / "75,5" -> permille (percent * 10), integer string math; null when invalid or > 100 %.
+export function parsePercentToPermille(text) {
+  const m = /^(\d{1,3})(?:[.,](\d))?$/.exec(String(text).trim());
+  if (!m) return null;
+  const p = Number(m[1]) * 10 + Number(m[2] || 0);
+  return p <= 1000 ? p : null;
+}
+
+// One-line tariff description (admin list), without the valid_from prefix.
+export function tariffSummary(t) {
+  return `Tag ${formatEuro(t.rate_day_cents_per_h)}/h, Nacht ${formatEuro(t.rate_night_cents_per_h)}/h ` +
+    `(${minutesToHHMM(t.night_start)}–${minutesToHHMM(t.night_end)}), ${formatEuro(t.rate_km_cents)}/km, ` +
+    `ungenutzt ${t.unused_factor_permille / 10} %, Deckel ${formatEuro(t.time_cap_cents_per_day)} / ` +
+    `${formatEuro(t.combined_cap_cents_per_day)} pro Tag, Verspätung ${formatEuro(t.late_fee_cents_per_started_h)}/h`;
+}

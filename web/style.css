@@ -79,3 +79,9 @@ label.check input { display: inline-block; width: auto; margin: 0; }
 .view form.card button.btn { margin-top: .5rem; }
 .damage-photos { display: flex; flex-wrap: wrap; gap: .5rem; }
 .damage-photos img { width: 8rem; height: 8rem; object-fit: cover; border-radius: .25rem; }
+
+.estimate p { margin: .5rem 0 0; font-weight: 600; }
+button.link { background: none; border: 0; padding: 0; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; font: inherit; min-height: 0; width: auto; }
+dl.price-lines { display: grid; grid-template-columns: 1fr auto; gap: .25rem 1rem; margin: .5rem 0; }
+dl.price-lines dt, dl.price-lines dd { margin: 0; }
+dl.price-lines dd { text-align: right; }
