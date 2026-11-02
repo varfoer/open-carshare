@@ -1,7 +1,7 @@
 #ifndef OCS_HTTP_API_INTERNAL_H
 #define OCS_HTTP_API_INTERNAL_H
 
-/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c).
+/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c).
  * To add an endpoint: declare its handler here, implement it in the endpoint
  * file, and add a row to ROUTES in api.c. */
 
@@ -12,6 +12,7 @@
 #include "app.h"
 #include "cJSON.h"
 #include "core/model.h"
+#include "core/pricing.h"
 #include "http/api.h"
 
 typedef enum { MIN_PUBLIC = 0, MIN_USER, MIN_ADMIN } min_role_t;
@@ -106,5 +107,12 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
 void h_admin_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_tariff_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_price.c */
+/* booking_to_json plus "price" (tariff of the car at booked_start). NULL on OOM. */
+cJSON *api_booking_json(app_t *a, const booking_t *b);
+/* Every price_t number by name, status as string, "tariff" = tariff_to_json(t) or null. NULL on OOM. */
+cJSON *price_to_json(const price_t *p, const tariff_t *t);
+void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 #endif

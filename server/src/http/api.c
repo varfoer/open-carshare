@@ -40,6 +40,7 @@ static const route_t ROUTES[] = {
     {"GET", "/api/bookings/*/damage", h_damage_get, MIN_USER, BODY_JSON},
     {"POST", "/api/damage/*/photos", h_photo_post, MIN_USER, BODY_JPEG},
     {"GET", "/api/damage/*/photos/*", h_photo_get, MIN_USER, BODY_JSON},
+    {"GET", "/api/price-estimate", h_price_estimate, MIN_USER, BODY_JSON},
     {"GET", "/api/settings/public", h_settings_public, MIN_USER, BODY_JSON},
     {"GET", "/api/admin/users", h_admin_users_get, MIN_ADMIN, BODY_JSON},
     {"POST", "/api/admin/users", h_admin_user_post, MIN_ADMIN, BODY_JSON},
