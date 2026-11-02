@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "core/model.h"
 
 #define MANDATE_TEXT_VERSION 1
 #define SEPA_HOLDER_MAX_CHARS 70
@@ -16,5 +17,7 @@ bool creditor_id_valid(const char *ci);    /* normalized */
 void iban_mask(const char *iban, char *out, size_t cap);   /* "DE89 **** 3000"; "" if strlen < 8 */
 void mandate_ref(int64_t id, char *out, size_t cap);       /* "OCS-000012" */
 int  mandate_text(char *out, size_t cap, const char *creditor_name, const char *creditor_id); /* length or -1 */
+/* Confirmation mail text for a given mandate; length or -1. */
+int  mandate_mail_body(char *out, size_t cap, const char *user_name, const mandate_t *m);
 
 #endif

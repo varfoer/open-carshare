@@ -19,6 +19,7 @@ cJSON *odometer_reading_to_json(const odometer_reading_t *v);
 cJSON *session_to_json(const session_t *v);
 cJSON *token_to_json(const token_t *v);
 cJSON *settings_to_json(const settings_t *v);
+cJSON *mandate_to_json(const mandate_t *v);
 cJSON *tariff_to_json(const tariff_t *v);
 
 int user_from_json(const cJSON *j, user_t *out);
@@ -34,6 +35,8 @@ int session_from_json(const cJSON *j, session_t *out);
 int token_from_json(const cJSON *j, token_t *out);
 /* Missing keys get defaults: start_tolerance_min 15, others 0. */
 int settings_from_json(const cJSON *j, settings_t *out);
+/* All keys required; -1 also if iban is not iban_valid or bic is neither "" nor bic_valid. */
+int mandate_from_json(const cJSON *j, mandate_t *out);
 
 /* All keys required; -1 also if !tariff_valid. */
 int tariff_from_json(const cJSON *j, tariff_t *out);

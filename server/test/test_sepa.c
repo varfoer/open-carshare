@@ -77,6 +77,25 @@ static void test_mandate_text_fills_creditor(void) {
     TEST_ASSERT_EQUAL_INT(-1, mandate_text(out, 10, "Carsharing Testverein e.V.", "DE98ZZZ09999999999"));
 }
 
+static void test_mandate_mail_body(void) {
+    mandate_t m = {.id = 3, .user_id = 7};
+    snprintf(m.holder, sizeof m.holder, "Max Mustermann");
+    snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+    snprintf(m.creditor_name, sizeof m.creditor_name, "Carsharing Testverein e.V.");
+    snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
+    char out[4096];
+    int n = mandate_mail_body(out, sizeof out, "Erika", &m);
+    TEST_ASSERT_TRUE(n > 0);
+    TEST_ASSERT_EQUAL_size_t((size_t)n, strlen(out));
+    TEST_ASSERT_EQUAL_INT(0, strncmp(out, "Hallo Erika,\n\ndu hast online ein SEPA-Lastschriftmandat erteilt.\n\n", 63));
+    TEST_ASSERT_NOT_NULL(strstr(out, "Mandatsreferenz: OCS-000003"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "Kontoinhaber: Max Mustermann"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "IBAN: DE89 **** 3000"));
+    TEST_ASSERT_NULL(strstr(out, "DE89370400440532013000"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "Ich ermächtige Carsharing Testverein e.V., Zahlungen"));
+    TEST_ASSERT_EQUAL_INT(-1, mandate_mail_body(out, 20, "Erika", &m));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_normalize_iban_spaces_lowercase);
@@ -86,5 +105,6 @@ int main(void) {
     RUN_TEST(test_iban_mask);
     RUN_TEST(test_mandate_ref);
     RUN_TEST(test_mandate_text_fills_creditor);
+    RUN_TEST(test_mandate_mail_body);
     return UNITY_END();
 }

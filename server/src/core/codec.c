@@ -1,4 +1,5 @@
 #include "core/codec.h"
+#include "core/sepa.h"
 
 #include <string.h>
 
@@ -112,6 +113,7 @@ static const char *const STATE_NAMES[] = {"reserved", "active", "done", "cancell
 static const char *const KIND_NAMES[] = {"reset", "invite"};
 static const char *const KM_SOURCE_NAMES[] = {"none", "telematics", "manual"};
 static const char *const PHASE_NAMES[] = {"start", "end"};
+static const char *const MANDATE_STATUS_NAMES[] = {"active", "replaced", "revoked"};
 
 static const char *enum_name(const char *const *names, int count, int v) {
   return (v >= 0 && v < count) ? names[v] : names[0];
@@ -373,6 +375,13 @@ cJSON *settings_to_json(const settings_t *v) {
   PUT(put_i64(o, "start_tolerance_min", v->start_tolerance_min));
   PUT(put_i64(o, "cancel_deadline_min", v->cancel_deadline_min));
   PUT(put_i64(o, "cancel_fee_cents", v->cancel_fee_cents));
+  PUT(put_str(o, "assoc_name", v->assoc_name, sizeof v->assoc_name));
+  PUT(put_str(o, "assoc_street", v->assoc_street, sizeof v->assoc_street));
+  PUT(put_str(o, "assoc_zip", v->assoc_zip, sizeof v->assoc_zip));
+  PUT(put_str(o, "assoc_city", v->assoc_city, sizeof v->assoc_city));
+  PUT(put_str(o, "creditor_id", v->creditor_id, sizeof v->creditor_id));
+  PUT(put_str(o, "creditor_iban", v->creditor_iban, sizeof v->creditor_iban));
+  PUT(put_str(o, "creditor_bic", v->creditor_bic, sizeof v->creditor_bic));
   return o;
 }
 
@@ -387,6 +396,64 @@ int settings_from_json(const cJSON *j, settings_t *out) {
     TRY(get_int(j, "cancel_deadline_min", &out->cancel_deadline_min));
   if (cJSON_GetObjectItemCaseSensitive(j, "cancel_fee_cents"))
     TRY(get_i64(j, "cancel_fee_cents", &out->cancel_fee_cents));
+  /* String keys default to "" when missing. */
+#define SETTINGS_STR(field)                                                   \
+  if (cJSON_GetObjectItemCaseSensitive(j, #field))                            \
+    TRY(get_str(j, #field, out->field, sizeof out->field))
+  SETTINGS_STR(assoc_name);
+  SETTINGS_STR(assoc_street);
+  SETTINGS_STR(assoc_zip);
+  SETTINGS_STR(assoc_city);
+  SETTINGS_STR(creditor_id);
+  SETTINGS_STR(creditor_iban);
+  SETTINGS_STR(creditor_bic);
+#undef SETTINGS_STR
+  return 0;
+}
+
+/* ---- mandate ---- */
+
+cJSON *mandate_to_json(const mandate_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  /* put_str truncates at 255; holder is up to 255 chars, so it is length-checked here. */
+  if (strnlen(v->holder, sizeof v->holder) >= sizeof v->holder) PUT(-1);
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_i64(o, "created_at", v->created_at));
+  PUT(put_i64(o, "ended_at", v->ended_at));
+  PUT(put_i64(o, "ended_by", v->ended_by));
+  PUT(put_cstr(o, "status", enum_name(MANDATE_STATUS_NAMES, 3, v->status)));
+  PUT(put_cstr(o, "holder", v->holder));
+  PUT(put_str(o, "iban", v->iban, sizeof v->iban));
+  PUT(put_str(o, "bic", v->bic, sizeof v->bic));
+  PUT(put_str(o, "client_ip", v->client_ip, sizeof v->client_ip));
+  PUT(put_i64(o, "text_version", v->text_version));
+  PUT(put_str(o, "creditor_name", v->creditor_name, sizeof v->creditor_name));
+  PUT(put_str(o, "creditor_id", v->creditor_id, sizeof v->creditor_id));
+  return o;
+}
+
+int mandate_from_json(const cJSON *j, mandate_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  int status;
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "user_id", &out->user_id));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  TRY(get_i64(j, "ended_at", &out->ended_at));
+  TRY(get_i64(j, "ended_by", &out->ended_by));
+  TRY(get_enum(j, "status", MANDATE_STATUS_NAMES, 3, &status));
+  out->status = (mandate_status_t)status;
+  TRY(get_str(j, "holder", out->holder, sizeof out->holder));
+  TRY(get_str(j, "iban", out->iban, sizeof out->iban));
+  TRY(get_str(j, "bic", out->bic, sizeof out->bic));
+  TRY(get_str(j, "client_ip", out->client_ip, sizeof out->client_ip));
+  TRY(get_int(j, "text_version", &out->text_version));
+  TRY(get_str(j, "creditor_name", out->creditor_name, sizeof out->creditor_name));
+  TRY(get_str(j, "creditor_id", out->creditor_id, sizeof out->creditor_id));
+  if (!iban_valid(out->iban)) return -1;
+  if (out->bic[0] && !bic_valid(out->bic)) return -1;
   return 0;
 }
 

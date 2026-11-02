@@ -543,6 +543,55 @@ void test_delete_tariff(void) {
   db_free(&db);
 }
 
+static mandate_t mkmandate(int64_t user_id, mandate_status_t st) {
+  mandate_t m;
+  memset(&m, 0, sizeof m);
+  m.user_id = user_id; m.status = st; m.created_at = 100; m.text_version = 1;
+  snprintf(m.holder, sizeof m.holder, "Max Mustermann");
+  snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+  snprintf(m.creditor_name, sizeof m.creditor_name, "Verein");
+  snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
+  return m;
+}
+
+void test_mandate_put_and_current(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  mandate_t a = mkmandate(7, MANDATE_REPLACED), b = mkmandate(7, MANDATE_ACTIVE);
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&db, &b));
+  TEST_ASSERT_EQUAL_INT64(1, a.id);
+  TEST_ASSERT_EQUAL_INT64(2, b.id);
+  TEST_ASSERT_EQUAL_INT64(2, db_mandate_current(&db, 7)->id);
+  TEST_ASSERT_NULL(db_mandate_current(&db, 8));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_mandates);
+  TEST_ASSERT_EQUAL_INT64(2, db_mandate_current(&db, 7)->id);
+  TEST_ASSERT_NULL(db_mandate_current(&db, 8));
+  TEST_ASSERT_EQUAL_INT(MANDATE_REPLACED, db_mandate(&db, 1)->status);
+  db_mandate(&db, 2)->status = MANDATE_REVOKED;
+  TEST_ASSERT_NULL(db_mandate_current(&db, 7));
+  db_free(&db);
+}
+
+void test_load_without_mandates_file(void) {
+  db_t db;
+  car_t c;
+  memset(&c, 0, sizeof c);
+  snprintf(c.name, sizeof c.name, "A");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &c));
+  db_free(&db);
+  char p[300];
+  snprintf(p, sizeof p, "%s/mandates.jsonl", dir);
+  TEST_ASSERT_NOT_EQUAL_INT(0, access(p, F_OK));
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_mandates);
+  TEST_ASSERT_EQUAL_size_t(1, db.n_cars);
+  db_free(&db);
+}
+
 void test_load_without_tariffs_file(void) {
   db_t db;
   car_t c;
@@ -563,6 +612,8 @@ void test_load_without_tariffs_file(void) {
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
+  RUN_TEST(test_mandate_put_and_current);
+  RUN_TEST(test_load_without_mandates_file);
   RUN_TEST(test_load_dir_too_long);
   RUN_TEST(test_put_assigns_ids_and_persists);
   RUN_TEST(test_put_replaces_existing);

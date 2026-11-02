@@ -385,7 +385,10 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
     api_invalid(res);
     return;
   }
-  settings_t s = {(int)tol, (int)dl, fee};
+  settings_t s = a->db.settings; /* keep association/creditor fields */
+  s.start_tolerance_min = (int)tol;
+  s.cancel_deadline_min = (int)dl;
+  s.cancel_fee_cents = fee;
   if (db_put_settings(&a->db, &s) != 0) { api_storage_error(res); return; }
   settings_response(res, &s);
 }

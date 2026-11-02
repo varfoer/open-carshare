@@ -44,6 +44,20 @@ typedef struct {
   int64_t time_cap_cents_per_day, combined_cap_cents_per_day, late_fee_cents_per_started_h;
   int64_t created_at;
 } tariff_t;
-typedef struct { int start_tolerance_min, cancel_deadline_min; int64_t cancel_fee_cents; } settings_t;
+typedef struct {
+  int start_tolerance_min, cancel_deadline_min;
+  int64_t cancel_fee_cents;
+  char assoc_name[96], assoc_street[96], assoc_zip[16], assoc_city[64];
+  char creditor_id[36], creditor_iban[35], creditor_bic[12];
+} settings_t;
+typedef enum { MANDATE_ACTIVE = 0, MANDATE_REPLACED, MANDATE_REVOKED } mandate_status_t;
+typedef struct {
+  int64_t id, user_id, created_at;      /* created_at = mandate_date */
+  int64_t ended_at, ended_by;           /* 0 while active; ended_by = acting user id */
+  mandate_status_t status;
+  char holder[256], iban[35], bic[12];  /* bic "" = none */
+  char client_ip[64]; int text_version;
+  char creditor_name[96], creditor_id[36];  /* snapshot at creation */
+} mandate_t;
 
 #endif

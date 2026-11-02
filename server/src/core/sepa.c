@@ -102,3 +102,20 @@ int mandate_text(char *out, size_t cap, const char *creditor_name, const char *c
     if (n < 0 || (size_t)n >= cap) return -1;
     return n;
 }
+
+int mandate_mail_body(char *out, size_t cap, const char *user_name, const mandate_t *m) {
+    char ref[16], masked[48], text[2048];
+    mandate_ref(m->id, ref, sizeof ref);
+    iban_mask(m->iban, masked, sizeof masked);
+    if (mandate_text(text, sizeof text, m->creditor_name, m->creditor_id) < 0) return -1;
+    int n = snprintf(out, cap,
+        "Hallo %s,\n\n"
+        "du hast online ein SEPA-Lastschriftmandat erteilt.\n\n"
+        "Mandatsreferenz: %s\n"
+        "Kontoinhaber: %s\n"
+        "IBAN: %s\n\n"
+        "%s",
+        user_name, ref, m->holder, masked, text);
+    if (n < 0 || (size_t)n >= cap) return -1;
+    return n;
+}

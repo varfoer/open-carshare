@@ -14,6 +14,7 @@ typedef struct {
   token_t *tokens; size_t n_tokens, cap_tokens;
   damage_report_t *damages; size_t n_damages, cap_damages;
   tariff_t *tariffs; size_t n_tariffs, cap_tariffs;
+  mandate_t *mandates; size_t n_mandates, cap_mandates;
   settings_t settings;
   odometer_reading_t *readings; size_t n_readings, cap_readings;
   int64_t km_mail_day;
@@ -32,6 +33,8 @@ booking_t *db_booking(db_t *db, int64_t id);
 damage_report_t *db_damage(db_t *db, int64_t id);
 token_t *db_token(db_t *db, const char *token_hash);
 tariff_t *db_tariff(db_t *db, int64_t id);
+mandate_t *db_mandate(db_t *db, int64_t id);
+const mandate_t *db_mandate_current(const db_t *db, int64_t user_id); /* status ACTIVE, largest id; NULL if none */
 /* Version of the car with the largest valid_from <= ts; NULL if none. */
 const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts);
 
@@ -42,6 +45,7 @@ int db_put_car(db_t *db, car_t *c);
 int db_put_booking(db_t *db, booking_t *b);
 int db_put_damage(db_t *db, damage_report_t *d);
 int db_put_tariff(db_t *db, tariff_t *t);      /* id==0: assign max+1 and insert; else replace */
+int db_put_mandate(db_t *db, mandate_t *m);   /* id==0: assign max+1 and insert; else replace */
 int db_delete_tariff(db_t *db, int64_t id);    /* -1 if unknown id or persisting failed */
 int db_put_settings(db_t *db, const settings_t *s);
 int db_put_session(db_t *db, const session_t *s);

@@ -300,6 +300,118 @@ static void test_settings_defaults_when_missing(void) {
     cJSON_Delete(j);
 }
 
+static mandate_t mkmandate(void) {
+    mandate_t m = {.id = 3, .user_id = 7, .created_at = 1793919600, .ended_at = 1793920000,
+                   .ended_by = 9, .status = MANDATE_REVOKED, .text_version = 1};
+    snprintf(m.holder, sizeof m.holder, "Max Mustermann");
+    snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+    snprintf(m.bic, sizeof m.bic, "COBADEFFXXX");
+    snprintf(m.client_ip, sizeof m.client_ip, "203.0.113.5");
+    snprintf(m.creditor_name, sizeof m.creditor_name, "Carsharing Testverein e.V.");
+    snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
+    return m;
+}
+
+static void test_mandate_roundtrip(void) {
+    mandate_t v = mkmandate(), r;
+    cJSON *j = mandate_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(0, mandate_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(3, r.id);
+    TEST_ASSERT_EQUAL_INT64(7, r.user_id);
+    TEST_ASSERT_EQUAL_INT64(1793919600, r.created_at);
+    TEST_ASSERT_EQUAL_INT64(1793920000, r.ended_at);
+    TEST_ASSERT_EQUAL_INT64(9, r.ended_by);
+    TEST_ASSERT_EQUAL_INT(MANDATE_REVOKED, r.status);
+    TEST_ASSERT_EQUAL_STRING("Max Mustermann", r.holder);
+    TEST_ASSERT_EQUAL_STRING("DE89370400440532013000", r.iban);
+    TEST_ASSERT_EQUAL_STRING("COBADEFFXXX", r.bic);
+    TEST_ASSERT_EQUAL_STRING("203.0.113.5", r.client_ip);
+    TEST_ASSERT_EQUAL_INT(1, r.text_version);
+    TEST_ASSERT_EQUAL_STRING("Carsharing Testverein e.V.", r.creditor_name);
+    TEST_ASSERT_EQUAL_STRING("DE98ZZZ09999999999", r.creditor_id);
+    cJSON_Delete(j);
+    v.status = MANDATE_REPLACED;
+    v.bic[0] = 0;
+    j = mandate_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, mandate_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(MANDATE_REPLACED, r.status);
+    TEST_ASSERT_EQUAL_STRING("", r.bic);
+    cJSON_Delete(j);
+}
+
+static void test_mandate_rejects_bad_iban(void) {
+    mandate_t v = mkmandate(), r;
+    snprintf(v.iban, sizeof v.iban, "DE89370400440532013001");
+    cJSON *j = mandate_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(-1, mandate_from_json(j, &r));
+    cJSON_Delete(j);
+    v = mkmandate();
+    snprintf(v.bic, sizeof v.bic, "bad");
+    j = mandate_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(-1, mandate_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
+static void test_mandate_requires_all_keys(void) {
+    const char *keys[] = {"id", "user_id", "created_at", "ended_at", "ended_by", "status", "holder",
+                          "iban", "bic", "client_ip", "text_version", "creditor_name", "creditor_id"};
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        mandate_t v = mkmandate(), r;
+        cJSON *j = mandate_to_json(&v);
+        TEST_ASSERT_EQUAL_INT(13, cJSON_GetArraySize(j));
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, mandate_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
+static void test_mandate_long_holder_not_truncated(void) {
+    mandate_t v = mkmandate(), r;
+    memset(v.holder, 'a', 255);
+    v.holder[255] = 0;
+    cJSON *j = mandate_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(0, mandate_from_json(j, &r));
+    TEST_ASSERT_EQUAL_size_t(255, strlen(r.holder));
+    cJSON_Delete(j);
+    memset(v.holder, 'a', 256);   /* unterminated */
+    TEST_ASSERT_NULL(mandate_to_json(&v));
+}
+
+static void test_settings_strings_default_empty(void) {
+    cJSON *j = cJSON_Parse("{}");
+    settings_t s;
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &s));
+    TEST_ASSERT_EQUAL_INT(15, s.start_tolerance_min);
+    TEST_ASSERT_EQUAL_INT(0, s.assoc_name[0]);
+    TEST_ASSERT_EQUAL_INT(0, s.creditor_id[0]);
+    TEST_ASSERT_EQUAL_INT(0, s.creditor_iban[0]);
+    TEST_ASSERT_EQUAL_INT(0, s.creditor_bic[0]);
+    cJSON_Delete(j);
+}
+
+static void test_settings_strings_roundtrip(void) {
+    settings_t s = {.start_tolerance_min = 15}, r;
+    snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
+    snprintf(s.assoc_street, sizeof s.assoc_street, "Hauptstr. 1");
+    snprintf(s.assoc_zip, sizeof s.assoc_zip, "20095");
+    snprintf(s.assoc_city, sizeof s.assoc_city, "Hamburg");
+    snprintf(s.creditor_id, sizeof s.creditor_id, "DE98ZZZ09999999999");
+    snprintf(s.creditor_iban, sizeof s.creditor_iban, "DE89370400440532013000");
+    snprintf(s.creditor_bic, sizeof s.creditor_bic, "COBADEFFXXX");
+    cJSON *j = settings_to_json(&s);
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &r));
+    TEST_ASSERT_EQUAL_STRING("Carsharing Testverein e.V.", r.assoc_name);
+    TEST_ASSERT_EQUAL_STRING("Hauptstr. 1", r.assoc_street);
+    TEST_ASSERT_EQUAL_STRING("20095", r.assoc_zip);
+    TEST_ASSERT_EQUAL_STRING("Hamburg", r.assoc_city);
+    TEST_ASSERT_EQUAL_STRING("DE98ZZZ09999999999", r.creditor_id);
+    TEST_ASSERT_EQUAL_STRING("DE89370400440532013000", r.creditor_iban);
+    TEST_ASSERT_EQUAL_STRING("COBADEFFXXX", r.creditor_bic);
+    cJSON_Delete(j);
+}
+
 static void test_settings_roundtrip_and_wrong_type(void) {
     settings_t s = {.start_tolerance_min = 5, .cancel_deadline_min = 60, .cancel_fee_cents = 250};
     cJSON *j = settings_to_json(&s);
@@ -497,6 +609,12 @@ int main(void) {
     RUN_TEST(test_session_roundtrip);
     RUN_TEST(test_token_roundtrip);
     RUN_TEST(test_settings_defaults_when_missing);
+    RUN_TEST(test_mandate_roundtrip);
+    RUN_TEST(test_mandate_rejects_bad_iban);
+    RUN_TEST(test_mandate_requires_all_keys);
+    RUN_TEST(test_mandate_long_holder_not_truncated);
+    RUN_TEST(test_settings_strings_default_empty);
+    RUN_TEST(test_settings_strings_roundtrip);
     RUN_TEST(test_settings_roundtrip_and_wrong_type);
     RUN_TEST(test_tariff_roundtrip);
     RUN_TEST(test_tariff_rejects_out_of_range);

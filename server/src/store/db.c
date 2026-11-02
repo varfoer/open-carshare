@@ -108,6 +108,7 @@ DEFINE_LOADER_X(cars, car_t, cars, n_cars, cap_cars, car_from_json)
 DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking_from_json)
 DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
 DEFINE_LOADER_X(tariffs, tariff_t, tariffs, n_tariffs, cap_tariffs, tariff_from_json)
+DEFINE_LOADER_X(mandates, mandate_t, mandates, n_mandates, cap_mandates, mandate_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
 DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
@@ -139,6 +140,7 @@ void db_free(db_t *db) {
   free(db->bookings);
   free(db->damages);
   free(db->tariffs);
+  free(db->mandates);
   free(db->sessions);
   free(db->tokens);
   free(db->readings);
@@ -160,6 +162,7 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "bookings.jsonl", load_bookings);
   if (rc == 0) rc = load_file(db, "damage_reports.jsonl", load_damages);
   if (rc == 0) rc = load_file(db, "tariffs.jsonl", load_tariffs);
+  if (rc == 0) rc = load_file(db, "mandates.jsonl", load_mandates);
   if (rc == 0) {
     char photos[512];
     rc = table_path(db, "photos", photos, sizeof photos);
@@ -243,6 +246,22 @@ tariff_t *db_tariff(db_t *db, int64_t id) {
   return NULL;
 }
 
+mandate_t *db_mandate(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_mandates; i++)
+    if (db->mandates[i].id == id) return &db->mandates[i];
+  return NULL;
+}
+
+const mandate_t *db_mandate_current(const db_t *db, int64_t user_id) {
+  const mandate_t *best = NULL;
+  for (size_t i = 0; i < db->n_mandates; i++) {
+    const mandate_t *m = &db->mandates[i];
+    if (m->user_id == user_id && m->status == MANDATE_ACTIVE && (!best || m->id > best->id))
+      best = m;
+  }
+  return best;
+}
+
 const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts) {
   const tariff_t *best = NULL;
   for (size_t i = 0; i < db->n_tariffs; i++) {
@@ -281,6 +300,9 @@ DEFINE_PUT_ENTITY(db_put_damage, damage_report_t, damages, n_damages, cap_damage
                   "damage_reports.jsonl", damage_report_to_json)
 DEFINE_PUT_ENTITY(db_put_tariff, tariff_t, tariffs, n_tariffs, cap_tariffs,
                   "tariffs.jsonl", tariff_to_json)
+
+DEFINE_PUT_ENTITY(db_put_mandate, mandate_t, mandates, n_mandates, cap_mandates,
+                  "mandates.jsonl", mandate_to_json)
 
 /* Removes one tariff; RAM restored if persisting fails. */
 int db_delete_tariff(db_t *db, int64_t id) {
