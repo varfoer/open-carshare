@@ -185,6 +185,12 @@ late_fee   = ceil(late_min / 60) * late_fee_per_started_h
 total      = min(time_cost + km_cost, days * combined_cap) + late_fee + cancel_fee
 ```
 
+Cancelled bookings cost only `cancel_fee` (no time or km cost); the formula
+prices `done` bookings, a `done` booking that never started has all booked
+time unused.
+Granularity: whole minutes (actual times truncated); time cost rounded half
+up once per local day; cap 0 = no cap.
+
 Rules:
 - A day is a calendar day 00:00–24:00 local time (DST days have 23/25 h).
 - Night rate applies per minute that falls in the night window (local time).

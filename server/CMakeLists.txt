@@ -57,6 +57,7 @@ ocs_add_test(test_teltonika)
 ocs_add_test(test_km_resolve)
 ocs_add_test(test_tracker)
 ocs_add_test(test_berlin)
+ocs_add_test(test_pricing)
 
 if(OCS_FUZZ)
   target_compile_options(ocs_core PRIVATE -fsanitize=fuzzer-no-link)
