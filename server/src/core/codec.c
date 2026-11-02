@@ -110,7 +110,7 @@ static int put_bool(cJSON *o, const char *key, bool v) {
 static const char *const ROLE_NAMES[] = {"user", "admin"};
 static const char *const STATE_NAMES[] = {"reserved", "active", "done", "cancelled"};
 static const char *const KIND_NAMES[] = {"reset", "invite"};
-static const char *const KM_SOURCE_NAMES[] = {"none", "geotab", "manual"};
+static const char *const KM_SOURCE_NAMES[] = {"none", "telematics", "manual"};
 static const char *const PHASE_NAMES[] = {"start", "end"};
 
 static const char *enum_name(const char *const *names, int count, int v) {
@@ -170,6 +170,13 @@ int user_from_json(const cJSON *j, user_t *out) {
 
 /* ---- car ---- */
 
+bool imei_valid(const char *s) {
+  size_t n = 0;
+  for (; s[n]; n++)
+    if (s[n] < '0' || s[n] > '9') return false;
+  return n == 15;
+}
+
 cJSON *car_to_json(const car_t *v) {
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
@@ -178,6 +185,7 @@ cJSON *car_to_json(const car_t *v) {
   PUT(put_str(o, "plate", v->plate, sizeof v->plate));
   PUT(put_str(o, "location", v->location, sizeof v->location));
   PUT(put_bool(o, "active", v->active));
+  PUT(put_str(o, "tracker_imei", v->tracker_imei, sizeof v->tracker_imei));
   return o;
 }
 
@@ -189,6 +197,10 @@ int car_from_json(const cJSON *j, car_t *out) {
   TRY(get_str(j, "plate", out->plate, sizeof out->plate));
   TRY(get_str(j, "location", out->location, sizeof out->location));
   TRY(get_bool(j, "active", &out->active));
+  if (cJSON_GetObjectItemCaseSensitive(j, "tracker_imei")) {
+    TRY(get_str(j, "tracker_imei", out->tracker_imei, sizeof out->tracker_imei));
+    if (out->tracker_imei[0] != '\0' && !imei_valid(out->tracker_imei)) return -1;
+  }
   return 0;
 }
 
@@ -240,7 +252,12 @@ int booking_from_json(const cJSON *j, booking_t *out) {
   TRY(get_i64_opt(j, "km_start", &out->km_start));
   TRY(get_i64_opt(j, "km_end", &out->km_end));
   int km_source = KM_NONE;
-  TRY(get_enum_opt(j, "km_source", KM_SOURCE_NAMES, 3, &km_source));
+  /* Phase 2 wrote "geotab"; it now means telematics. */
+  const cJSON *ks = cJSON_GetObjectItemCaseSensitive(j, "km_source");
+  if (cJSON_IsString(ks) && ks->valuestring && strcmp(ks->valuestring, "geotab") == 0)
+    km_source = KM_TELEMATICS;
+  else
+    TRY(get_enum_opt(j, "km_source", KM_SOURCE_NAMES, 3, &km_source));
   out->km_source = (km_source_t)km_source;
   TRY(get_bool_opt(j, "km_pending", &out->km_pending));
   return 0;
@@ -277,6 +294,28 @@ int damage_report_from_json(const cJSON *j, damage_report_t *out) {
   /* Photo handlers index files r<id>-1..n_photos. */
   if (out->n_photos < 0 || out->n_photos > DMG_MAX_PHOTOS) return -1;
   TRY(get_i64(j, "created_at", &out->created_at));
+  return 0;
+}
+
+/* ---- odometer reading ---- */
+
+cJSON *odometer_reading_to_json(const odometer_reading_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "car_id", v->car_id));
+  PUT(put_i64(o, "ts", v->ts));
+  PUT(put_i64(o, "odometer_m", v->odometer_m));
+  PUT(put_i64(o, "received_at", v->received_at));
+  return o;
+}
+
+int odometer_reading_from_json(const cJSON *j, odometer_reading_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  TRY(get_i64(j, "car_id", &out->car_id));
+  TRY(get_i64(j, "ts", &out->ts));
+  TRY(get_i64(j, "odometer_m", &out->odometer_m));
+  TRY(get_i64(j, "received_at", &out->received_at));
   return 0;
 }
 

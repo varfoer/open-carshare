@@ -185,6 +185,90 @@ static void test_car_roundtrip(void) {
     cJSON_Delete(j);
 }
 
+static void test_car_tracker_imei_roundtrip(void) {
+    car_t c = {.id = 2, .active = true};
+    strcpy(c.name, "Zoe");
+    strcpy(c.plate, "MS-AB 123");
+    strcpy(c.location, "Hof 1");
+    strcpy(c.tracker_imei, "356307042441013");
+    cJSON *j = car_to_json(&c);
+    TEST_ASSERT_NOT_NULL(cJSON_GetObjectItem(j, "tracker_imei"));
+    car_t r;
+    TEST_ASSERT_EQUAL_INT(0, car_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&c, &r, sizeof c);
+    cJSON_Delete(j);
+}
+
+static void test_car_loads_without_tracker_imei(void) {
+    cJSON *j = cJSON_Parse("{\"id\":1,\"name\":\"a\",\"plate\":\"b\",\"location\":\"c\",\"active\":true}");
+    car_t r;
+    TEST_ASSERT_EQUAL_INT(0, car_from_json(j, &r));
+    TEST_ASSERT_EQUAL_STRING("", r.tracker_imei);
+    cJSON_Delete(j);
+}
+
+static void test_car_rejects_bad_imei(void) {
+    const char *bad[] = {"12345", "35630704244101x", "3563070424410133"};
+    for (int i = 0; i < 3; i++) {
+        car_t c = {.id = 1, .active = true};
+        cJSON *j = car_to_json(&c);
+        cJSON_ReplaceItemInObject(j, "tracker_imei", cJSON_CreateString(bad[i]));
+        car_t r;
+        TEST_ASSERT_EQUAL_INT(-1, car_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
+static void test_km_source_telematics_roundtrip(void) {
+    booking_t b = {.id = 1, .booked_start = 600, .booked_end = 1200, .km_source = KM_TELEMATICS};
+    cJSON *j = booking_to_json(&b);
+    TEST_ASSERT_EQUAL_STRING("telematics", cJSON_GetObjectItem(j, "km_source")->valuestring);
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, r.km_source);
+    cJSON_Delete(j);
+}
+
+static void test_km_source_geotab_loads_as_telematics(void) {
+    booking_t b = {.id = 1, .booked_start = 600, .booked_end = 1200};
+    cJSON *j = booking_to_json(&b);
+    cJSON_ReplaceItemInObject(j, "km_source", cJSON_CreateString("geotab"));
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, r.km_source);
+    cJSON_Delete(j);
+}
+
+static void test_odometer_reading_roundtrip(void) {
+    odometer_reading_t v = {.car_id = 2, .ts = 1774742400, .odometer_m = 22949000,
+                            .received_at = 1774742410}, r;
+    cJSON *j = odometer_reading_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(j));
+    TEST_ASSERT_EQUAL_INT(0, odometer_reading_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    cJSON_Delete(j);
+}
+
+static void test_odometer_reading_requires_all_keys(void) {
+    const char *keys[] = {"car_id", "ts", "odometer_m", "received_at"};
+    for (int i = 0; i < 4; i++) {
+        odometer_reading_t v = {.car_id = 2, .ts = 5, .odometer_m = 6, .received_at = 7}, r;
+        cJSON *j = odometer_reading_to_json(&v);
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, odometer_reading_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
+static void test_imei_valid(void) {
+    TEST_ASSERT_TRUE(imei_valid("356307042441013"));
+    TEST_ASSERT_FALSE(imei_valid(""));
+    TEST_ASSERT_FALSE(imei_valid("35630704244101"));
+    TEST_ASSERT_FALSE(imei_valid("3563070424410131"));
+    TEST_ASSERT_FALSE(imei_valid("35630704244101x"));
+}
+
 static void test_session_roundtrip(void) {
     session_t s = {.user_id = 4, .expires_at = 99};
     memset(s.token_hash, 'a', 64);
@@ -331,6 +415,14 @@ int main(void) {
     RUN_TEST(test_from_json_rejects_non_object);
     RUN_TEST(test_from_json_ignores_unknown_keys);
     RUN_TEST(test_car_roundtrip);
+    RUN_TEST(test_car_tracker_imei_roundtrip);
+    RUN_TEST(test_car_loads_without_tracker_imei);
+    RUN_TEST(test_car_rejects_bad_imei);
+    RUN_TEST(test_km_source_telematics_roundtrip);
+    RUN_TEST(test_km_source_geotab_loads_as_telematics);
+    RUN_TEST(test_odometer_reading_roundtrip);
+    RUN_TEST(test_odometer_reading_requires_all_keys);
+    RUN_TEST(test_imei_valid);
     RUN_TEST(test_session_roundtrip);
     RUN_TEST(test_token_roundtrip);
     RUN_TEST(test_settings_defaults_when_missing);

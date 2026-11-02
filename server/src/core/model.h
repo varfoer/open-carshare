@@ -7,7 +7,7 @@
 typedef enum { ROLE_USER = 0, ROLE_ADMIN = 1 } role_t;
 typedef enum { BK_RESERVED = 0, BK_ACTIVE, BK_DONE, BK_CANCELLED } booking_state_t;
 typedef enum { TOKEN_RESET = 0, TOKEN_INVITE = 1 } token_kind_t;
-typedef enum { KM_NONE = 0, KM_GEOTAB, KM_MANUAL } km_source_t;
+typedef enum { KM_NONE = 0, KM_TELEMATICS, KM_MANUAL } km_source_t;
 typedef enum { DMG_START = 0, DMG_END = 1 } damage_phase_t;
 
 #define DMG_MAX_PHOTOS 10
@@ -18,7 +18,8 @@ typedef struct {
   int64_t license_checked_at; int64_t created_at;
   bool may_club_trip;
 } user_t;
-typedef struct { int64_t id; char name[64]; char plate[16]; char location[128]; bool active; } car_t;
+typedef struct { int64_t id; char name[64]; char plate[16]; char location[128]; bool active;
+  char tracker_imei[16]; /* "" = no tracker, else 15 ASCII digits */ } car_t;
 typedef struct {
   int64_t id, car_id, user_id, booked_start, booked_end; booking_state_t state;
   int64_t cancelled_at, cancel_fee_cents, created_at, modified_at, modified_by;
@@ -30,6 +31,7 @@ typedef struct {
   int64_t id, booking_id, user_id, created_at; damage_phase_t phase;
   char text[1024]; int n_photos;
 } damage_report_t;
+typedef struct { int64_t car_id, ts, odometer_m, received_at; } odometer_reading_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; } session_t;
 typedef struct { char token_hash[65]; int64_t user_id, expires_at; token_kind_t kind; bool used; } token_t;
 typedef struct { int start_tolerance_min, cancel_deadline_min; int64_t cancel_fee_cents; } settings_t;
