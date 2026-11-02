@@ -23,17 +23,18 @@ export async function render(root) {
     const name = textField('Name', car ? car.name : '', { required: true });
     const plate = textField('Kennzeichen', car ? car.plate : '', { required: true });
     const loc = textField('Standort', car ? car.location : '');
+    const imei = textField('Tracker-IMEI', car ? car.tracker_imei : '', { inputmode: 'numeric', pattern: '\\d{15}' });
     const active = checkField('aktiv', car ? car.active : true);
     const cancel = el('button', { type: 'button', text: 'Abbrechen', className: 'btn' });
     cancel.addEventListener('click', () => formHost.replaceChildren());
     const form = el('form', { className: 'card' },
       el('h2', { text: car ? 'Auto bearbeiten' : 'Auto anlegen' }),
-      name.node, plate.node, loc.node, active.node, primaryButton('Speichern'), cancel);
+      name.node, plate.node, loc.node, imei.node, active.node, primaryButton('Speichern'), cancel);
     form.addEventListener('submit', (ev) => {
       ev.preventDefault();
       save(car, {
         name: name.input.value.trim(), plate: plate.input.value.trim(),
-        location: loc.input.value.trim(), active: active.input.checked,
+        location: loc.input.value.trim(), tracker_imei: imei.input.value.trim(), active: active.input.checked,
       });
     });
     formHost.replaceChildren(form);
@@ -51,7 +52,7 @@ export async function render(root) {
     }
     list.append(el('div', { className: 'card booking' },
       el('p', { className: 'booking-time', text: `${c.name} (${c.plate})` }),
-      el('p', { className: 'booking-car', text: `${c.location || 'ohne Standort'} · ${c.active ? 'aktiv' : 'inaktiv'}` }),
+      el('p', { className: 'booking-car', text: `${c.location || 'ohne Standort'} · ${c.tracker_imei ? `Tracker ${c.tracker_imei}` : 'ohne Tracker'} · ${c.active ? 'aktiv' : 'inaktiv'}` }),
       actions));
   }
   if (!cars.length) list.append(el('p', { className: 'placeholder', text: 'Keine Autos.' }));

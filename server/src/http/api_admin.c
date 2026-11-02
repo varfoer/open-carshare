@@ -157,7 +157,8 @@ void h_admin_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   api_json(res, 200, arr);
 }
 
-static bool read_car_fields(const cJSON *body, car_t *c, api_res_t *res) {
+/* tracker_imei is optional: absent keeps the value already in c, "" clears it. */
+static bool read_car_fields(db_t *db, const cJSON *body, car_t *c, api_res_t *res) {
   const char *name = body ? api_get_str(body, "name", sizeof c->name) : NULL;
   const char *plate = body ? api_get_str(body, "plate", sizeof c->plate) : NULL;
   const char *loc = body ? api_get_str(body, "location", sizeof c->location) : NULL;
@@ -166,6 +167,24 @@ static bool read_car_fields(const cJSON *body, car_t *c, api_res_t *res) {
     api_invalid(res);
     return false;
   }
+  char imei[sizeof c->tracker_imei];
+  snprintf(imei, sizeof imei, "%s", c->tracker_imei);
+  if (body && cJSON_GetObjectItemCaseSensitive(body, "tracker_imei")) {
+    const char *v = api_get_str(body, "tracker_imei", sizeof imei);
+    if (!v || (*v && !imei_valid(v))) {
+      api_invalid(res);
+      return false;
+    }
+    snprintf(imei, sizeof imei, "%s", v);
+  }
+  if (*imei) {
+    const car_t *other = db_car_by_imei(db, imei);
+    if (other && other->id != c->id) {
+      api_error(res, 409, "duplicate_imei", "Diese IMEI ist bereits einem Auto zugeordnet.");
+      return false;
+    }
+  }
+  snprintf(c->tracker_imei, sizeof c->tracker_imei, "%s", imei);
   snprintf(c->name, sizeof c->name, "%s", name);
   snprintf(c->plate, sizeof c->plate, "%s", plate);
   snprintf(c->location, sizeof c->location, "%s", loc);
@@ -177,7 +196,7 @@ void h_admin_car_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   (void)req;
   car_t c;
   memset(&c, 0, sizeof c);
-  if (!read_car_fields(ctx->body, &c, res)) return;
+  if (!read_car_fields(&a->db, ctx->body, &c, res)) return;
   if (db_put_car(&a->db, &c) != 0) { api_storage_error(res); return; }
   api_json(res, 201, car_to_json(&c));
 }
@@ -188,7 +207,7 @@ void h_admin_car_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
   const car_t *old = db_car(&a->db, id);
   if (!old) { api_not_found(res); return; }
   car_t c = *old;
-  if (!read_car_fields(ctx->body, &c, res)) return;
+  if (!read_car_fields(&a->db, ctx->body, &c, res)) return;
   if (db_put_car(&a->db, &c) != 0) { api_storage_error(res); return; }
   api_json(res, 200, car_to_json(&c));
 }

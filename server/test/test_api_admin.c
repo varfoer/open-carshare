@@ -286,6 +286,94 @@ void test_admin_cars_crud(void) {
   TEST_ASSERT_EQUAL_INT(3, (int)a->db.n_cars);
 }
 
+static const char *CAR_IMEI_A = "356307042441013";
+
+static char *car_body(const char *name, const char *imei_field) {
+  static char b[256];
+  snprintf(b, sizeof b, "{\"name\":\"%s\",\"plate\":\"AB-1\",\"location\":\"Hof\",\"active\":true%s%s}",
+           name, imei_field[0] ? "," : "", imei_field);
+  return b;
+}
+
+static void car_path(char *p, size_t n, int64_t id) {
+  snprintf(p, n, "/api/admin/cars/%lld", (long long)id);
+}
+
+void test_car_post_with_imei(void) {
+  char f[64];
+  snprintf(f, sizeof f, "\"tracker_imei\":\"%s\"", CAR_IMEI_A);
+  cJSON *j = call("POST", "/api/admin/cars", car_body("Zoe", f), tadm, 201, NULL);
+  TEST_ASSERT_EQUAL_STRING(CAR_IMEI_A, str(j, "tracker_imei"));
+  cJSON_Delete(j);
+}
+
+void test_car_put_clears_imei(void) {
+  car_t c = *db_car(&a->db, car1);
+  snprintf(c.tracker_imei, sizeof c.tracker_imei, "%s", CAR_IMEI_A);
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  char p[64];
+  car_path(p, sizeof p, car1);
+  cJSON *j = call("PUT", p, car_body("Golf", "\"tracker_imei\":\"\""), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("", str(j, "tracker_imei"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING("", db_car(&a->db, car1)->tracker_imei);
+}
+
+void test_car_put_without_imei_keeps_it(void) {
+  car_t c = *db_car(&a->db, car1);
+  snprintf(c.tracker_imei, sizeof c.tracker_imei, "%s", CAR_IMEI_A);
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  char p[64];
+  car_path(p, sizeof p, car1);
+  cJSON *j = call("PUT", p, car_body("Golf2", ""), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING(CAR_IMEI_A, str(j, "tracker_imei"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING(CAR_IMEI_A, db_car(&a->db, car1)->tracker_imei);
+}
+
+void test_car_bad_imei_400(void) {
+  const char *bad[] = {"\"tracker_imei\":\"12345\"", "\"tracker_imei\":\"35630704244101x\"",
+                       "\"tracker_imei\":\"3563070424410134\"", "\"tracker_imei\":356307042441013"};
+  char p[64];
+  car_path(p, sizeof p, car1);
+  for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+    adm_free("POST", "/api/admin/cars", car_body("Zoe", bad[i]), 400, "invalid");
+    adm_free("PUT", p, car_body("Golf", bad[i]), 400, "invalid");
+  }
+  TEST_ASSERT_EQUAL_INT(2, (int)a->db.n_cars);
+  TEST_ASSERT_EQUAL_STRING("", db_car(&a->db, car1)->tracker_imei);
+}
+
+void test_car_duplicate_imei_409(void) {
+  car_t c = *db_car(&a->db, car1);
+  snprintf(c.tracker_imei, sizeof c.tracker_imei, "%s", CAR_IMEI_A);
+  c.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  char f[64];
+  snprintf(f, sizeof f, "\"tracker_imei\":\"%s\"", CAR_IMEI_A);
+  cJSON *j = call("POST", "/api/admin/cars", car_body("Zoe", f), tadm, 409, "duplicate_imei");
+  TEST_ASSERT_EQUAL_STRING("Diese IMEI ist bereits einem Auto zugeordnet.", str(j, "message"));
+  cJSON_Delete(j);
+  char p[64];
+  car_path(p, sizeof p, car2);
+  adm_free("PUT", p, car_body("Polo", f), 409, "duplicate_imei");
+  TEST_ASSERT_EQUAL_INT(2, (int)a->db.n_cars);
+  TEST_ASSERT_EQUAL_STRING("", db_car(&a->db, car2)->tracker_imei);
+}
+
+void test_car_same_imei_on_own_car_ok(void) {
+  car_t c = *db_car(&a->db, car1);
+  snprintf(c.tracker_imei, sizeof c.tracker_imei, "%s", CAR_IMEI_A);
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  char f[64];
+  snprintf(f, sizeof f, "\"tracker_imei\":\"%s\"", CAR_IMEI_A);
+  char p[64];
+  car_path(p, sizeof p, car1);
+  cJSON *j = call("PUT", p, car_body("Golf", f), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING(CAR_IMEI_A, str(j, "tracker_imei"));
+  cJSON_Delete(j);
+}
+
 void test_admin_create_booking_for_user(void) {
   cJSON *j = call("POST", "/api/admin/bookings", bk_body(car1, u1, T - 2 * H, T - H), tadm, 201, NULL);
   TEST_ASSERT_EQUAL_INT64(u1, num(j, "user_id"));
@@ -769,6 +857,12 @@ int main(void) {
   RUN_TEST(test_admin_cannot_deactivate_self);
   RUN_TEST(test_admin_invite_resend);
   RUN_TEST(test_admin_cars_crud);
+  RUN_TEST(test_car_post_with_imei);
+  RUN_TEST(test_car_put_clears_imei);
+  RUN_TEST(test_car_put_without_imei_keeps_it);
+  RUN_TEST(test_car_bad_imei_400);
+  RUN_TEST(test_car_duplicate_imei_409);
+  RUN_TEST(test_car_same_imei_on_own_car_ok);
   RUN_TEST(test_admin_create_booking_for_user);
   RUN_TEST(test_admin_booking_overlap_409);
   RUN_TEST(test_admin_shorten_booking_ok);

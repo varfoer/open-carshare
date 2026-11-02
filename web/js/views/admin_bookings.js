@@ -96,7 +96,7 @@ export async function render(root) {
       if (b.actual_start) {
         trip.push(el('p', { text: `Gefahren: ${formatDateTime(b.actual_start)} – ${b.actual_end ? formatDateTime(b.actual_end) : 'läuft'}` }));
         if (b.km_pending) trip.push(el('p', {}, el('span', { className: 'badge', text: 'km ausstehend' })));
-        else if (kmText(b)) trip.push(el('p', { text: `${kmText(b)}${b.km_source === 'manual' ? ' · manuell' : ''}` }));
+        else if (kmText(b)) trip.push(el('p', { text: `${kmText(b)}${b.km_source === 'manual' ? ' · manuell' : ''}${b.km_source === 'telematics' ? ' · Tracker' : ''}` }));
       }
       list.append(el('div', { className: 'card booking' },
         el('p', { className: 'booking-time', text: `${formatDateTime(b.booked_start)} – ${formatDateTime(b.booked_end)}` }),
