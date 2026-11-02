@@ -61,6 +61,17 @@ static void test_mandate_text_fills_creditor(void) {
     int n = mandate_text(out, sizeof out, "Carsharing Testverein e.V.", "DE98ZZZ09999999999");
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_INT((int)strlen(out), n);
+    static const char golden[] =
+        "SEPA-Lastschriftmandat\n\n"
+        "Zahlungsempfänger: Carsharing Testverein e.V.\n"
+        "Gläubiger-Identifikationsnummer: DE98ZZZ09999999999\n"
+        "Mandatsreferenz: wird nach Erteilung des Mandats mitgeteilt\n\n"
+        "Ich ermächtige Carsharing Testverein e.V., Zahlungen von meinem Konto mittels Lastschrift einzuziehen. "
+        "Zugleich weise ich mein Kreditinstitut an, die von Carsharing Testverein e.V. auf mein Konto gezogenen Lastschriften einzulösen.\n\n"
+        "Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, die Erstattung des belasteten Betrages verlangen. "
+        "Es gelten dabei die mit meinem Kreditinstitut vereinbarten Bedingungen.\n\n"
+        "Das Mandat gilt für wiederkehrende Lastschriften.";
+    TEST_ASSERT_EQUAL_STRING(golden, out);
     TEST_ASSERT_NOT_NULL(strstr(out, "Ich ermächtige Carsharing Testverein e.V., Zahlungen"));
     TEST_ASSERT_NOT_NULL(strstr(out, "Gläubiger-Identifikationsnummer: DE98ZZZ09999999999"));
     TEST_ASSERT_EQUAL_INT(-1, mandate_text(out, 10, "Carsharing Testverein e.V.", "DE98ZZZ09999999999"));

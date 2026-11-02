@@ -9,6 +9,7 @@ static bool is_alnum(char c) { return is_upper(c) || is_digit(c); }
 int sepa_normalize(const char *in, char *out, size_t cap) {
     size_t n = 0;
     if (cap == 0) return -1;
+    out[0] = '\0';
     for (; *in; in++) {
         char c = *in;
         if (c == ' ') continue;
@@ -88,16 +89,16 @@ void mandate_ref(int64_t id, char *out, size_t cap) {
 int mandate_text(char *out, size_t cap, const char *creditor_name, const char *creditor_id) {
     int n = snprintf(out, cap,
         "SEPA-Lastschriftmandat\n\n"
-        "Zahlungsempfänger: %1$s\n"
-        "Gläubiger-Identifikationsnummer: %2$s\n"
+        "Zahlungsempfänger: %s\n"
+        "Gläubiger-Identifikationsnummer: %s\n"
         "Mandatsreferenz: wird nach Erteilung des Mandats mitgeteilt\n\n"
-        "Ich ermächtige %1$s, Zahlungen von meinem Konto mittels Lastschrift einzuziehen. "
-        "Zugleich weise ich mein Kreditinstitut an, die von %1$s auf mein Konto gezogenen Lastschriften einzulösen.\n\n"
+        "Ich ermächtige %s, Zahlungen von meinem Konto mittels Lastschrift einzuziehen. "
+        "Zugleich weise ich mein Kreditinstitut an, die von %s auf mein Konto gezogenen Lastschriften einzulösen.\n\n"
         "Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, "
         "die Erstattung des belasteten Betrages verlangen. "
         "Es gelten dabei die mit meinem Kreditinstitut vereinbarten Bedingungen.\n\n"
         "Das Mandat gilt für wiederkehrende Lastschriften.",
-        creditor_name, creditor_id);
+        creditor_name, creditor_id, creditor_name, creditor_name);
     if (n < 0 || (size_t)n >= cap) return -1;
     return n;
 }
