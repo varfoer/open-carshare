@@ -1,6 +1,7 @@
 // Euro <-> integer cents, string parsing only (no float multiplication).
 export function formatEuro(cents) {
-  return `${Math.floor(cents / 100)},${String(cents % 100).padStart(2, '0')} €`;
+  const abs = Math.abs(cents);
+  return `${cents < 0 ? '-' : ''}${Math.floor(abs / 100)},${String(abs % 100).padStart(2, '0')} €`;
 }
 
 // "5", "5,00", "5.5" -> cents; null when invalid. Max 2 decimals, no sign, no thousands separators.

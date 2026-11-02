@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { formatDateTime } from '../time.js';
 import { el } from '../admin_ui.js';
+import { priceSummary } from '../price.js';
 
 function kmText(b) {
   if (b.km_pending) return 'km ausstehend';
@@ -31,6 +32,7 @@ export async function render(root) {
       el('p', { text: tripText(b) }));
     const km = b.state === 'cancelled' ? '' : kmText(b);
     if (km) card.append(el('p', { text: km }));
+    if (b.price && (b.state === 'done' || b.state === 'cancelled')) card.append(el('p', { text: `Preis: ${priceSummary(b.price)}` }));
     root.append(card);
   }
 }

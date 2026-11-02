@@ -18,6 +18,12 @@ test('parseEuroToCents rejects invalid input', () => {
     assert.equal(parseEuroToCents(v), null, v);
 });
 
+test('formatEuro negative', () => {
+  assert.equal(formatEuro(-6700), '-67,00 €');
+  assert.equal(formatEuro(-6750), '-67,50 €');
+  assert.equal(formatEuro(-5), '-0,05 €');
+});
+
 test('formatEuro round trip', () => {
   assert.equal(formatEuro(500), '5,00 €');
   assert.equal(formatEuro(7), '0,07 €');

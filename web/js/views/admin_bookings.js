@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { el, adminNav, messageBox, selectField, checkField, primaryButton } from '../admin_ui.js';
 import { epochToBerlin, formatDateTime, monthRange } from '../time.js';
+import { priceSummary } from '../price.js';
 import { field, dateTime, toEpoch, p2 } from '../form_time.js';
 
 const STATES = { reserved: 'reserviert', active: 'aktiv', done: 'beendet', cancelled: 'storniert' };
@@ -103,7 +104,7 @@ export async function render(root) {
         el('p', { className: 'booking-car',
           text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` },
           ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : [])),
-        ...trip, actions));
+        ...trip, ...(b.price ? [el('p', { text: `Preis: ${priceSummary(b.price)}` })] : []), actions));
     }
   }
 
