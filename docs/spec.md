@@ -429,7 +429,7 @@ Depends on: Phase 2.
 Done when: returned bookings get km automatically from tracker data, admin
 can still override manually.
 
-### Phase 4: Tariffs and pricing
+### Phase 4: Tariffs and pricing — done (merged 2026-11-02)
 Depends on: Phase 2 (actual times); Phase 3 km optional (manual km works).
 - Tariff entity (§4), versioned per car, admin CRUD.
 - Pricing engine (§6) as a pure function in `core/`: day/night per minute,
