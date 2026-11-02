@@ -1,7 +1,7 @@
 #ifndef OCS_HTTP_API_INTERNAL_H
 #define OCS_HTTP_API_INTERNAL_H
 
-/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c).
+/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c, api_mandate.c).
  * To add an endpoint: declare its handler here, implement it in the endpoint
  * file, and add a row to ROUTES in api.c. */
 
@@ -114,5 +114,12 @@ cJSON *api_booking_json(app_t *a, const booking_t *b);
 /* Every price_t number by name, status as string, "tariff" = tariff_to_json(t) or null. NULL on OOM. */
 cJSON *price_to_json(const price_t *p, const tariff_t *t);
 void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_mandate.c */
+/* API view of a mandate: id, ref, status, holder, iban_masked, bic, created_at, ended_at,
+ * ended_by, client_ip, text_version, creditor_name, creditor_id. Never the full IBAN. NULL on OOM. */
+cJSON *mandate_api_json(const mandate_t *m);
+void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 #endif

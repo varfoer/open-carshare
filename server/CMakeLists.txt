@@ -61,6 +61,7 @@ ocs_add_test(test_berlin)
 ocs_add_test(test_pricing)
 ocs_add_test(test_api_price)
 ocs_add_test(test_sepa)
+ocs_add_test(test_api_mandate)
 
 if(OCS_FUZZ)
   target_compile_options(ocs_core PRIVATE -fsanitize=fuzzer-no-link)

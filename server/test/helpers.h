@@ -20,7 +20,11 @@ const char *th_last_mail_subject(void);
 const char *th_last_mail_body(void);
 int th_mail_count(void);                   /* reset by th_app */
 void th_mail_fail(int fail);               /* nonzero: fake mailer returns -1 */
-/* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1. */
+/* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.
+ * th_add_user also inserts an ACTIVE mandate (holder "Test User", IBAN DE89370400440532013000,
+ * text_version 1); th_add_user_bare does not. */
+int64_t th_add_user_bare(app_t *a, const char *email, const char *pw, role_t role);
+void th_set_creditor(app_t *a); /* assoc_name "Carsharing Testverein e.V.", creditor_id "DE98ZZZ09999999999" */
 int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role);
 /* Logs in via POST /api/login at platform_now(); token (static buf) or NULL. */
 char *th_login(app_t *a, const char *email, const char *pw);

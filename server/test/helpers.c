@@ -83,7 +83,7 @@ void th_free(app_t *a) {
   free(a);
 }
 
-int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
+int64_t th_add_user_bare(app_t *a, const char *email, const char *pw, role_t role) {
   user_t u;
   memset(&u, 0, sizeof u);
   if (!a || !email || strlen(email) >= sizeof u.email) return -1;
@@ -94,6 +94,30 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
   if (pw && *pw && pw_hash(pw, u.pw_hash) != 0) return -1;
   if (db_put_user(&a->db, &u) != 0) return -1;
   return u.id;
+}
+
+int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
+  int64_t id = th_add_user_bare(a, email, pw, role);
+  if (id < 0) return -1;
+  mandate_t m;
+  memset(&m, 0, sizeof m);
+  m.user_id = id;
+  m.status = MANDATE_ACTIVE;
+  m.created_at = 1;
+  snprintf(m.holder, sizeof m.holder, "Test User");
+  snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
+  m.text_version = 1;
+  snprintf(m.creditor_name, sizeof m.creditor_name, "Carsharing Testverein e.V.");
+  snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
+  if (db_put_mandate(&a->db, &m) != 0) return -1;
+  return id;
+}
+
+void th_set_creditor(app_t *a) {
+  settings_t s = a->db.settings;
+  snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
+  snprintf(s.creditor_id, sizeof s.creditor_id, "DE98ZZZ09999999999");
+  db_put_settings(&a->db, &s);
 }
 
 /* ---- requests ---- */
