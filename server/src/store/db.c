@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "cJSON.h"
 #include "core/codec.h"
@@ -108,6 +109,17 @@ DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking
 DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
+DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
+                odometer_reading_from_json)
+
+static int load_jobs(const cJSON *obj, void *ctx) {
+  db_t *db = ctx;
+  const cJSON *d = cJSON_GetObjectItemCaseSensitive(obj, "km_mail_day");
+  if (!d) return 0;
+  if (!cJSON_IsNumber(d) || d->valuedouble < 0 || d->valuedouble > 9007199254740991.0) return -1;
+  db->km_mail_day = (int64_t)d->valuedouble;
+  return 0;
+}
 
 static int load_settings(const cJSON *obj, void *ctx) {
   db_t *db = ctx;
@@ -127,6 +139,7 @@ void db_free(db_t *db) {
   free(db->damages);
   free(db->sessions);
   free(db->tokens);
+  free(db->readings);
   memset(db, 0, sizeof *db);
 }
 
@@ -152,6 +165,15 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "sessions.jsonl", load_sessions);
   if (rc == 0) rc = load_file(db, "tokens.jsonl", load_tokens);
   if (rc == 0) rc = load_file(db, "settings.json", load_settings);
+  if (rc == 0) rc = load_file(db, "jobs.json", load_jobs);
+  if (rc == 0) {
+    char path[512];
+    long keep = -1;
+    rc = table_path(db, "odometer_readings.jsonl", path, sizeof path);
+    if (rc == 0) rc = store_read_log_keep(path, load_readings, db, &keep);
+    /* Cut a torn last line, else the next append would be glued onto it. */
+    if (rc == 0 && keep >= 0 && truncate(path, (off_t)keep) != 0) rc = -1;
+  }
   if (rc != 0) {
     db_free(db);
     return -1;
@@ -184,6 +206,13 @@ user_t *db_user_by_email(db_t *db, const char *email) {
 car_t *db_car(db_t *db, int64_t id) {
   for (size_t i = 0; i < db->n_cars; i++)
     if (db->cars[i].id == id) return &db->cars[i];
+  return NULL;
+}
+
+car_t *db_car_by_imei(db_t *db, const char *imei) {
+  if (!imei || !*imei) return NULL;
+  for (size_t i = 0; i < db->n_cars; i++)
+    if (strcmp(db->cars[i].tracker_imei, imei) == 0) return &db->cars[i];
   return NULL;
 }
 
@@ -327,4 +356,62 @@ int db_prune(db_t *db, int64_t now) {
   }
   free(copy);
   return rc == 0 ? 0 : -1;
+}
+
+int db_add_readings(db_t *db, const odometer_reading_t *r, size_t n) {
+  if (n == 0) return 0;
+  char path[512];
+  if (table_path(db, "odometer_readings.jsonl", path, sizeof path) != 0) return -1;
+  char *buf = NULL;
+  size_t len = 0, cap = 0;
+  int rc = 0;
+  for (size_t i = 0; i < n && rc == 0; i++) {
+    cJSON *j = odometer_reading_to_json(&r[i]);
+    char *s = j ? cJSON_PrintUnformatted(j) : NULL;
+    cJSON_Delete(j);
+    if (!s || buf_append(&buf, &len, &cap, s, strlen(s)) != 0 ||
+        buf_append(&buf, &len, &cap, "\n", 1) != 0)
+      rc = -1;
+    free(s);
+  }
+  if (rc == 0 && grow((void **)&db->readings, &db->cap_readings, db->n_readings + n,
+                      sizeof *db->readings) != 0)
+    rc = -1;
+  if (rc == 0) rc = store_append(path, buf, len);
+  free(buf);
+  if (rc != 0) return -1;
+  memcpy(db->readings + db->n_readings, r, n * sizeof *r);
+  db->n_readings += n;
+  return 0;
+}
+
+int db_prune_readings(db_t *db, int64_t before) {
+  size_t n = db->n_readings;
+  odometer_reading_t *copy = n ? malloc(n * sizeof *copy) : NULL;
+  if (n && !copy) return -1;
+  if (n) memcpy(copy, db->readings, n * sizeof *copy);
+  size_t w = 0;
+  for (size_t i = 0; i < n; i++)
+    if (copy[i].ts >= before) db->readings[w++] = copy[i];
+  db->n_readings = w;
+  int rc = 0;
+  if (w != n)
+    rc = persist_table(db, "odometer_readings.jsonl", db->readings, w, sizeof *copy,
+                       (to_json_fn)odometer_reading_to_json);
+  if (rc != 0) {
+    memcpy(db->readings, copy, n * sizeof *copy);
+    db->n_readings = n;
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_put_km_mail_day(db_t *db, int64_t day) {
+  char path[512], line[64];
+  if (table_path(db, "jobs.json", path, sizeof path) != 0) return -1;
+  int k = snprintf(line, sizeof line, "{\"km_mail_day\":%lld}\n", (long long)day);
+  if (k < 0 || (size_t)k >= sizeof line) return -1;
+  if (store_write_atomic(path, line, (size_t)k) != 0) return -1;
+  db->km_mail_day = day;
+  return 0;
 }

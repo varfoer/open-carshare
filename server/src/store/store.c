@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "platform/platform.h"
 
@@ -18,13 +20,17 @@ static int handle_line(const char *s, size_t n, int (*cb)(const cJSON *, void *)
   if (blank(s, n)) return 0;
   /* s is NUL-terminated at s[n] by the caller */
   cJSON *j = cJSON_ParseWithLengthOpts(s, n + 1, NULL, 1);
-  if (!j) return -1;
+  if (!j) return -2;
   int rc = cb(j, ctx);
   cJSON_Delete(j);
   return rc == 0 ? 0 : -1;
 }
 
-int store_read_lines(const char *path, int (*cb)(const cJSON *, void *), void *ctx) {
+/* log != 0: an unterminated last line that does not parse is skipped and
+ * *keep (if non-NULL) is set to the offset where it starts; else *keep = -1. */
+static int read_impl(const char *path, int (*cb)(const cJSON *, void *), void *ctx, int log,
+                     long *keep) {
+  if (keep) *keep = -1;
   FILE *f = fopen(path, "rb");
   if (!f) return errno == ENOENT ? 0 : -1;
   size_t cap = 256, n = 0;
@@ -34,11 +40,15 @@ int store_read_lines(const char *path, int (*cb)(const cJSON *, void *), void *c
     return -1;
   }
   int rc = 0, c;
+  long off = 0, line_start = 0;
   while (rc == 0 && (c = fgetc(f)) != EOF) {
+    off++;
     if (c == '\n') {
       buf[n] = '\0';
       rc = handle_line(buf, n, cb, ctx);
+      if (rc == -2) rc = -1;
       n = 0;
+      line_start = off;
       continue;
     }
     if (n + 1 >= cap) {
@@ -54,10 +64,58 @@ int store_read_lines(const char *path, int (*cb)(const cJSON *, void *), void *c
   }
   if (rc == 0 && ferror(f)) rc = -1;
   if (rc == 0 && n > 0) buf[n] = '\0';
-  if (rc == 0 && n > 0) rc = handle_line(buf, n, cb, ctx);
+  if (rc == 0 && n > 0) {
+    rc = handle_line(buf, n, cb, ctx);
+    if (rc == -2) {
+      if (log) {
+        rc = 0;
+        if (keep) *keep = line_start;
+      } else {
+        rc = -1;
+      }
+    }
+  }
   free(buf);
   fclose(f);
   return rc;
+}
+
+int store_read_lines(const char *path, int (*cb)(const cJSON *, void *), void *ctx) {
+  return read_impl(path, cb, ctx, 0, NULL);
+}
+
+int store_read_log(const char *path, int (*cb)(const cJSON *, void *), void *ctx) {
+  return read_impl(path, cb, ctx, 1, NULL);
+}
+
+int store_read_log_keep(const char *path, int (*cb)(const cJSON *, void *), void *ctx,
+                        long *keep) {
+  return read_impl(path, cb, ctx, 1, keep);
+}
+
+int store_append(const char *path, const char *data, size_t len) {
+  int fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0600);
+  if (fd < 0) return -1;
+  struct stat st;
+  if (fstat(fd, &st) != 0) {
+    close(fd);
+    return -1;
+  }
+  off_t before = st.st_size;
+  int ok = 1;
+  size_t done = 0;
+  while (ok && done < len) {
+    ssize_t w = write(fd, data + done, len - done);
+    if (w < 0 && errno == EINTR) continue;
+    if (w <= 0) ok = 0;
+    else done += (size_t)w;
+  }
+  if (ok && fsync(fd) != 0) ok = 0;
+  if (!ok && ftruncate(fd, before) != 0) {
+    /* nothing more to do: caller still sees failure */
+  }
+  if (close(fd) != 0) ok = 0;
+  return ok ? 0 : -1;
 }
 
 int store_write_atomic(const char *path, const char *data, size_t len) {

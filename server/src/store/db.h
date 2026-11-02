@@ -14,6 +14,8 @@ typedef struct {
   token_t *tokens; size_t n_tokens, cap_tokens;
   damage_report_t *damages; size_t n_damages, cap_damages;
   settings_t settings;
+  odometer_reading_t *readings; size_t n_readings, cap_readings;
+  int64_t km_mail_day;
 } db_t;
 
 /* 0 ok, -1 on bad dir, unreadable or corrupt file. db is freed on failure.
@@ -24,6 +26,7 @@ void db_free(db_t *db);
 user_t *db_user(db_t *db, int64_t id);
 user_t *db_user_by_email(db_t *db, const char *email); /* ASCII case-insensitive */
 car_t *db_car(db_t *db, int64_t id);
+car_t *db_car_by_imei(db_t *db, const char *imei); /* NULL for "" or no match; any car, active or not */
 booking_t *db_booking(db_t *db, int64_t id);
 damage_report_t *db_damage(db_t *db, int64_t id);
 token_t *db_token(db_t *db, const char *token_hash);
@@ -39,6 +42,13 @@ int db_put_session(db_t *db, const session_t *s);
 int db_delete_sessions(db_t *db, const char *token_hash, int64_t user_id); /* by hash if non-NULL, else all of user */
 int db_put_token(db_t *db, const token_t *t);  /* insert or replace by token_hash */
 int db_prune(db_t *db, int64_t now);           /* drop expired sessions/tokens, persist */
+
+/* Append-only odometer readings. add: all n lines go out in one append; -1 means
+ * nothing was added. prune: drops ts < before, rewrites the file; RAM restored on -1. */
+int db_add_readings(db_t *db, const odometer_reading_t *r, size_t n);
+int db_prune_readings(db_t *db, int64_t before);
+/* Persists jobs.json {"km_mail_day":N}, then sets db->km_mail_day. */
+int db_put_km_mail_day(db_t *db, int64_t day);
 
 /* Writes "<dir>/photos/r<report_id>-<k>.jpg" (k is 1-based) into out. -1 if it does not fit. */
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap);

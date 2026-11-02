@@ -287,6 +287,149 @@ void test_store_read_file_limit(void) {
   TEST_ASSERT_EQUAL_INT(-1, store_read_file(p, 10, &buf, &len));
 }
 
+static void rpath(char *p, size_t cap) { snprintf(p, cap, "%s/odometer_readings.jsonl", dir); }
+
+static void write_raw(const char *p, const char *mode, const char *data) {
+  FILE *f = fopen(p, mode);
+  TEST_ASSERT_NOT_NULL(f);
+  fputs(data, f);
+  fclose(f);
+}
+
+static odometer_reading_t mkreading(int64_t car, int64_t ts, int64_t m) {
+  odometer_reading_t r = {car, ts, m, ts + 1};
+  return r;
+}
+
+void test_readings_append_and_reload(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a[2] = {mkreading(1, 10, 1000), mkreading(1, 20, 2000)};
+  odometer_reading_t b = mkreading(2, 30, 3000);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, a, 2));
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &b, 1));
+  TEST_ASSERT_EQUAL_size_t(3, db.n_readings);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(3, db.n_readings);
+  TEST_ASSERT_EQUAL_INT64(10, db.readings[0].ts);
+  TEST_ASSERT_EQUAL_INT64(20, db.readings[1].ts);
+  TEST_ASSERT_EQUAL_INT64(3000, db.readings[2].odometer_m);
+  TEST_ASSERT_EQUAL_INT64(2, db.readings[2].car_id);
+  db_free(&db);
+}
+
+void test_readings_load_skips_torn_last_line(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a = mkreading(1, 10, 1000);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &a, 1));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  write_raw(p, "ab", "{\"car_id\":1,\"ts\":");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_readings);
+  db_free(&db);
+}
+
+void test_readings_append_after_torn_line_reloads(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a = mkreading(1, 10, 1000), b = mkreading(1, 20, 2000);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &a, 1));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  write_raw(p, "ab", "{\"car_id\":1,\"ts\":");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &b, 1));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_readings);
+  TEST_ASSERT_EQUAL_INT64(20, db.readings[1].ts);
+  db_free(&db);
+}
+
+void test_readings_corrupt_middle_line_fails_load(void) {
+  odometer_reading_t a = mkreading(1, 10, 1000);
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &a, 1));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  write_raw(p, "wb", "{\"car_id\":1,\"ts\":\n");
+  write_raw(p, "ab", "{\"car_id\":1,\"ts\":10,\"odometer_m\":1000,\"received_at\":11}\n");
+  TEST_ASSERT_EQUAL_INT(-1, db_load(&db, dir));
+}
+
+void test_readings_prune(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a[3] = {mkreading(1, 100, 1), mkreading(1, 200, 2), mkreading(1, 300, 3)};
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, a, 3));
+  TEST_ASSERT_EQUAL_INT(0, db_prune_readings(&db, 200));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_readings);
+  TEST_ASSERT_EQUAL_INT64(200, db.readings[0].ts);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_readings);
+  TEST_ASSERT_EQUAL_INT64(300, db.readings[1].ts);
+  db_free(&db);
+}
+
+void test_reading_line_has_only_four_keys(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a = mkreading(1, 10, 1000);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &a, 1));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  char *buf = NULL;
+  size_t len = 0;
+  TEST_ASSERT_EQUAL_INT(0, store_read_file(p, 4096, &buf, &len));
+  cJSON *j = cJSON_Parse(buf);
+  free(buf);
+  TEST_ASSERT_NOT_NULL(j);
+  TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(j));
+  cJSON_Delete(j);
+}
+
+void test_car_by_imei(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  car_t a, b;
+  memset(&a, 0, sizeof a);
+  memset(&b, 0, sizeof b);
+  snprintf(a.name, sizeof a.name, "A");
+  snprintf(b.name, sizeof b.name, "B");
+  snprintf(b.tracker_imei, sizeof b.tracker_imei, "123456789012345");
+  a.active = true;
+  b.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &b));
+  car_t *f = db_car_by_imei(&db, "123456789012345");
+  TEST_ASSERT_NOT_NULL(f);
+  TEST_ASSERT_EQUAL_INT64(b.id, f->id);
+  TEST_ASSERT_NULL(db_car_by_imei(&db, ""));
+  TEST_ASSERT_NULL(db_car_by_imei(&db, "999999999999999"));
+  db_free(&db);
+}
+
+void test_km_mail_day_persists(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT64(0, db.km_mail_day);
+  TEST_ASSERT_EQUAL_INT(0, db_put_km_mail_day(&db, 20500));
+  TEST_ASSERT_EQUAL_INT64(20500, db.km_mail_day);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT64(20500, db.km_mail_day);
+  db_free(&db);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
@@ -304,5 +447,13 @@ int main(void) {
   RUN_TEST(test_load_creates_photos_dir);
   RUN_TEST(test_photo_path);
   RUN_TEST(test_store_read_file_limit);
+  RUN_TEST(test_readings_append_and_reload);
+  RUN_TEST(test_readings_load_skips_torn_last_line);
+  RUN_TEST(test_readings_append_after_torn_line_reloads);
+  RUN_TEST(test_readings_corrupt_middle_line_fails_load);
+  RUN_TEST(test_readings_prune);
+  RUN_TEST(test_reading_line_has_only_four_keys);
+  RUN_TEST(test_car_by_imei);
+  RUN_TEST(test_km_mail_day_persists);
   return UNITY_END();
 }
