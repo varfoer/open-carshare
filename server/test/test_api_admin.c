@@ -695,6 +695,25 @@ void test_settings_roundtrip_and_negative_400(void) {
 }
 
 
+void test_settings_trims_assoc_strings(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  cJSON *j = call("PUT", "/api/admin/settings",
+                  "{\"start_tolerance_min\":5,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
+                  "\"assoc_name\":\"   \",\"assoc_street\":\" \\tWeg 1 \",\"assoc_zip\":\" 24103\","
+                  "\"assoc_city\":\"Kiel\\t\",\"creditor_id\":\"DE98ZZZ09999999999\","
+                  "\"creditor_iban\":\"\",\"creditor_bic\":\"\"}",
+                  tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("", cJSON_GetObjectItem(j, "assoc_name")->valuestring);
+  TEST_ASSERT_EQUAL_STRING("Weg 1", cJSON_GetObjectItem(j, "assoc_street")->valuestring);
+  TEST_ASSERT_EQUAL_STRING("24103", cJSON_GetObjectItem(j, "assoc_zip")->valuestring);
+  TEST_ASSERT_EQUAL_STRING("Kiel", cJSON_GetObjectItem(j, "assoc_city")->valuestring);
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING("", a->db.settings.assoc_name);
+  j = call("GET", "/api/me/mandate", NULL, tadm, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItem(j, "ready")));
+  cJSON_Delete(j);
+}
+
 void test_settings_creditor_roundtrip(void) {
   cJSON *j = call("PUT", "/api/admin/settings",
                   "{\"start_tolerance_min\":5,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
@@ -952,6 +971,7 @@ int main(void) {
   RUN_TEST(test_admin_bookings_list_filters);
   RUN_TEST(test_settings_roundtrip_and_negative_400);
   RUN_TEST(test_settings_creditor_roundtrip);
+  RUN_TEST(test_settings_trims_assoc_strings);
   RUN_TEST(test_settings_creditor_invalid_400);
   RUN_TEST(test_settings_put_missing_string_400);
   RUN_TEST(test_storage_failure_500);

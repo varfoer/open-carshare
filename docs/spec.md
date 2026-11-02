@@ -324,7 +324,14 @@ imported into Hibiscus. (pain.001 is a credit transfer and does not apply.)
   by the Verein.)
 - A new mandate ends every other `active` row of the user (`replaced`).
   Re-submitting identical holder, IBAN and BIC is idempotent: no new
-  mandate, no mail.
+  mandate, no mail. The POST response carries `"changed": true` (201, new
+  mandate) or `false` (200, idempotent); the UI then says „Das Mandat ist
+  unverändert.“
+- The client echoes what it displayed: the POST body requires `text_version`
+  and `creditor_id` (as returned by `GET /api/me/mandate`, `null` while not
+  ready). If either differs from the current value (`creditor_id` compared
+  after normalizing), the answer is 409 `text_changed` and nothing is stored;
+  a missing `creditor_id` is 400 `invalid`.
 - The mandate text is built into the server and versioned by a constant
   (`MANDATE_TEXT_VERSION`, currently 1; any text change bumps it). Creditor
   name and creditor ID come from the settings; users cannot give a mandate
@@ -336,13 +343,20 @@ imported into Hibiscus. (pain.001 is a credit transfer and does not apply.)
   (`POST /api/admin/users/{id}/mandate/revoke`). It ends all `active` rows
   (`revoked`), cancels all `reserved` bookings of the user with cancel fee 0,
   deactivates the account and ends its sessions. An `active` (running)
-  booking stays and is billed normally. The last active admin cannot revoke
+  booking stays and is billed normally. The user path is refused while the
+  user has an `active` booking (409 `trip_active`, „Bitte beende zuerst deine
+  laufende Fahrt.“, nothing changed): a revoked user could never return the
+  car. The admin path stays allowed (the admin can end the trip through the
+  admin booking update). A wrong password on the user path is 400
+  `bad_credentials` „Das Passwort ist falsch.“. The last active admin cannot revoke
   their own mandate (409 `last_admin`); an admin cannot revoke their own
   mandate through the admin endpoint (400 `self`).
 - Booking gate: without a current mandate, `POST /api/bookings`,
   `PUT /api/bookings/{id}` and `POST /api/bookings/{id}/start` return
   403 `no_mandate`. Club trips are not exempt. Bookings created through the
-  admin API are exempt. Admins are users and need a mandate to book
+  admin API are exempt from the create gate, but starting such a booking is
+  gated like any other: a user without mandate cannot start it, and the admin
+  sets `actual_start` by hand if needed. Admins are users and need a mandate to book
   themselves.
 - Full IBANs never leave the server in API responses or mails; only
   `iban_masked` (`DE89 **** 3000`). Exception: the Verein's creditor IBAN is
@@ -485,9 +499,10 @@ matches hand-calculated test cases.
 Depends on: Phase 1.
 - User enters account holder, IBAN (mod-97), optional BIC; reads the
   versioned mandate text and confirms online (§9 SEPA).
-- `mandate_ref` generation (`OCS-000012`), `mandate_date`, evidence
-  (timestamp, client IP, text version); changing IBAN/holder creates a new
-  mandate.
+- Own mandate table with history (§4 mandate); the reference is derived from
+  the id (`OCS-%06d`); evidence (timestamp, client IP, text version, creditor
+  name and ID) is stored per row; changing IBAN/holder creates a new mandate
+  and ends the old one.
 - Admin: mandate status per user; settings for creditor ID, IBAN, BIC.
 Done when: users can give and replace a mandate and admin sees who lacks one.
 

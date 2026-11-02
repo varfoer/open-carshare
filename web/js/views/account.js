@@ -3,7 +3,7 @@ import { refreshUser, navigate } from '../app.js';
 import { el, messageBox, textField, checkField, primaryButton } from '../admin_ui.js';
 import { epochToBerlin } from '../time.js';
 import { p2 } from '../form_time.js';
-import { ibanValid, formatIban } from '../sepa.js';
+import { ibanValid, formatIban, normalizeIban } from '../sepa.js';
 
 const MIN_PASSWORD = 10;
 
@@ -55,23 +55,26 @@ function mandateCard(user) {
     const acc = checkField('Ich erteile dieses SEPA-Lastschriftmandat.', false);
     acc.input.required = true;
     const err = messageBox('error');
-    const f = el('form', {}, holder.node, iban.node, bic.node, text, acc.node, err.node, primaryButton('Mandat erteilen'));
+    const submit = primaryButton('Mandat erteilen');
+    const f = el('form', {}, holder.node, iban.node, bic.node, text, acc.node, err.node, submit);
     f.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       err.hide();
       if (!ibanValid(iban.input.value)) return err.show('Die IBAN ist ungültig.');
       const body = {
-        account_holder: holder.input.value.trim(), iban: iban.input.value,
-        text_version: data.text_version, accept: true,
+        account_holder: holder.input.value.trim(), iban: normalizeIban(iban.input.value),
+        creditor_id: data.creditor_id, text_version: data.text_version, accept: true,
       };
       const b = bic.input.value.trim();
       if (b) body.bic = b;
+      submit.disabled = true;
       try {
         const r = await api('POST', '/api/me/mandate', body);
-        await load(r.mail_sent
-          ? 'Mandat erteilt. Die Bestätigung kommt per E-Mail.'
-          : 'Mandat erteilt, die E-Mail konnte aber nicht gesendet werden.');
-      } catch (x) { err.show(x.message); }
+        await load(!r.changed ? 'Das Mandat ist unverändert.'
+          : r.mail_sent
+            ? 'Mandat erteilt. Die Bestätigung kommt per E-Mail.'
+            : 'Mandat erteilt, die E-Mail konnte aber nicht gesendet werden.');
+      } catch (x) { err.show(x.message); } finally { submit.disabled = false; }
     });
     return f;
   }
@@ -79,17 +82,19 @@ function mandateCard(user) {
   function revokeForm() {
     const pw = textField('Passwort', '', { type: 'password', required: true, autocomplete: 'current-password' });
     const err = messageBox('error');
+    const submit = el('button', { type: 'submit', className: 'danger', text: 'Endgültig widerrufen' });
     const f = el('form', {},
       el('p', { className: 'error', text: 'Dein Konto wird deaktiviert und deine offenen Reservierungen werden storniert. Du wirst abgemeldet.' }),
-      pw.node, err.node, el('button', { type: 'submit', className: 'danger', text: 'Endgültig widerrufen' }));
+      pw.node, err.node, submit);
     f.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       err.hide();
+      submit.disabled = true;
       try {
         await api('DELETE', '/api/me/mandate', { password: pw.input.value });
         await refreshUser();
         navigate('#/login');
-      } catch (x) { err.show(x.message); }
+      } catch (x) { err.show(x.message); } finally { submit.disabled = false; }
     });
     return f;
   }

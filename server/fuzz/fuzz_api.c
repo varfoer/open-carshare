@@ -27,10 +27,12 @@ static void teardown(void) {
 static int setup(void) {
   app = th_app();
   if (!app) return -1;
-  /* Empty pw_hash users + session_create: no argon2 in setup. */
+  /* Admin: empty pw_hash + session_create, no argon2. The user gets a password
+   * so DELETE /api/me/mandate gets past the password check; th_set_creditor
+   * makes POST /api/me/mandate reachable. */
   int64_t aid = th_add_user(app, "admin@fuzz.test", NULL, ROLE_ADMIN);
-  int64_t uid = th_add_user(app, "user@fuzz.test", NULL, ROLE_USER);
-  if (aid < 0 || uid < 0 || session_create(app, aid, FUZZ_NOW, admin_tok) != 0 ||
+  int64_t uid = th_add_user(app, "user@fuzz.test", "fuzz password 1", ROLE_USER);
+  if (aid < 0 || uid < 0 || th_set_creditor(app) != 0 || session_create(app, aid, FUZZ_NOW, admin_tok) != 0 ||
       session_create(app, uid, FUZZ_NOW, user_tok) != 0)
     return -1;
   /* One active car (id 1) so booking writes get past BR_INVALID. */

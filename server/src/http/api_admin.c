@@ -398,6 +398,15 @@ void h_admin_settings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   settings_response(res, &a->db.settings);
 }
 
+/* Copy src (already length-checked against dst) without leading/trailing spaces and tabs. */
+static void trim_copy(char *dst, const char *src) {
+  size_t n = strlen(src);
+  while (n && (src[n - 1] == ' ' || src[n - 1] == '\t')) n--;
+  while (n && (*src == ' ' || *src == '\t')) { src++; n--; }
+  memcpy(dst, src, n);
+  dst[n] = 0;
+}
+
 void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   (void)req;
   int64_t tol, dl, fee;
@@ -432,10 +441,10 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
     api_error(res, 400, "invalid_bic", "Die BIC ist ungültig.");
     return;
   }
-  memcpy(s.assoc_name, name, strlen(name) + 1);
-  memcpy(s.assoc_street, street, strlen(street) + 1);
-  memcpy(s.assoc_zip, zip, strlen(zip) + 1);
-  memcpy(s.assoc_city, city, strlen(city) + 1);
+  trim_copy(s.assoc_name, name);
+  trim_copy(s.assoc_street, street);
+  trim_copy(s.assoc_zip, zip);
+  trim_copy(s.assoc_city, city);
   s.start_tolerance_min = (int)tol;
   s.cancel_deadline_min = (int)dl;
   s.cancel_fee_cents = fee;

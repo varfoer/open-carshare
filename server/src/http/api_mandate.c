@@ -51,6 +51,8 @@ void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
     else
       ok = !ready && cJSON_AddNullToObject(o, "text") != NULL;
   }
+  ok = ok && (ready ? add_str(o, "creditor_id", s->creditor_id)
+                    : cJSON_AddNullToObject(o, "creditor_id") != NULL);
   ok = ok && cJSON_AddNumberToObject(o, "text_version", MANDATE_TEXT_VERSION) != NULL;
   if (!ok) {
     cJSON_Delete(o);
@@ -59,10 +61,11 @@ void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   api_json(res, 200, o);
 }
 
-static void respond(api_res_t *res, int status, const mandate_t *m, bool mail_sent) {
+static void respond(api_res_t *res, int status, const mandate_t *m, bool mail_sent, bool changed) {
   cJSON *o = cJSON_CreateObject();
   cJSON *mj = mandate_api_json(m);
-  if (!o || !mj || !cJSON_AddBoolToObject(o, "mail_sent", mail_sent)) {
+  if (!o || !mj || !cJSON_AddBoolToObject(o, "mail_sent", mail_sent) ||
+      !cJSON_AddBoolToObject(o, "changed", changed)) {
     cJSON_Delete(mj);
     cJSON_Delete(o);
     api_json(res, 500, NULL);
@@ -108,11 +111,12 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   memset(&n, 0, sizeof n);
   const char *holder = api_get_str(ctx->body, "account_holder", sizeof n.holder);
   const char *iban = api_get_str(ctx->body, "iban", sizeof n.iban * 2);
+  const char *cid = api_get_str(ctx->body, "creditor_id", sizeof n.creditor_id * 2);
   int64_t ver;
   bool accept;
   const cJSON *bic_item = ctx->body ? cJSON_GetObjectItemCaseSensitive(ctx->body, "bic") : NULL;
   const char *bic = bic_item ? api_get_str(ctx->body, "bic", sizeof n.bic * 2) : "";
-  if (!holder || !iban || !bic || !api_get_int(ctx->body, "text_version", &ver) ||
+  if (!holder || !iban || !bic || !cid || !api_get_int(ctx->body, "text_version", &ver) ||
       !api_get_bool(ctx->body, "accept", &accept) || !accept) {
     api_invalid(res);
     return;
@@ -132,7 +136,9 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     api_error(res, 400, "invalid_bic", "Die BIC ist ungültig.");
     return;
   }
-  if (ver != MANDATE_TEXT_VERSION) {
+  char cid_n[sizeof n.creditor_id];
+  if (sepa_normalize(cid, cid_n, sizeof cid_n) != 0 || strcmp(cid_n, s->creditor_id) != 0 ||
+      ver != MANDATE_TEXT_VERSION) {
     api_error(res, 409, "text_changed", "Der Mandatstext wurde geändert. Bitte lies ihn erneut.");
     return;
   }
@@ -147,7 +153,7 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
         api_storage_error(res);
         return;
       }
-      respond(res, 200, &old, false);
+      respond(res, 200, &old, false, false);
       return;
     }
   }
@@ -170,7 +176,7 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   char body[4096];
   bool sent = mandate_mail_body(body, sizeof body, ctx->user->name, &n) >= 0 &&
               api_send_mail(a, ctx->user->email, "SEPA-Lastschriftmandat erteilt", body) == 0;
-  respond(res, 201, &n, sent);
+  respond(res, 201, &n, sent, true);
 }
 
 int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now) {
@@ -205,13 +211,20 @@ void h_me_mandate_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   const char *pw = api_get_str(ctx->body, "password", API_PW_MAX_BYTES + 1);
   const user_t *me = ctx->user;
   if (!pw || !me->pw_hash[0] || !pw_verify(pw, me->pw_hash)) {
-    api_error(res, 400, "bad_credentials", "E-Mail oder Passwort ist falsch.");
+    api_error(res, 400, "bad_credentials", "Das Passwort ist falsch.");
     return;
   }
   int64_t uid = me->id;
   if (!db_mandate_current(&a->db, uid)) {
     api_not_found(res);
     return;
+  }
+  /* A revoked user could never return the car; the admin path stays open. */
+  for (size_t i = 0; i < a->db.n_bookings; i++) {
+    if (a->db.bookings[i].user_id == uid && a->db.bookings[i].state == BK_ACTIVE) {
+      api_error(res, 409, "trip_active", "Bitte beende zuerst deine laufende Fahrt.");
+      return;
+    }
   }
   if (me->role == ROLE_ADMIN) {
     bool other = false;

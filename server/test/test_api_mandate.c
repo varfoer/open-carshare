@@ -45,7 +45,7 @@ static void post(const char *body, int status, const char *code) {
 }
 
 static const char *GOOD =
-    "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"de89 3704 0044 0532 0130 00\",\"text_version\":1,\"accept\":true}";
+    "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"de89 3704 0044 0532 0130 00\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}";
 
 static const char *str(const cJSON *o, const char *k) {
   const cJSON *e = cJSON_GetObjectItemCaseSensitive(o, k);
@@ -57,6 +57,7 @@ void test_get_not_ready(void) {
   cJSON *j = do_req("GET", NULL, 200, NULL);
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "ready")));
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "text")));
+  TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "creditor_id")));
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "mandate")));
   TEST_ASSERT_EQUAL_INT(1, cJSON_GetObjectItemCaseSensitive(j, "text_version")->valueint);
   cJSON_Delete(j);
@@ -67,6 +68,7 @@ void test_get_ready_has_text(void) {
   cJSON *j = do_req("GET", NULL, 200, NULL);
   TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "ready")));
   TEST_ASSERT_NOT_NULL(strstr(str(j, "text"), "Carsharing Testverein e.V."));
+  TEST_ASSERT_EQUAL_STRING("DE98ZZZ09999999999", str(j, "creditor_id"));
   cJSON_Delete(j);
 }
 
@@ -76,6 +78,7 @@ void test_post_mandate_normalizes(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON *j = do_req("POST", GOOD, 201, NULL);
   cJSON *m = cJSON_GetObjectItemCaseSensitive(j, "mandate");
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "changed")));
   TEST_ASSERT_EQUAL_STRING("OCS-000001", str(m, "ref"));
   TEST_ASSERT_EQUAL_STRING("DE89 **** 3000", str(m, "iban_masked"));
   TEST_ASSERT_EQUAL_STRING("1.2.3.4", str(m, "client_ip"));
@@ -91,21 +94,29 @@ void test_post_mandate_normalizes(void) {
 
 void test_post_rejects_bad_input(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013001\",\"text_version\":1,\"accept\":true}", 400, "invalid_iban");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"bic\":\"XX\",\"text_version\":1,\"accept\":true}", 400, "invalid_bic");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":false}", 400, "invalid");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":1}", 400, "invalid");
-  post("{\"account_holder\":\"  \",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":true}", 400, "invalid");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013001\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid_iban");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"bic\":\"XX\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid_bic");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":false}", 400, "invalid");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1}", 400, "invalid");
+  post("{\"account_holder\":\"  \",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid");
   char body[400];
   snprintf(body, sizeof body,
-           "{\"account_holder\":\"%071d\",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":true}", 0);
+           "{\"account_holder\":\"%071d\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 0);
   post(body, 400, "invalid");
   TEST_ASSERT_EQUAL_INT(0, (int)a->db.n_mandates);
 }
 
 void test_post_stale_text_version_409(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":0,\"accept\":true}", 409, "text_changed");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":0,\"accept\":true}", 409, "text_changed");
+}
+
+void test_post_stale_creditor_409(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ00000000001\",\"text_version\":1,\"accept\":true}", 409, "text_changed");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":true}", 400, "invalid");
+  /* spaces/lowercase are normalized before the compare */
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"de98 zzz0 9999 9999 99\",\"text_version\":1,\"accept\":true}", 201, NULL);
 }
 
 void test_post_same_data_is_idempotent(void) {
@@ -113,6 +124,7 @@ void test_post_same_data_is_idempotent(void) {
   post(GOOD, 201, NULL);
   cJSON *j = do_req("POST", GOOD, 200, NULL);
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "mail_sent")));
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "changed")));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(1, (int)a->db.n_mandates);
   TEST_ASSERT_EQUAL_INT(1, th_mail_count());
@@ -121,7 +133,7 @@ void test_post_same_data_is_idempotent(void) {
 void test_post_new_iban_replaces(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post(GOOD, 201, NULL);
-  post("{\"account_holder\":\"Anna Beispiel\",\"iban\":\"GB82WEST12345698765432\",\"text_version\":1,\"accept\":true}", 201, NULL);
+  post("{\"account_holder\":\"Anna Beispiel\",\"iban\":\"GB82WEST12345698765432\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 201, NULL);
   TEST_ASSERT_EQUAL_INT(2, (int)a->db.n_mandates);
   TEST_ASSERT_EQUAL_INT(MANDATE_REPLACED, a->db.mandates[0].status);
   TEST_ASSERT_EQUAL_INT64(T, a->db.mandates[0].ended_at);
@@ -234,18 +246,17 @@ static void check_revoked(int64_t user, int64_t actor, int64_t mid, int64_t res_
   TEST_ASSERT_EQUAL_INT64(actor, db_booking(&a->db, res_id)->modified_by);
   TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, other_id)->state);
   TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, other_id)->cancel_fee_cents);
-  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, act_id)->state);
+  if (act_id) TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, act_id)->state);
   TEST_ASSERT_FALSE(db_user(&a->db, user)->active);
   TEST_ASSERT_EQUAL_INT(0, n_sessions_of(user));
 }
 
-void test_revoke_cancels_reserved_keeps_active(void) {
+void test_revoke_cancels_reserved(void) {
   settings_t s = a->db.settings;
   s.cancel_fee_cents = 500;
   s.cancel_deadline_min = 1440;
   TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
   int64_t mid = add_mandate(uid);
-  int64_t act = add_booking(uid, BK_ACTIVE, T - 600);
   int64_t r1 = add_booking(uid, BK_RESERVED, T + 600);
   int64_t r2 = add_booking(uid, BK_RESERVED, T + 86400 * 5);
   api_res_t r = th_req(a, "DELETE", "/api/me/mandate", "{\"password\":\"correct horse\"}", tok, T);
@@ -253,7 +264,22 @@ void test_revoke_cancels_reserved_keeps_active(void) {
   TEST_ASSERT_NOT_NULL(strstr(r.set_cookie, "ocs_session=;"));
   TEST_ASSERT_NOT_NULL(strstr(r.set_cookie, "Max-Age=0"));
   api_res_free(&r);
-  check_revoked(uid, uid, mid, r1, act, r2);
+  check_revoked(uid, uid, mid, r1, 0, r2);
+}
+
+void test_revoke_during_trip_409(void) {
+  int64_t mid = add_mandate(uid);
+  int64_t act = add_booking(uid, BK_ACTIVE, T - 600);
+  int64_t r1 = add_booking(uid, BK_RESERVED, T + 600);
+  api_res_t r = th_req(a, "DELETE", "/api/me/mandate", "{\"password\":\"correct horse\"}", tok, T);
+  TEST_ASSERT_EQUAL_INT_MESSAGE(409, r.status, r.body);
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "trip_active"));
+  api_res_free(&r);
+  TEST_ASSERT_EQUAL_INT(MANDATE_ACTIVE, db_mandate(&a->db, mid)->status);
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, act)->state);
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, db_booking(&a->db, r1)->state);
+  TEST_ASSERT_TRUE(db_user(&a->db, uid)->active);
+  TEST_ASSERT_EQUAL_INT(1, n_sessions_of(uid));
 }
 
 void test_revoke_wrong_password_400(void) {
@@ -264,6 +290,7 @@ void test_revoke_wrong_password_400(void) {
     api_res_t r = th_req(a, "DELETE", "/api/me/mandate", bodies[i], tok, T);
     TEST_ASSERT_EQUAL_INT_MESSAGE(400, r.status, r.body);
     TEST_ASSERT_NOT_NULL(strstr(r.body, "bad_credentials"));
+    TEST_ASSERT_NOT_NULL(strstr(r.body, "Das Passwort ist falsch."));
     api_res_free(&r);
   }
   TEST_ASSERT_EQUAL_INT(MANDATE_ACTIVE, db_mandate(&a->db, mid)->status);
@@ -343,7 +370,7 @@ void test_admin_mandates_history_newest_first(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON_Delete(do_req("POST", GOOD, 201, NULL));
   cJSON_Delete(do_req("POST",
-      "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"DE02 1203 0000 0000 2020 51\",\"text_version\":1,\"accept\":true}",
+      "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"DE02 1203 0000 0000 2020 51\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}",
       201, NULL));
   char path[64];
   snprintf(path, sizeof path, "/api/admin/users/%lld/mandates", (long long)uid);
@@ -398,12 +425,14 @@ int main(void) {
   RUN_TEST(test_post_mandate_normalizes);
   RUN_TEST(test_post_rejects_bad_input);
   RUN_TEST(test_post_stale_text_version_409);
+  RUN_TEST(test_post_stale_creditor_409);
   RUN_TEST(test_post_same_data_is_idempotent);
   RUN_TEST(test_post_new_iban_replaces);
   RUN_TEST(test_mandate_keeps_creditor_snapshot);
   RUN_TEST(test_post_mail_failure_still_201);
   RUN_TEST(test_post_heals_second_active_row);
-  RUN_TEST(test_revoke_cancels_reserved_keeps_active);
+  RUN_TEST(test_revoke_cancels_reserved);
+  RUN_TEST(test_revoke_during_trip_409);
   RUN_TEST(test_revoke_wrong_password_400);
   RUN_TEST(test_revoke_without_mandate_404);
   RUN_TEST(test_revoke_last_admin_409);

@@ -121,3 +121,9 @@ when it is fixed.
 - [P6] Holder names need SEPA character-set transliteration for `pain.008`.
 - [P6] Non-DE IBANs may need the BIC in `pain.008` for non-EEA countries
   (CH, GB, ...).
+- [any] `DELETE /api/me/mandate` and `PUT /api/me/password` are not rate
+  limited (password guessing for a logged-in session).
+- [any] A failed user revoke is not retryable if a late step fails: move the
+  mandate step last in `api_mandate_revoke`.
+- [P6] Check with the bank whether the online mandate text must show the
+  creditor address; if so, bump `MANDATE_TEXT_VERSION`.
