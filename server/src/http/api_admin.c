@@ -8,6 +8,7 @@
 #include "core/booking_rules.h"
 #include "core/codec.h"
 #include "core/email.h"
+#include "core/sepa.h"
 #include "http/api_internal.h"
 
 /* Largest value the codec writes exactly (see MAX_WRITE_INT in core/codec.c). */
@@ -361,7 +362,14 @@ static void settings_response(api_res_t *res, const settings_t *s) {
   cJSON *o = cJSON_CreateObject();
   if (!o || !cJSON_AddNumberToObject(o, "start_tolerance_min", s->start_tolerance_min) ||
       !cJSON_AddNumberToObject(o, "cancel_deadline_min", s->cancel_deadline_min) ||
-      !cJSON_AddNumberToObject(o, "cancel_fee_cents", (double)s->cancel_fee_cents)) {
+      !cJSON_AddNumberToObject(o, "cancel_fee_cents", (double)s->cancel_fee_cents) ||
+      !cJSON_AddStringToObject(o, "assoc_name", s->assoc_name) ||
+      !cJSON_AddStringToObject(o, "assoc_street", s->assoc_street) ||
+      !cJSON_AddStringToObject(o, "assoc_zip", s->assoc_zip) ||
+      !cJSON_AddStringToObject(o, "assoc_city", s->assoc_city) ||
+      !cJSON_AddStringToObject(o, "creditor_id", s->creditor_id) ||
+      !cJSON_AddStringToObject(o, "creditor_iban", s->creditor_iban) ||
+      !cJSON_AddStringToObject(o, "creditor_bic", s->creditor_bic)) {
     cJSON_Delete(o);
     api_json(res, 500, NULL);
     return;
@@ -385,7 +393,34 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
     api_invalid(res);
     return;
   }
-  settings_t s = a->db.settings; /* keep association/creditor fields */
+  settings_t s = a->db.settings;
+  const char *name = api_get_str(ctx->body, "assoc_name", sizeof s.assoc_name);
+  const char *street = api_get_str(ctx->body, "assoc_street", sizeof s.assoc_street);
+  const char *zip = api_get_str(ctx->body, "assoc_zip", sizeof s.assoc_zip);
+  const char *city = api_get_str(ctx->body, "assoc_city", sizeof s.assoc_city);
+  const char *cid = api_get_str(ctx->body, "creditor_id", 256);
+  const char *iban = api_get_str(ctx->body, "creditor_iban", 256);
+  const char *bic = api_get_str(ctx->body, "creditor_bic", 256);
+  if (!name || !street || !zip || !city || !cid || !iban || !bic) { api_invalid(res); return; }
+  if (sepa_normalize(cid, s.creditor_id, sizeof s.creditor_id) != 0 ||
+      (*s.creditor_id && !creditor_id_valid(s.creditor_id))) {
+    api_error(res, 400, "invalid_creditor_id", "Ungültige Gläubiger-ID.");
+    return;
+  }
+  if (sepa_normalize(iban, s.creditor_iban, sizeof s.creditor_iban) != 0 ||
+      (*s.creditor_iban && !iban_valid(s.creditor_iban))) {
+    api_error(res, 400, "invalid_iban", "Die IBAN ist ungültig.");
+    return;
+  }
+  if (sepa_normalize(bic, s.creditor_bic, sizeof s.creditor_bic) != 0 ||
+      (*s.creditor_bic && !bic_valid(s.creditor_bic))) {
+    api_error(res, 400, "invalid_bic", "Die BIC ist ungültig.");
+    return;
+  }
+  memcpy(s.assoc_name, name, strlen(name) + 1);
+  memcpy(s.assoc_street, street, strlen(street) + 1);
+  memcpy(s.assoc_zip, zip, strlen(zip) + 1);
+  memcpy(s.assoc_city, city, strlen(city) + 1);
   s.start_tolerance_min = (int)tol;
   s.cancel_deadline_min = (int)dl;
   s.cancel_fee_cents = fee;

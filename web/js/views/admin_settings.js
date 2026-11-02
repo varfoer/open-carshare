@@ -9,10 +9,21 @@ export async function render(root) {
   const tol = textField('Starttoleranz (Minuten)', String(s.start_tolerance_min), { inputMode: 'numeric', required: true });
   const dead = textField('Stornofrist (Minuten vor Start)', String(s.cancel_deadline_min), { inputMode: 'numeric', required: true });
   const fee = textField('Stornogebühr (€)', toEuroInput(s.cancel_fee_cents), { inputMode: 'decimal', required: true });
+  const aname = textField('Vereinsname', s.assoc_name, { maxLength: 95 });
+  const astreet = textField('Straße', s.assoc_street, { maxLength: 95 });
+  const azip = textField('PLZ', s.assoc_zip, { maxLength: 15 });
+  const acity = textField('Ort', s.assoc_city, { maxLength: 63 });
+  const cid = textField('Gläubiger-ID', s.creditor_id, { maxLength: 35 });
+  const ciban = textField('IBAN des Vereins', s.creditor_iban, { maxLength: 50 });
+  const cbic = textField('BIC des Vereins (optional)', s.creditor_bic, { maxLength: 20 });
   const err = messageBox('error');
   const ok = messageBox('success');
+  const sepaCard = el('div', { className: 'card' },
+    el('h2', { text: 'Verein und Lastschrift' }),
+    aname.node, astreet.node, azip.node, acity.node, cid.node, ciban.node, cbic.node);
   const form = el('form', { className: 'card' },
-    el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, err.node, ok.node, primaryButton('Speichern'));
+    el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, sepaCard,
+    err.node, ok.node, primaryButton('Speichern'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     err.hide(); ok.hide();
@@ -24,10 +35,23 @@ export async function render(root) {
     if (cents === null) return err.show('Stornogebühr: bitte einen Eurobetrag wie 5 oder 5,50 eingeben.');
     try {
       const r = await api('PUT', '/api/admin/settings',
-        { start_tolerance_min: t, cancel_deadline_min: d, cancel_fee_cents: cents });
+        {
+          start_tolerance_min: t, cancel_deadline_min: d, cancel_fee_cents: cents,
+          assoc_name: aname.input.value.trim(), assoc_street: astreet.input.value.trim(),
+          assoc_zip: azip.input.value.trim(), assoc_city: acity.input.value.trim(),
+          creditor_id: cid.input.value.trim(), creditor_iban: ciban.input.value.trim(),
+          creditor_bic: cbic.input.value.trim(),
+        });
       tol.input.value = String(r.start_tolerance_min);
       dead.input.value = String(r.cancel_deadline_min);
       fee.input.value = toEuroInput(r.cancel_fee_cents);
+      aname.input.value = r.assoc_name;
+      astreet.input.value = r.assoc_street;
+      azip.input.value = r.assoc_zip;
+      acity.input.value = r.assoc_city;
+      cid.input.value = r.creditor_id;
+      ciban.input.value = r.creditor_iban;
+      cbic.input.value = r.creditor_bic;
       ok.show('Gespeichert.');
     } catch (x) { err.show(x.message); }
   });
