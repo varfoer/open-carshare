@@ -35,7 +35,8 @@ async function tariffSection(car) {
 
   // Prefilled with the newest version; empty for the first one.
   const p = tariffs[0];
-  const when = dateTime(now);
+  // Existing versions: default to the next 15-minute slot after now (server rejects valid_from in the past).
+  const when = dateTime(p ? Math.ceil((now + 900) / 900) * 900 : now);
   const euro = (label, key) => textField(label, p ? toEuroInput(p[key]) : '', { inputMode: 'decimal', required: true });
   const day = euro('Tag (€/h)', 'rate_day_cents_per_h');
   const night = euro('Nacht (€/h)', 'rate_night_cents_per_h');
