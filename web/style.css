@@ -85,3 +85,7 @@ button.link { background: none; border: 0; padding: 0; color: var(--accent, inhe
 dl.price-lines { display: grid; grid-template-columns: 1fr auto; gap: .25rem 1rem; margin: .5rem 0; }
 dl.price-lines dt, dl.price-lines dd { margin: 0; }
 dl.price-lines dd { text-align: right; }
+.mandate-text { white-space: pre-wrap; font: inherit; font-size: .9rem; background: var(--bg, transparent); border: 1px solid var(--border); border-radius: 6px; padding: .75rem; max-height: 16rem; overflow: auto; }
+dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: .25rem 1rem; margin: 0 0 .75rem; }
+dl.kv dt { color: var(--muted); }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }

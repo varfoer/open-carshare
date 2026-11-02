@@ -1,8 +1,102 @@
 import { api } from '../api.js';
-import { refreshUser } from '../app.js';
-import { el, messageBox, textField, primaryButton } from '../admin_ui.js';
+import { refreshUser, navigate } from '../app.js';
+import { el, messageBox, textField, checkField, primaryButton } from '../admin_ui.js';
+import { epochToBerlin } from '../time.js';
+import { p2 } from '../form_time.js';
+import { ibanValid, formatIban } from '../sepa.js';
 
 const MIN_PASSWORD = 10;
+
+const berlinDate = (ts) => {
+  const b = epochToBerlin(ts);
+  return `${p2(b.d)}.${p2(b.mo)}.${b.y}`;
+};
+
+function mandateCard(user) {
+  const card = el('section', { className: 'card' });
+  const ok = messageBox('success');
+
+  async function load(flash) {
+    let data;
+    try { data = await api('GET', '/api/me/mandate'); } catch (x) {
+      card.replaceChildren(el('h2', { text: 'SEPA-Lastschriftmandat' }), el('p', { className: 'error', text: x.message }));
+      return;
+    }
+    card.replaceChildren(el('h2', { text: 'SEPA-Lastschriftmandat' }));
+    if (!data.ready) {
+      card.append(el('p', { className: 'hint', text: 'Lastschriftmandate sind noch nicht eingerichtet.' }));
+      return;
+    }
+    if (flash) { ok.show(flash); card.append(ok.node); } else ok.hide();
+    const m = data.mandate;
+    if (m) {
+      const dl = el('dl', { className: 'kv' });
+      for (const [k, v] of [['Mandatsreferenz', m.ref], ['Kontoinhaber', m.holder], ['IBAN', m.iban_masked], ['Erteilt am', berlinDate(m.created_at)]]) {
+        dl.append(el('dt', { text: k }), el('dd', { text: v }));
+      }
+      const formArea = el('div');
+      const revokeArea = el('div');
+      const change = el('button', { type: 'button', className: 'btn', text: 'Bankverbindung ändern' });
+      const revoke = el('button', { type: 'button', className: 'danger', text: 'Mandat widerrufen' });
+      change.addEventListener('click', () => { revokeArea.replaceChildren(); formArea.replaceChildren(giveForm(data)); });
+      revoke.addEventListener('click', () => { formArea.replaceChildren(); revokeArea.replaceChildren(revokeForm()); });
+      card.append(dl, el('div', { className: 'dialog-actions' }, change, revoke), formArea, revokeArea);
+    } else {
+      card.append(el('p', { className: 'hint', text: 'Ohne Mandat kannst du keine Fahrzeuge buchen.' }), giveForm(data));
+    }
+  }
+
+  function giveForm(data) {
+    const holder = textField('Kontoinhaber', user.name, { required: true, autocomplete: 'off' });
+    const iban = textField('IBAN', '', { required: true, autocomplete: 'off', inputMode: 'text' });
+    const bic = textField('BIC (optional)', '', { autocomplete: 'off' });
+    iban.input.addEventListener('blur', () => { iban.input.value = formatIban(iban.input.value); });
+    const text = el('pre', { className: 'mandate-text', text: data.text || '' });
+    const acc = checkField('Ich erteile dieses SEPA-Lastschriftmandat.', false);
+    acc.input.required = true;
+    const err = messageBox('error');
+    const f = el('form', {}, holder.node, iban.node, bic.node, text, acc.node, err.node, primaryButton('Mandat erteilen'));
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      err.hide();
+      if (!ibanValid(iban.input.value)) return err.show('Die IBAN ist ungültig.');
+      const body = {
+        account_holder: holder.input.value.trim(), iban: iban.input.value,
+        text_version: data.text_version, accept: true,
+      };
+      const b = bic.input.value.trim();
+      if (b) body.bic = b;
+      try {
+        const r = await api('POST', '/api/me/mandate', body);
+        await load(r.mail_sent
+          ? 'Mandat erteilt. Die Bestätigung kommt per E-Mail.'
+          : 'Mandat erteilt, die E-Mail konnte aber nicht gesendet werden.');
+      } catch (x) { err.show(x.message); }
+    });
+    return f;
+  }
+
+  function revokeForm() {
+    const pw = textField('Passwort', '', { type: 'password', required: true, autocomplete: 'current-password' });
+    const err = messageBox('error');
+    const f = el('form', {},
+      el('p', { className: 'error', text: 'Dein Konto wird deaktiviert und deine offenen Reservierungen werden storniert. Du wirst abgemeldet.' }),
+      pw.node, err.node, el('button', { type: 'submit', className: 'danger', text: 'Endgültig widerrufen' }));
+    f.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      err.hide();
+      try {
+        await api('DELETE', '/api/me/mandate', { password: pw.input.value });
+        await refreshUser();
+        navigate('#/login');
+      } catch (x) { err.show(x.message); }
+    });
+    return f;
+  }
+
+  load();
+  return card;
+}
 
 export async function render(root) {
   const { user } = await api('GET', '/api/me');
@@ -53,5 +147,5 @@ export async function render(root) {
     } catch (x) { wErr.show(x.message); }
   });
 
-  root.append(pForm, wForm);
+  root.append(pForm, mandateCard(user), wForm);
 }
