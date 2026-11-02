@@ -7,6 +7,7 @@
 typedef struct {
   char listen[64], data_dir[256], web_dir[256], base_url[128];
   char smtp_url[128], smtp_user[64], smtp_pass[128], mail_from[128];
+  int tracker_port; /* 0: tracker listener disabled */
 } config_t;
 
 /* 0 ok, -1 fail. Production wires this to mail_build + platform_mail_send. */

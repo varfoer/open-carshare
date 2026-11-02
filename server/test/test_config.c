@@ -96,6 +96,43 @@ void test_config_malformed_line_fails(void) {
   remove(path);
 }
 
+void test_tracker_port_parsed(void) {
+  write_conf("data_dir=d\nweb_dir=w\nbase_url=b\ntracker_port = 5027\n");
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_INT(5027, c.tracker_port);
+  write_conf("data_dir=d\nweb_dir=w\nbase_url=b\ntracker_port=1\n");
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_INT(1, c.tracker_port);
+  write_conf("data_dir=d\nweb_dir=w\nbase_url=b\ntracker_port=65535\n");
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_INT(65535, c.tracker_port);
+}
+
+void test_tracker_port_absent_is_zero(void) {
+  write_conf("data_dir=d\nweb_dir=w\nbase_url=b\n");
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_INT(0, c.tracker_port);
+}
+
+void test_tracker_port_invalid(void) {
+  const char *bad[] = {"0", "70000", "65536", "abc", "", "-1", "+5027", "50 27", "5027x",
+                       "99999999999999999999"};
+  for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+    char text[256];
+    snprintf(text, sizeof text, "data_dir=d\nweb_dir=w\nbase_url=b\ntracker_port=%s\n", bad[i]);
+    write_conf(text);
+    config_t c;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(-1, config_load(path, &c), bad[i]);
+    remove(path);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_config_parses_values_and_comments);
@@ -104,5 +141,8 @@ int main(void) {
   RUN_TEST(test_config_missing_required_fails);
   RUN_TEST(test_config_too_long_value_fails);
   RUN_TEST(test_config_malformed_line_fails);
+  RUN_TEST(test_tracker_port_parsed);
+  RUN_TEST(test_tracker_port_absent_is_zero);
+  RUN_TEST(test_tracker_port_invalid);
   return UNITY_END();
 }

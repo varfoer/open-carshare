@@ -1,15 +1,21 @@
-/* Mongoose adapter: maps HTTP connections to api_handle / static files. */
+/* Mongoose adapter: maps HTTP connections to api_handle / static files, and
+ * Teltonika tracker TCP connections to tracker_feed. */
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "app.h"
+#include "core/teltonika.h"
 #include "http/api.h"
+#include "http/tracker.h"
 #include "mongoose.h"
 #include "platform/platform.h"
 
 #define PRUNE_INTERVAL_MS (3600ULL * 1000ULL)
 #define EXPIRE_INTERVAL_MS (300ULL * 1000ULL)
+#define TRACKER_MAX_CONNS 16
+#define TRACKER_IDLE_S 900
+#define TRACKER_MAX_BUFFERED (TLT_MAX_DATA_LEN + 12) /* header 8 + data + CRC 4 */
 
 #define SEC_HEADERS \
   "Content-Security-Policy: default-src 'self'; img-src 'self' data:\r\n" \
@@ -195,6 +201,52 @@ static void on_event(struct mg_connection *c, int ev, void *ev_data) {
   }
 }
 
+_Static_assert(sizeof(tracker_conn_t) <= MG_DATA_SIZE, "tracker_conn_t must fit in c->data");
+
+static void tracker_ev(struct mg_connection *c, int ev, void *ev_data);
+
+static int tracker_conn_count(struct mg_mgr *mgr) {
+  int n = 0;
+  for (struct mg_connection *t = mgr->conns; t; t = t->next)
+    if (t->fn == tracker_ev && !t->is_listening) n++;
+  return n;
+}
+
+/* c->data is a char array: copied in and out, never cast (alignment).
+ * Never logs record contents: the payload may carry positions. */
+static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
+  (void)ev_data;
+  if (c->is_listening) return;
+  app_t *a = c->fn_data;
+  tracker_conn_t st;
+  memcpy(&st, c->data, sizeof st);
+  if (ev == MG_EV_ACCEPT) {
+    memset(&st, 0, sizeof st);
+    st.last_rx = platform_now();
+    if (tracker_conn_count(c->mgr) > TRACKER_MAX_CONNS) c->is_closing = 1;
+  } else if (ev == MG_EV_READ) {
+    if (c->is_draining || c->is_closing) return;
+    int64_t now = platform_now();
+    st.last_rx = now;
+    while (c->recv.len > 0) {
+      uint8_t reply[4];
+      size_t reply_len = 0, used = 0;
+      int rc = tracker_feed(a, &st, c->recv.buf, c->recv.len, now, reply, &reply_len, &used);
+      if (reply_len > 0) mg_send(c, reply, reply_len);
+      if (used > 0) mg_iobuf_del(&c->recv, 0, used);
+      if (rc < 0) {
+        c->is_draining = 1;
+        break;
+      }
+      if (used == 0) break;
+    }
+    if (!c->is_draining && c->recv.len > TRACKER_MAX_BUFFERED) c->is_closing = 1;
+  } else if (ev == MG_EV_POLL) {
+    if (platform_now() - st.last_rx > TRACKER_IDLE_S) c->is_closing = 1;
+  }
+  memcpy(c->data, &st, sizeof st);
+}
+
 static void prune_cb(void *arg) {
   app_t *a = arg;
   if (db_prune(&a->db, platform_now()) != 0) fprintf(stderr, "ocs-server: db_prune failed\n");
@@ -216,6 +268,15 @@ int server_run(app_t *a) {
     fprintf(stderr, "ocs-server: cannot listen on %s\n", a->cfg.listen);
     mg_mgr_free(&mgr);
     return -1;
+  }
+  if (a->cfg.tracker_port > 0) {
+    char url[64];
+    snprintf(url, sizeof url, "tcp://0.0.0.0:%d", a->cfg.tracker_port);
+    if (!mg_listen(&mgr, url, tracker_ev, a)) {
+      fprintf(stderr, "ocs-server: cannot listen on %s\n", url);
+      mg_mgr_free(&mgr);
+      return -1;
+    }
   }
   mg_timer_add(&mgr, PRUNE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, prune_cb, a);
   mg_timer_add(&mgr, EXPIRE_INTERVAL_MS, MG_TIMER_REPEAT | MG_TIMER_RUN_NOW, expire_cb, a);

@@ -21,6 +21,20 @@ static int set(char *dst, size_t cap, const char *v) {
   return 0;
 }
 
+/* Decimal 1..65535, digits only. */
+static int set_port(int *dst, const char *v) {
+  size_t n = strlen(v);
+  if (n == 0 || n > 5) return -1;
+  int port = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (v[i] < '0' || v[i] > '9') return -1;
+    port = port * 10 + (v[i] - '0');
+  }
+  if (port < 1 || port > 65535) return -1;
+  *dst = port;
+  return 0;
+}
+
 int config_load(const char *path, config_t *cfg) {
   FILE *f = fopen(path, "r");
   if (!f) return -1;
@@ -43,6 +57,7 @@ int config_load(const char *path, config_t *cfg) {
     else if (strcmp(k, "smtp_user") == 0) rc = set(cfg->smtp_user, sizeof cfg->smtp_user, v);
     else if (strcmp(k, "smtp_pass") == 0) rc = set(cfg->smtp_pass, sizeof cfg->smtp_pass, v);
     else if (strcmp(k, "mail_from") == 0) rc = set(cfg->mail_from, sizeof cfg->mail_from, v);
+    else if (strcmp(k, "tracker_port") == 0) rc = set_port(&cfg->tracker_port, v);
     else rc = -1;
   }
   if (ferror(f)) rc = -1;
