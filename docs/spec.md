@@ -17,8 +17,8 @@ UI language: German only. Code, docs, identifiers: English.
 ```
 Browser / PWA  --HTTPS-->  Caddy (TLS, Let's Encrypt)  --HTTP localhost-->  ocs-server (C)
                                                                               |-- data/   (files)
-                                                                              |-- MyGeotab API (HTTPS out)
                                                                               |-- SMTP relay (mail out)
+Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port (§8)
 ```
 
 - `ocs-server`: single C binary, single-threaded event loop. All requests are
@@ -33,7 +33,6 @@ Browser / PWA  --HTTPS-->  Caddy (TLS, Let's Encrypt)  --HTTP localhost-->  ocs-
 | HTTP server | Mongoose (GPLv2) | portable to ESP-IDF later |
 | JSON | cJSON | small, ships with ESP-IDF |
 | Password hashing | Monocypher (Argon2id) | single file, portable |
-| HTTPS client (Geotab) | libcurl | VPS only, behind `platform/` interface |
 | Mail | SMTP via libcurl to relay | behind `platform/` interface |
 | Tests | Unity | also runs on ESP32 |
 
@@ -47,7 +46,7 @@ server/
     core/       pure logic: booking rules, pricing, billing, sepa, pdf (no I/O)
     store/      store.h + file backend
     auth/       password hashing, sessions, roles
-    platform/   posix/: time, fs, rng, http client, mail
+    platform/   posix/: time, fs, rng, mail
   test/
   third_party/
 web/            index.html, app.js, style.css, manifest.json, sw.js
@@ -73,7 +72,8 @@ license_checked_at, may_club_trip (default false, set by admin only),
 created_at.
 
 ### car
-id, name, plate, active, location_text, geotab_device_id, keysafe_id.
+id, name, plate, active, location_text, tracker_imei (15 digits, optional,
+unique), keysafe_id.
 
 ### keysafe
 id, secret (encrypted at rest), algorithm params (step, digits, drift).
@@ -92,7 +92,7 @@ Pricing uses the tariff valid at the booking's booked start.
 ### booking
 id, car_id, user_id, booked_start, booked_end, state
 (`reserved`|`active`|`done`|`cancelled`), actual_start, actual_end,
-km_start, km_end, km_source (`geotab`|`manual`), km_pending,
+km_start, km_end, km_source (`telematics`|`manual`), km_pending,
 cancelled_at, club_trip (default false), invoice_id, created_at, modified_at,
 modified_by.
 
@@ -115,7 +115,12 @@ collection_date, sepa_file.
 ### settings
 association name/address, creditor_id (Gläubiger-ID), creditor IBAN/BIC,
 start_tolerance_min (15), cancel_deadline_min (0), cancel_fee_cents (0),
-sepa lead days, invoice footer text, SMTP config, Geotab credentials.
+sepa lead days, invoice footer text, SMTP config.
+
+### odometer_reading
+car_id, ts (device GNSS time, epoch seconds), odometer_m (tracker total
+odometer, metres), received_at. Nothing else from the tracker is stored.
+Kept 90 days, then pruned.
 
 ## 5. Booking rules
 
@@ -199,15 +204,69 @@ PIN shown in the client only for an `active` booking (after the start
 procedure), computed server-side via `access_pin()`. Keysafe secrets are
 encrypted at rest with a key from the server config file (not in `data/`).
 
-## 8. Odometer (Geotab)
+## 8. Odometer (Teltonika telematics)
 
-- MyGeotab JSON-RPC API: `Authenticate`, then `Get` `StatusData` with
-  diagnostic `DiagnosticOdometerId`, device filter, narrow time window,
-  `resultsLimit`.
-- On start/return: record time immediately, set `km_pending`.
-- Background job (every 5 min) resolves pending km from the first odometer
-  value at/after start and the last at/before return. Retries until found.
-- Admin can enter km manually (`km_source = manual`).
+Hardware: one Teltonika FMx tracker per car in the OBD port (4G model, e.g.
+FMC003 or its successor; no 2G-only models such as FMB003, German 2G networks
+shut down in 2028), IoT SIM (e.g. 1NCE). No vendor cloud, no Traccar: the
+tracker sends to `ocs-server` directly. Km come from the tracker's GNSS-based
+total odometer (AVL ID 16 "Total Odometer", metres; verify against the model's
+AVL ID list), set once to the dashboard reading. A deviation of a few percent
+from the dashboard is accepted for billing. The OEM odometer (AVL ID 389) is
+not used (unconfirmed for the Leapmotor T03).
+
+Ingestion:
+- `ocs-server` listens on a dedicated TCP port (`tracker_port` in the config
+  file), Teltonika protocol with Codec 8 Extended (`0x8E`).
+- Handshake: the tracker sends its IMEI; the server answers `0x01` if it
+  matches the `tracker_imei` of a car (active or deactivated, so pending
+  trips of a deactivated car still resolve), else `0x00` and closes.
+- AVL data packet: length and CRC-16/IBM checked; the server acknowledges the
+  record count only after the readings are stored, so the tracker resends on
+  failure. Packet size, connection count and idle time are limited.
+- From each record only the timestamp and the odometer element are kept.
+  GPS positions and all other I/O elements are discarded on arrival and never
+  stored or logged (no movement profiles of members).
+- The packet parser lives in `core/` (pure, no I/O) and is fuzzed.
+- Storing a packet must not rewrite the whole readings file (append; pruning
+  rewrites it).
+
+Tracker configuration (documented in `deploy/vps/README.md`): server domain
+and port, TCP, Codec 8 Extended, APN of the SIM, records on movement
+start/stop (movement source: movement sensor/GNSS, since ignition detection is
+unreliable on EVs), a record at least every 5 min while moving and every
+60 min while parked. The parked record is what lets a trip resolve after the
+car is returned (see below); the 12 V battery drain of the parked mode is
+checked in the hardware acceptance.
+
+Resolution:
+- On start/return: record time immediately, set `km_pending` on return.
+- Background job (every 5 min) resolves each `km_pending` booking of a car
+  with `tracker_imei`:
+  - Wait until a reading with `ts > actual_end` exists (buffered records
+    from dead zones have arrived; normally the next parked record, at most
+    60 min after return). Until then the booking stays pending.
+  - start = first reading with `actual_start <= ts <= actual_end`,
+    end = last reading in the same window.
+  - No reading inside the trip: if the last reading before `actual_start`
+    and the first reading after `actual_end` have the same odometer, the
+    trip is 0 km (both ends = that value); otherwise it stays pending.
+  - end below start: stays pending.
+  - `km_start = round(start_m / 1000)`,
+    `km_end = km_start + round((end_m - start_m) / 1000)` (half-up), so the
+    trip distance is rounded once. `km_source = telematics`,
+    `km_pending = false`.
+- Cars without `tracker_imei`: `km_pending` is resolved manually by admin.
+- Admin can enter km manually (`km_source = manual`) at any time; the job
+  never touches a booking that is not `km_pending`. Return does not set
+  `km_pending` when the admin already entered manual km during the trip.
+- Admin edit of `actual_start`/`actual_end` on a booking with
+  `km_source = telematics` sets it back to `km_pending` (km recomputed for
+  the new window); manual km are kept.
+- While any returned booking of a car with `tracker_imei` is `km_pending` for
+  more than 24 h, all active admins get one mail per day listing them
+  (tracker silent, offline or implausible data). The date of the last mail is
+  persisted in `data/` so a restart does not resend it.
 - Billing run refuses to finalize while any booking of the period has
   `km_pending`.
 
@@ -258,7 +317,7 @@ block.
 
 Booking created / modified / cancelled, reminder before start (configurable,
 default 1 h), late return reminder, invoice. Admin: billing run done,
-Geotab sync failing.
+km still pending 24 h after return (daily, §8).
 
 ## 11. Security
 
@@ -267,7 +326,11 @@ Geotab sync failing.
 - Login rate limiting per IP and account.
 - Password reset via mail link (single use, 1 h).
 - All input parsed with length limits; parsers fuzzed (libFuzzer + ASan).
-- `ocs-server` binds to localhost only; Caddy terminates TLS.
+- `ocs-server` binds its HTTP port to localhost only; Caddy terminates TLS.
+- Tracker port (§8) is the only port `ocs-server` exposes to the internet:
+  plain TCP unless Teltonika TLS to an own server is verified and added.
+  Mitigations: IMEI allowlist, limits, fuzzed parser, positions never stored,
+  admin override of km.
 
 ## 12. Data and backup
 
@@ -333,22 +396,29 @@ Depends on: Phase 1.
   client-side resize, multipart upload, files under `data/photos/`, admin
   view.
 - Booking history for users (past bookings with actual times) and admin.
-- Manual km entry by admin (`km_source = manual`); the Geotab path comes in
-  Phase 3, so `km_pending` is set on return and resolved manually for now.
+- Manual km entry by admin (`km_source = manual`); the telematics path comes
+  in Phase 3, so `km_pending` is set on return and resolved manually for now.
 - UI: start/return flow in "Meine Buchungen", no "Stornieren" on started
   bookings.
 Done when: a booking can be started, returned, reported on and shows up in
 history with actual times and km.
 
-### Phase 3: Odometer (Geotab)
+### Phase 3: Odometer (Teltonika telematics)
 Depends on: Phase 2.
-- MyGeotab client (§8) in `platform/posix/` (libcurl), credentials in
-  settings, `geotab_device_id` per car.
-- Background job every 5 min resolves `km_pending`; retries until found.
-- Admin mail when the Geotab sync keeps failing.
-- Tests against a recorded/fake Geotab endpoint.
-Done when: returned bookings get km automatically, admin can still
-override manually.
+- Tracker ingestion (§8): TCP listener on `tracker_port`, Codec 8 Extended
+  parser in `core/` (fuzzed), IMEI handshake against `tracker_imei`,
+  `odometer_reading` store (append), 90-day pruning.
+- `km_source` value `geotab` renamed to `telematics`; car admin field
+  `tracker_imei`.
+- Background job every 5 min resolves `km_pending` (§8); retries until found.
+- Daily admin mail while a returned booking stays `km_pending` over 24 h.
+- Tests with recorded/constructed Codec 8 Extended packets and a simulated
+  tracker client; no hardware needed.
+- Deployment docs: firewall port, Teltonika Configurator settings, SIM APN.
+- Acceptance on hardware (separate, once bought): one tracker in the car for a
+  week, km compared with the dashboard.
+Done when: returned bookings get km automatically from tracker data, admin
+can still override manually.
 
 ### Phase 4: Tariffs and pricing
 Depends on: Phase 2 (actual times); Phase 3 km optional (manual km works).
