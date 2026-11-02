@@ -55,9 +55,22 @@ static int parse_mut(size_t off, uint8_t v) {
     return tlt_parse_packet(b, sizeof b, recs, &n, &used);
 }
 
+/* Like parse_mut, but fixes the CRC so only the structural check can reject. */
+static int parse_mut_recrc(size_t off, uint8_t v) {
+    uint8_t b[sizeof wiki];
+    tlt_record_t recs[TLT_MAX_RECORDS];
+    size_t n, used;
+    memcpy(b, wiki, sizeof b);
+    b[off] = v;
+    uint16_t c = tlt_crc16(b + 8, 74);
+    b[84] = (uint8_t)(c >> 8);
+    b[85] = (uint8_t)c;
+    return tlt_parse_packet(b, sizeof b, recs, &n, &used);
+}
+
 static void test_packet_bad_crc(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut(85, 0x95)); }
-static void test_packet_bad_codec(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut(8, 0x08)); }
-static void test_packet_n1_ne_n2(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut(81, 0x02)); }
+static void test_packet_bad_codec(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut_recrc(8, 0x08)); }
+static void test_packet_n1_ne_n2(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut_recrc(81, 0x02)); }
 static void test_packet_nonzero_preamble(void) { TEST_ASSERT_EQUAL_INT(-1, parse_mut(2, 0x01)); }
 
 static void test_packet_preamble_rejected_early(void) {
@@ -152,6 +165,38 @@ static void test_packet_nx_group_skipped(void) {
     TEST_ASSERT_EQUAL_INT64(1000, recs[0].ts_ms);
 }
 
+/* Wraps data field d (codec id .. N2) into a packet with a valid CRC and parses it. */
+static int parse_data(const uint8_t *d, size_t dl) {
+    uint8_t b[8 + 128 + 4] = {0};
+    tlt_record_t recs[TLT_MAX_RECORDS];
+    size_t n, used;
+    b[6] = (uint8_t)(dl >> 8);
+    b[7] = (uint8_t)dl;
+    memcpy(b + 8, d, dl);
+    uint16_t c = tlt_crc16(d, dl);
+    b[8 + dl + 2] = (uint8_t)(c >> 8);
+    b[8 + dl + 3] = (uint8_t)c;
+    return tlt_parse_packet(b, 8 + dl + 4, recs, &n, &used);
+}
+
+/* Record with one NX element (id 0x0100, len `nxlen`, 3 value bytes present). */
+#define NX_DATA(NXLEN) \
+    0x8E, 0x01, 0,0,0,0,0,0,0x03,0xE8, 0x01, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, \
+    0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, 0x00,0x00, \
+    0x00,0x01, 0x01,0x00, 0x00,(NXLEN), 0xAA,0xBB,0xCC
+
+static void test_packet_nx_element_past_data_field(void) {
+    const uint8_t ok[] = {NX_DATA(0x03), 0x01};
+    const uint8_t bad[] = {NX_DATA(0x10), 0x01};
+    TEST_ASSERT_EQUAL_INT(1, parse_data(ok, sizeof ok));
+    TEST_ASSERT_EQUAL_INT(-1, parse_data(bad, sizeof bad));
+}
+
+static void test_packet_leftover_bytes(void) {
+    const uint8_t extra[] = {NX_DATA(0x03), 0x77, 0x01};
+    TEST_ASSERT_EQUAL_INT(-1, parse_data(extra, sizeof extra));
+}
+
 static void imei_msg(uint8_t *b, uint16_t len, const char *digits) {
     b[0] = (uint8_t)(len >> 8);
     b[1] = (uint8_t)len;
@@ -211,6 +256,8 @@ int main(void) {
     RUN_TEST(test_packet_multi_records_helper);
     RUN_TEST(test_packet_trailing_bytes_not_used);
     RUN_TEST(test_packet_nx_group_skipped);
+    RUN_TEST(test_packet_nx_element_past_data_field);
+    RUN_TEST(test_packet_leftover_bytes);
     RUN_TEST(test_imei_ok);
     RUN_TEST(test_imei_need_more);
     RUN_TEST(test_imei_bad_len);
