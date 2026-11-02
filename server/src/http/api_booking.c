@@ -165,8 +165,17 @@ static bool admin_lacks_club(const api_ctx_t *ctx, bool wanted, bool before) {
   return ctx->user->role == ROLE_ADMIN && wanted && !before && !ctx->user->may_club_trip;
 }
 
+/* Writes 403 no_mandate and returns true when the user has no current SEPA mandate. */
+static bool lacks_mandate(app_t *a, const api_ctx_t *ctx, api_res_t *res) {
+  if (db_mandate_current(&a->db, ctx->user->id)) return false;
+  api_error(res, 403, "no_mandate",
+            "Bitte erteile zuerst unter „Konto“ ein SEPA-Lastschriftmandat.");
+  return true;
+}
+
 void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   int64_t car, start, end;
+  if (lacks_mandate(a, ctx, res)) return;
   if (!ctx->body || !api_get_int(ctx->body, "car_id", &car) ||
       !api_get_int(ctx->body, "start", &start) || !api_get_int(ctx->body, "end", &end)) {
     api_invalid(res);
@@ -205,7 +214,7 @@ static const booking_t *own_booking(app_t *a, const api_req_t *req, const api_ct
 
 void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   const booking_t *old_p = own_booking(a, req, ctx, res);
-  if (!old_p) return;
+  if (!old_p || lacks_mandate(a, ctx, res)) return;
   booking_t old = *old_p, nb = old;
   if (!ctx->body || !api_get_int(ctx->body, "start", &nb.booked_start) ||
       !api_get_int(ctx->body, "end", &nb.booked_end)) {
@@ -243,7 +252,7 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 
 void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   const booking_t *old_p = own_booking(a, req, ctx, res);
-  if (!old_p) return;
+  if (!old_p || lacks_mandate(a, ctx, res)) return;
   booking_t b = *old_p;
   br_result_t r = br_check_start(&a->db, ctx->user, &b, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }

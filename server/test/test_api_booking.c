@@ -681,6 +681,53 @@ void test_expire_sweep(void) {
   TEST_ASSERT_EQUAL_INT(0, api_expire_bookings(a, T));
 }
 
+/* Phase 5: bookings need a current SEPA mandate. */
+static int64_t bare_user(const char *email, char *tok) {
+  int64_t id = th_add_user_bare(a, email, NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(id > 0);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, id, T, tok));
+  return id;
+}
+
+void test_create_without_mandate_403(void) {
+  char tb[65];
+  int64_t ub = bare_user("bare@x.de", tb);
+  call_free("POST", "/api/bookings", body3(car1, T + 2 * H, T + 3 * H), tb, 403, "no_mandate");
+  allow_club(ub);
+  call_free("POST", "/api/bookings", club_body(car1, T + 2 * H, T + 3 * H, "true"), tb, 403,
+            "no_mandate");
+  /* gate runs before body parsing */
+  call_free("POST", "/api/bookings", "{}", tb, 403, "no_mandate");
+}
+
+void test_put_and_start_without_mandate_403(void) {
+  char tb[65];
+  int64_t ub = bare_user("bare@x.de", tb);
+  int64_t id = put_booking(ub, car1, T + 600, T + 2 * H, BK_RESERVED);
+  call_free("PUT", path_of(id), body2(T + 600, T + 3 * H), tb, 403, "no_mandate");
+  call_free("POST", start_path(id), NULL, tb, 403, "no_mandate");
+  call_free("DELETE", path_of(id), NULL, tb, 200, NULL);
+}
+
+void test_admin_creates_booking_for_user_without_mandate(void) {
+  char tadm[65], tb[65];
+  int64_t adm = th_add_user(a, "adm@x.de", NULL, ROLE_ADMIN);
+  int64_t ub = bare_user("bare@x.de", tb);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, adm, T, tadm));
+  char body[200];
+  snprintf(body, sizeof body, "{\"car_id\":%lld,\"user_id\":%lld,\"start\":%lld,\"end\":%lld}",
+           (long long)car1, (long long)ub, (long long)(T + 2 * H), (long long)(T + 3 * H));
+  call_free("POST", "/api/admin/bookings", body, tadm, 201, NULL);
+}
+
+void test_foreign_booking_still_404(void) {
+  char tb[65];
+  bare_user("bare@x.de", tb);
+  int64_t id = put_booking(u1, car1, T + 600, T + 2 * H, BK_RESERVED);
+  call_free("PUT", path_of(id), body2(T + 600, T + 3 * H), tb, 404, NULL);
+  call_free("POST", start_path(id), NULL, tb, 404, NULL);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_auth_required);
@@ -725,5 +772,9 @@ int main(void) {
   RUN_TEST(test_history_scope);
   RUN_TEST(test_scope_invalid_400);
   RUN_TEST(test_expire_sweep);
+  RUN_TEST(test_create_without_mandate_403);
+  RUN_TEST(test_put_and_start_without_mandate_403);
+  RUN_TEST(test_admin_creates_booking_for_user_without_mandate);
+  RUN_TEST(test_foreign_booking_still_404);
   return UNITY_END();
 }
