@@ -410,6 +410,25 @@ void test_admin_time_edit_reopens_telematics_km(void) {
   TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, id)->km_end);
 }
 
+void test_admin_reopen_then_return_recomputes_km(void) {
+  int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
+  booking_t b = *db_booking(&a->db, id);
+  b.km_source = KM_TELEMATICS;
+  b.km_start = 1000;
+  b.km_end = 1012;
+  b.km_pending = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  cJSON *j = trip_put(id, "\"actual_end\":null", 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("active", str(j, "state"));
+  cJSON_Delete(j);
+  char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld/return", (long long)id);
+  j = call("POST", p, NULL, tu1, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
+  TEST_ASSERT_EQUAL_STRING("none", str(j, "km_source"));
+  cJSON_Delete(j);
+}
+
 void test_admin_km_invalid(void) {
   int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
   cJSON_Delete(trip_put(id, "\"km_start\":1000", 400, "invalid"));
@@ -758,6 +777,7 @@ int main(void) {
   RUN_TEST(test_admin_clear_actuals_reserved);
   RUN_TEST(test_admin_manual_km);
   RUN_TEST(test_admin_time_edit_reopens_telematics_km);
+  RUN_TEST(test_admin_reopen_then_return_recomputes_km);
   RUN_TEST(test_admin_km_invalid);
   RUN_TEST(test_admin_actual_in_future_invalid);
   RUN_TEST(test_admin_trip_on_cancelled_400);

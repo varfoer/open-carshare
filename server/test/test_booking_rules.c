@@ -409,6 +409,21 @@ void test_apply_trip_keeps_manual_on_time_change(void) {
   TEST_ASSERT_EQUAL_INT64(1012, nb.km_end);
   TEST_ASSERT_FALSE(nb.km_pending);
 }
+void test_apply_trip_reopen_drops_telematics(void) {
+  booking_t o = done_telematics(), nb = o;
+  nb.actual_end = 0;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, nb.state);
+  TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km_start);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km_end);
+  TEST_ASSERT_FALSE(nb.km_pending);
+  nb = o;
+  nb.actual_start = nb.actual_end = 0;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(BK_RESERVED, nb.state);
+  TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
+}
 void test_damage_phase_rules(void) {
   booking_t *b = add(1, 1, 1, T - H, T + H, BK_RESERVED);
   TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_damage(U1, b, DMG_START));
@@ -546,6 +561,7 @@ int main(void) {
   RUN_TEST(test_apply_trip_resets_telematics_on_time_change);
   RUN_TEST(test_apply_trip_keeps_telematics_if_times_same);
   RUN_TEST(test_apply_trip_keeps_manual_on_time_change);
+  RUN_TEST(test_apply_trip_reopen_drops_telematics);
   RUN_TEST(test_damage_phase_rules);
   RUN_TEST(test_club_flag_fixed_after_early_start);
   RUN_TEST(test_admin_reopen_done_checks_overlap);
