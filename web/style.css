@@ -28,6 +28,7 @@ button.primary { width: 100%; min-height: 44px; font: inherit; font-weight: 600;
   color: var(--accent-fg); background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
 button:disabled { opacity: .6; cursor: default; }
 .error { color: var(--danger); }
+.warn { color: var(--danger); font-weight: 600; }
 .success { color: var(--ok); }
 .placeholder { color: var(--muted); text-align: center; padding: 2rem 0; }
 .view.wide { max-width: 72rem; }

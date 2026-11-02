@@ -1,7 +1,14 @@
 import { api } from '../api.js';
+import { currentUser } from '../app.js';
 import { el, adminNav, messageBox, textField, checkField, selectField, primaryButton } from '../admin_ui.js';
 import { berlinToEpoch, epochToBerlin } from '../time.js';
-import { dateStr } from '../form_time.js';
+import { dateStr, p2 } from '../form_time.js';
+
+const berlinDate = (ts) => {
+  const b = epochToBerlin(ts);
+  return `${p2(b.d)}.${p2(b.mo)}.${b.y}`;
+};
+const STATUS_DE = { active: 'aktiv', replaced: 'ersetzt', revoked: 'widerrufen' };
 
 export async function render(root) {
   const users = await api('GET', '/api/admin/users');
@@ -24,7 +31,7 @@ export async function render(root) {
   };
 
   const head = el('tr');
-  for (const h of ['Name', 'E-Mail', 'Rolle', 'aktiv', 'Vereinsfahrten', '']) head.append(el('th', { text: h }));
+  for (const h of ['Name', 'E-Mail', 'Rolle', 'aktiv', 'Vereinsfahrten', 'Mandat', '']) head.append(el('th', { text: h }));
   table.append(el('thead', {}, head));
   const body = el('tbody');
   table.append(body);
@@ -46,6 +53,7 @@ export async function render(root) {
       el('td', { text: u.role === 'admin' ? 'Admin' : 'Nutzer' }),
       el('td', { text: u.active ? 'ja' : 'nein' }),
       el('td', { text: u.may_club_trip ? 'ja' : 'nein' }),
+      el('td', { className: u.mandate ? '' : 'warn', text: u.mandate ? u.mandate.ref : 'fehlt' }),
       el('td', { className: 'actions' }, edit, inv)));
   }
 
@@ -68,6 +76,7 @@ export async function render(root) {
       email.node, name.node, street.node, zip.node, city.node, role.node,
       ...(u ? [active.node] : []), club.node, lic.node, fErr.node,
       primaryButton(u ? 'Speichern' : 'Anlegen und einladen'), cancel);
+    if (u) form.append(mandateSection(u));
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       fErr.hide(); err.hide(); ok.hide();
@@ -96,6 +105,49 @@ export async function render(root) {
     });
     formHost.replaceChildren(form);
     form.scrollIntoView();
+  }
+  function mandateSection(u) {
+    const sec = el('section', {}, el('h3', { text: 'Lastschriftmandate' }));
+    const list = el('div');
+    sec.append(list);
+    const me = currentUser();
+    (async () => {
+      let rows;
+      try { rows = await api('GET', `/api/admin/users/${u.id}/mandates`); } catch (x) {
+        list.append(el('p', { className: 'error', text: x.message }));
+        return;
+      }
+      if (!rows.length) { list.append(el('p', { className: 'hint', text: 'Kein Mandat erteilt.' })); return; }
+      const t = el('table', { className: 'data' });
+      const h = el('tr');
+      for (const c of ['Referenz', 'Status', 'Kontoinhaber', 'IBAN', 'erteilt am', 'beendet am', 'IP', 'Textversion']) h.append(el('th', { text: c }));
+      t.append(el('thead', {}, h));
+      const tb = el('tbody');
+      for (const m of rows) {
+        tb.append(el('tr', {},
+          el('td', { text: m.ref }), el('td', { text: STATUS_DE[m.status] || m.status }),
+          el('td', { text: m.holder }), el('td', { text: m.iban_masked }),
+          el('td', { text: berlinDate(m.created_at) }),
+          el('td', { text: m.ended_at ? berlinDate(m.ended_at) : '' }),
+          el('td', { text: m.client_ip }), el('td', { text: String(m.text_version) })));
+      }
+      t.append(tb);
+      list.append(el('div', { className: 'table-wrap' }, t));
+      if (u.mandate && !(me && me.id === u.id)) {
+        const rev = el('button', { type: 'button', className: 'danger', text: 'Mandat widerrufen' });
+        rev.addEventListener('click', async () => {
+          if (!window.confirm('Mandat widerrufen? Das Konto wird deaktiviert und offene Reservierungen werden storniert.')) return;
+          err.hide(); ok.hide();
+          rev.disabled = true;
+          try {
+            await api('POST', `/api/admin/users/${u.id}/mandate/revoke`);
+            await reload('Mandat widerrufen.');
+          } catch (x) { err.show(x.message); rev.disabled = false; }
+        });
+        list.append(rev);
+      }
+    })();
+    return sec;
   }
   add.addEventListener('click', () => showForm(null));
 }
