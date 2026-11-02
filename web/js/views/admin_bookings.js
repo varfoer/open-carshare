@@ -104,7 +104,7 @@ export async function render(root) {
         el('p', { className: 'booking-car',
           text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` },
           ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : [])),
-        ...trip, ...(b.price ? [el('p', { text: `Preis: ${priceSummary(b.price)}` })] : []), actions));
+        ...trip, ...(b.price && (b.state === 'done' || b.state === 'cancelled') ? [el('p', { text: `Preis: ${priceSummary(b.price)}` })] : []), actions));
     }
   }
 
