@@ -212,12 +212,12 @@ static int tracker_conn_count(struct mg_mgr *mgr) {
   return n;
 }
 
-/* The rejected handshake is still unconsumed at the head of c->recv. Logs the
- * IMEI only if it parsed; never any other stream bytes. */
-static void log_rejected_handshake(struct mg_connection *c) {
+/* buf/len: the rejected handshake, still unconsumed. Logs the IMEI only if
+ * it parsed; never any other stream bytes. */
+static void log_rejected_handshake(const uint8_t *buf, size_t len) {
   char imei[16];
   size_t used = 0;
-  if (tlt_parse_imei(c->recv.buf, c->recv.len, imei, &used) == 1)
+  if (tlt_parse_imei(buf, len, imei, &used) == 1)
     fprintf(stderr, "tracker: unknown IMEI %s\n", imei);
   else
     fprintf(stderr, "tracker: invalid handshake\n");
@@ -239,19 +239,26 @@ static void tracker_ev(struct mg_connection *c, int ev, void *ev_data) {
     if (c->is_draining || c->is_closing) return;
     int64_t now = platform_now();
     st.last_rx = now;
-    while (c->recv.len > 0) {
+    /* Consumed bytes are dropped once after the loop: deleting per message
+     * would memmove the whole buffer each time (quadratic on keep-alives). */
+    size_t off = 0;
+    while (c->recv.len > off) {
       uint8_t reply[4];
       size_t reply_len = 0, used = 0;
-      int rc = tracker_feed(a, &st, c->recv.buf, c->recv.len, now, reply, &reply_len, &used);
+      int rc = tracker_feed(a, &st, c->recv.buf + off, c->recv.len - off, now, reply, &reply_len, &used);
       if (reply_len > 0) mg_send(c, reply, reply_len);
-      if (used > 0) mg_iobuf_del(&c->recv, 0, used);
+      off += used;
       if (rc < 0) {
-        if (st.car_id == 0) log_rejected_handshake(c);
+        if (st.car_id == 0)
+          log_rejected_handshake(c->recv.buf + off, c->recv.len - off);
+        else
+          fprintf(stderr, "tracker: bad packet car %lld\n", (long long)st.car_id);
         c->is_draining = 1;
         break;
       }
       if (used == 0) break;
     }
+    if (off > 0) mg_iobuf_del(&c->recv, 0, off);
     if (!c->is_draining && c->recv.len > TRACKER_MAX_BUFFERED) c->is_closing = 1;
   } else if (ev == MG_EV_POLL) {
     if (tracker_expired(&st, platform_now())) c->is_closing = 1;

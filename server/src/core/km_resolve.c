@@ -1,12 +1,15 @@
 #include "core/km_resolve.h"
 
+#include <stdbool.h>
+
 #define KM_MAX INT64_C(10000000)
 #define M_MAX INT64_C(10000000000000) /* keeps the rounding arithmetic far from overflow */
 
 kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
-                        int64_t actual_start, int64_t actual_end,
+                        int64_t actual_start, int64_t actual_end, int64_t settled_before,
                         int64_t *km_start, int64_t *km_end) {
   const odometer_reading_t *lo = NULL, *hi = NULL, *before = NULL, *after = NULL;
+  bool settled = false;
   for (size_t i = 0; i < n; i++) {
     const odometer_reading_t *x = &r[i];
     if (x->car_id != car_id) continue;
@@ -15,11 +18,12 @@ kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
     } else if (x->ts <= actual_end) {
       if (!lo || x->ts < lo->ts) lo = x;
       if (!hi || x->ts > hi->ts) hi = x;
-    } else if (!after || x->ts < after->ts) {
-      after = x;
+    } else {
+      if (!after || x->ts < after->ts) after = x;
+      if (x->received_at <= settled_before) settled = true;
     }
   }
-  if (!after) return KMR_WAIT;
+  if (!after || !settled) return KMR_WAIT;
   int64_t start_m, end_m;
   if (lo) {
     start_m = lo->odometer_m;

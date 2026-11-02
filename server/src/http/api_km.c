@@ -6,6 +6,9 @@
 #include "http/api.h"
 
 #define KM_MAIL_AFTER_S 86400
+/* A post-trip reading must have been received this long ago before km are
+ * resolved: the trip-end backlog may still be on its way (newest-first). */
+#define KM_SETTLE_S 600
 
 int api_resolve_km(app_t *a, int64_t now) {
   int n = 0;
@@ -17,7 +20,7 @@ int api_resolve_km(app_t *a, int64_t now) {
     if (!c || !c->tracker_imei[0]) continue;
     int64_t ks, ke;
     if (km_resolve(a->db.readings, a->db.n_readings, p->car_id, p->actual_start, p->actual_end,
-                   &ks, &ke) != KMR_OK)
+                   now - KM_SETTLE_S, &ks, &ke) != KMR_OK)
       continue;
     booking_t b = *p;
     b.km_start = ks;

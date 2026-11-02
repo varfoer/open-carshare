@@ -82,6 +82,23 @@ static void test_resolve_sets_telematics_km(void) {
   TEST_ASSERT_FALSE(b->km_pending);
 }
 
+/* Newest-first sending: the parked record arrives before the trip-end backlog. */
+static void test_resolve_waits_for_late_trip_end_records(void) {
+  int64_t end = T + 2 * H;
+  int64_t id = add_pending(car1, T, end, true);
+  odometer_reading_t first[2] = {{car1, T + 60, 1000000, T + 3 * H}, {car1, end + 100, 1012000, T + 3 * H}};
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&a->db, first, 2));
+  TEST_ASSERT_EQUAL_INT(0, api_resolve_km(a, T + 3 * H + 599));
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->km_pending);
+  odometer_reading_t late[1] = {{car1, end - 60, 1030000, T + 3 * H + 300}};
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&a->db, late, 1));
+  TEST_ASSERT_EQUAL_INT(0, api_resolve_km(a, T + 3 * H + 599));
+  TEST_ASSERT_EQUAL_INT(1, api_resolve_km(a, T + 3 * H + 600));
+  const booking_t *b = db_booking(&a->db, id);
+  TEST_ASSERT_EQUAL_INT64(1000, b->km_start);
+  TEST_ASSERT_EQUAL_INT64(1030, b->km_end);
+}
+
 static void test_resolve_waits_without_later_reading(void) {
   int64_t id = add_pending(car1, T, T + 2 * H, true);
   odometer_reading_t r[1] = {{car1, T + 60, 1000000, T}};
@@ -163,6 +180,7 @@ int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_resolve_sets_telematics_km);
   RUN_TEST(test_resolve_waits_without_later_reading);
+  RUN_TEST(test_resolve_waits_for_late_trip_end_records);
   RUN_TEST(test_resolve_skips_car_without_tracker);
   RUN_TEST(test_resolve_skips_manual);
   RUN_TEST(test_mail_after_24h_to_active_admins_only);
