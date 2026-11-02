@@ -256,6 +256,7 @@ static void test_implausible_timestamp_skipped(void) {
 }
 
 static void test_storage_failure_no_ack(void) {
+  if (geteuid() == 0) TEST_IGNORE_MESSAGE("chmod does not stop root");
   tracker_conn_t st = {0};
   handshake(&st);
   char path[512];

@@ -352,7 +352,7 @@ static void test_booking_rejects_bad_km_source(void) {
 static void test_damage_roundtrip(void) {
     damage_report_t d = {.id = 4, .booking_id = 9, .user_id = 3, .created_at = 777,
                          .phase = DMG_END, .n_photos = 2};
-    snprintf(d.text, sizeof d.text, "Kratzer an der Stoßstange, Tür links: \xC3\xBCberall");
+    snprintf(d.text, sizeof d.text, "Kratzer an der Stoßstange, Tür links: \xC3\xBC" "berall");
     cJSON *j = damage_report_to_json(&d);
     TEST_ASSERT_NOT_NULL(j);
     TEST_ASSERT_EQUAL_STRING("end", cJSON_GetObjectItem(j, "phase")->valuestring);
