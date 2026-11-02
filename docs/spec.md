@@ -234,8 +234,8 @@ Ingestion:
 Tracker configuration (documented in `deploy/vps/README.md`): server domain
 and port, TCP, Codec 8 Extended, APN of the SIM, records on movement
 start/stop (movement source: movement sensor/GNSS, since ignition detection is
-unreliable on EVs), a record at least every 5 min while moving and every
-60 min while parked. The parked record is what lets a trip resolve after the
+unreliable on EVs), records sorted oldest first, a record at least every
+5 min while moving and every 60 min while parked. The parked record is what lets a trip resolve after the
 car is returned (see below); the 12 V battery drain of the parked mode is
 checked in the hardware acceptance.
 
@@ -243,9 +243,11 @@ Resolution:
 - On start/return: record time immediately, set `km_pending` on return.
 - Background job (every 5 min) resolves each `km_pending` booking of a car
   with `tracker_imei`:
-  - Wait until a reading with `ts > actual_end` exists (buffered records
-    from dead zones have arrived; normally the next parked record, at most
-    60 min after return). Until then the booking stays pending.
+  - Wait until a reading with `ts > actual_end` exists that was received at
+    least 600 s ago (`received_at <= now - 600`): buffered records from dead
+    zones have arrived, also when the tracker sends a backlog newest first or
+    across several packets; normally the next parked record, at most 60 min
+    after return. Until then the booking stays pending.
   - start = first reading with `actual_start <= ts <= actual_end`,
     end = last reading in the same window.
   - No reading inside the trip: if the last reading before `actual_start`
@@ -403,7 +405,8 @@ Depends on: Phase 1.
 Done when: a booking can be started, returned, reported on and shows up in
 history with actual times and km.
 
-### Phase 3: Odometer (Teltonika telematics)
+### Phase 3: Odometer (Teltonika telematics) — done (merged 2026-11-02)
+Plan: `docs/superpowers/plans/2026-11-02-phase3-telematics.md`.
 Depends on: Phase 2.
 - Tracker ingestion (§8): TCP listener on `tracker_port`, Codec 8 Extended
   parser in `core/` (fuzzed), IMEI handshake against `tracker_imei`,
