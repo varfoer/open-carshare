@@ -330,36 +330,84 @@ void test_return_rules(void) {
   b->state = BK_DONE;
   TEST_ASSERT_EQUAL_INT(BR_NOT_MODIFIABLE, br_check_return(U1, b));
 }
+/* br_apply_trip with old == the booking as it stands (no time change). */
+static br_result_t apply_same(booking_t *b) {
+  const booking_t old = *b;
+  return br_apply_trip(&old, b, T);
+}
 void test_apply_trip_derives_state(void) {
   booking_t b = mk(1, 1, T - 3 * H, T - H);
   b.km_pending = true;
-  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_OK, apply_same(&b));
   TEST_ASSERT_EQUAL_INT(BK_RESERVED, b.state);
   TEST_ASSERT_FALSE(b.km_pending);
   b.actual_start = T - 3 * H;
-  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_OK, apply_same(&b));
   TEST_ASSERT_EQUAL_INT(BK_ACTIVE, b.state);
   TEST_ASSERT_FALSE(b.km_pending);
   b.actual_end = T - H;
-  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_OK, apply_same(&b));
   TEST_ASSERT_EQUAL_INT(BK_DONE, b.state);
   TEST_ASSERT_TRUE(b.km_pending);
   b.km_source = KM_MANUAL;
-  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_OK, apply_same(&b));
   TEST_ASSERT_FALSE(b.km_pending);
 }
 void test_apply_trip_invalid(void) {
   booking_t b = mk(1, 1, T - 3 * H, T - H);
   b.actual_end = T - H;
-  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, apply_same(&b));
   b.actual_start = T - H;
-  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, apply_same(&b));
   b.actual_start = T - 2 * H; b.actual_end = T - 2 * H - 1;
-  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, apply_same(&b));
   b.actual_start = T + 1; b.actual_end = 0;
-  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, apply_same(&b));
   b.actual_start = T - H; b.actual_end = T + 1;
-  TEST_ASSERT_EQUAL_INT(BR_INVALID, br_apply_trip(&b, T));
+  TEST_ASSERT_EQUAL_INT(BR_INVALID, apply_same(&b));
+}
+static booking_t done_telematics(void) {
+  booking_t o = mk(1, 1, T - 3 * H, T - H);
+  o.state = BK_DONE;
+  o.actual_start = T - 3 * H;
+  o.actual_end = T - H;
+  o.km_source = KM_TELEMATICS;
+  o.km_start = 1000;
+  o.km_end = 1012;
+  return o;
+}
+void test_apply_trip_resets_telematics_on_time_change(void) {
+  booking_t o = done_telematics(), nb = o;
+  nb.actual_end = T - H + 60;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km_start);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km_end);
+  TEST_ASSERT_TRUE(nb.km_pending);
+  nb = o;
+  nb.actual_start = T - 3 * H - 60;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
+  TEST_ASSERT_TRUE(nb.km_pending);
+}
+void test_apply_trip_keeps_telematics_if_times_same(void) {
+  booking_t o = done_telematics(), nb = o;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, nb.km_source);
+  TEST_ASSERT_EQUAL_INT64(1000, nb.km_start);
+  TEST_ASSERT_EQUAL_INT64(1012, nb.km_end);
+  TEST_ASSERT_FALSE(nb.km_pending);
+}
+void test_apply_trip_keeps_manual_on_time_change(void) {
+  booking_t o = done_telematics();
+  o.km_source = KM_MANUAL;
+  booking_t nb = o;
+  nb.actual_end = T - H + 60;
+  TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
+  TEST_ASSERT_EQUAL_INT(KM_MANUAL, nb.km_source);
+  TEST_ASSERT_EQUAL_INT64(1000, nb.km_start);
+  TEST_ASSERT_EQUAL_INT64(1012, nb.km_end);
+  TEST_ASSERT_FALSE(nb.km_pending);
 }
 void test_damage_phase_rules(void) {
   booking_t *b = add(1, 1, 1, T - H, T + H, BK_RESERVED);
@@ -495,6 +543,9 @@ int main(void) {
   RUN_TEST(test_return_rules);
   RUN_TEST(test_apply_trip_derives_state);
   RUN_TEST(test_apply_trip_invalid);
+  RUN_TEST(test_apply_trip_resets_telematics_on_time_change);
+  RUN_TEST(test_apply_trip_keeps_telematics_if_times_same);
+  RUN_TEST(test_apply_trip_keeps_manual_on_time_change);
   RUN_TEST(test_damage_phase_rules);
   RUN_TEST(test_club_flag_fixed_after_early_start);
   RUN_TEST(test_admin_reopen_done_checks_overlap);

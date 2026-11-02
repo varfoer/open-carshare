@@ -557,6 +557,23 @@ void test_start_and_return_flow(void) {
   TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
 }
 
+void test_return_keeps_manual_km(void) {
+  int64_t id = put_booking(u1, car1, T - H, T + H, BK_ACTIVE);
+  booking_t b = *db_booking(&a->db, id);
+  b.actual_start = T - H;
+  b.km_source = KM_MANUAL;
+  b.km_start = 100;
+  b.km_end = 150;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  cJSON *j = call_at("POST", return_path(id), NULL, tok1, 200, NULL, T);
+  TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
+  TEST_ASSERT_EQUAL_STRING("manual", cJSON_GetObjectItemCaseSensitive(j, "km_source")->valuestring);
+  TEST_ASSERT_EQUAL_INT(100, num(j, "km_start"));
+  TEST_ASSERT_EQUAL_INT(150, num(j, "km_end"));
+  cJSON_Delete(j);
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->km_pending);
+}
+
 void test_start_twice_400(void) {
   int64_t id = book(tok1, car1, T + 600, T + 2 * H);
   call_free("POST", start_path(id), NULL, tok1, 200, NULL);
@@ -695,6 +712,7 @@ int main(void) {
   RUN_TEST(test_club_cancel_fee_zero_inside_deadline);
   RUN_TEST(test_club_admin_on_user_endpoint_needs_permission);
   RUN_TEST(test_start_and_return_flow);
+  RUN_TEST(test_return_keeps_manual_km);
   RUN_TEST(test_start_twice_400);
   RUN_TEST(test_return_reserved_400);
   RUN_TEST(test_start_other_users_booking_404);

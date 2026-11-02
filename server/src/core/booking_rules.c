@@ -141,14 +141,22 @@ br_result_t br_check_return(const user_t *actor, const booking_t *b) {
   return BR_OK;
 }
 
-br_result_t br_apply_trip(booking_t *nb, int64_t now) {
+br_result_t br_apply_trip(const booking_t *old, booking_t *nb, int64_t now) {
   int64_t s = nb->actual_start, e = nb->actual_end;
   if (s < 0 || s > now || e < 0 || e > now) return BR_INVALID;
   if (s == 0 && e != 0) return BR_INVALID;
   if (s > 0 && e != 0 && e <= s) return BR_INVALID;
   if (s == 0) { nb->state = BK_RESERVED; nb->km_pending = false; }
   else if (e == 0) { nb->state = BK_ACTIVE; nb->km_pending = false; }
-  else { nb->state = BK_DONE; nb->km_pending = nb->km_source == KM_NONE; }
+  else {
+    nb->state = BK_DONE;
+    /* Telematics km belong to the old times; manual km stay. */
+    if (nb->km_source == KM_TELEMATICS && (s != old->actual_start || e != old->actual_end)) {
+      nb->km_source = KM_NONE;
+      nb->km_start = nb->km_end = 0;
+    }
+    nb->km_pending = nb->km_source == KM_NONE;
+  }
   return BR_OK;
 }
 

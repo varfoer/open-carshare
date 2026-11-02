@@ -308,7 +308,7 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   }
   br_result_t r = BR_OK;
   /* A cancelled booking is left to br_check_update (not_modifiable); apply_trip would revive it. */
-  if (has_actual && old.state != BK_CANCELLED) r = br_apply_trip(&nb, req->now);
+  if (has_actual && old.state != BK_CANCELLED) r = br_apply_trip(&old, &nb, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
   r = br_check_update(&a->db, ctx->user, &old, &nb, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }

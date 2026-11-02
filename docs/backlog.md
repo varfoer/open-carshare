@@ -68,8 +68,7 @@ when it is fixed.
   once per expired booking (O(n²) on first sweep).
 - [any] Admin trip edit: clearing/reopening actuals keeps km (a "Nicht
   angetreten" card can show manual km); combined `actual_end` + km and
-  non-integer `actual_*` PUT untested; return sets `km_pending` even if the
-  admin entered km during the trip.
+  non-integer `actual_*` PUT untested.
 - [any] Photo files mode 0644 inside 0700 `photos/`; `fuzz_api.c` literal
   65536; binary reply reason phrase only OK/Error; stale "Tasks 8/9: add
   rows here" comment above `ROUTES` in `api.c`.

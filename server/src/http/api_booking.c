@@ -263,7 +263,7 @@ void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   if (r != BR_OK) { api_br_error(res, r); return; }
   b.state = BK_DONE;
   b.actual_end = req->now;
-  b.km_pending = true;
+  b.km_pending = b.km_source == KM_NONE;
   b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }

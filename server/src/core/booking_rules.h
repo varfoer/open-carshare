@@ -29,8 +29,9 @@ br_result_t br_check_update(const db_t *db, const user_t *actor, const booking_t
                             const booking_t *nb, int64_t now);
 br_result_t br_check_start(const db_t *db, const user_t *actor, const booking_t *b, int64_t now);
 br_result_t br_check_return(const user_t *actor, const booking_t *b);
-/* Admin trip edit: derives nb->state and nb->km_pending from nb->actual_start/actual_end. */
-br_result_t br_apply_trip(booking_t *nb, int64_t now);
+/* Admin trip edit: derives nb->state and nb->km_pending from nb->actual_start/actual_end;
+   telematics km are dropped (KM_NONE, 0/0) when the times differ from old. */
+br_result_t br_apply_trip(const booking_t *old, booking_t *nb, int64_t now);
 br_result_t br_check_damage(const user_t *actor, const booking_t *b, damage_phase_t phase);
 br_result_t br_check_cancel(const user_t *actor, const booking_t *b, int64_t now);
 int64_t br_cancel_fee(const settings_t *s, const booking_t *b, int64_t now);
