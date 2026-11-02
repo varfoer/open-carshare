@@ -115,3 +115,9 @@ when it is fixed.
   `sudo -u ocs` after `cd /` when the repo is under a home dir; Caddyfile
   comment points to `/etc/default/caddy` (not read by the Debian unit);
   create-admin needs the server stopped.
+
+## SEPA
+
+- [P6] Holder names need SEPA character-set transliteration for `pain.008`.
+- [P6] Non-DE IBANs may need the BIC in `pain.008` for non-EEA countries
+  (CH, GB, ...).

@@ -67,9 +67,19 @@ docs/
 
 ### user
 id, email (login), name, street, zip, city, pw_hash, role (`admin`|`user`),
-active, account_holder, iban, bic (optional), mandate_ref, mandate_date,
-license_checked_at, may_club_trip (default false, set by admin only),
+active, license_checked_at, may_club_trip (default false, set by admin only),
 created_at.
+
+### mandate
+id, user_id, holder (account holder, max 70 UTF-8 code points), iban, bic
+(optional, 8 or 11 characters), status (`active`|`replaced`|`revoked`),
+created_at, ended_at, ended_by (user id), creditor_name and creditor_id
+(snapshot of the settings at the time), client_ip, text_version.
+IBAN, BIC and creditor ID are stored normalized (spaces removed, uppercase).
+The reference is derived, not stored: `OCS-%06d` of the id (`OCS-000012`).
+The current mandate of a user is the `active` row (newest id). Old rows are
+kept as evidence. Stored in `data/mandates.jsonl`; a missing file means no
+mandates.
 
 ### car
 id, name, plate, active, location_text, tracker_imei (15 digits, optional,
@@ -113,8 +123,9 @@ id, period, state (`draft`|`final`), created_at, finalized_at,
 collection_date, sepa_file.
 
 ### settings
-association name/address, creditor_id (Gläubiger-ID), creditor IBAN/BIC,
-start_tolerance_min (15), cancel_deadline_min (0), cancel_fee_cents (0),
+String keys `assoc_name`, `assoc_street`, `assoc_zip`, `assoc_city`,
+`creditor_id` (Gläubiger-ID), `creditor_iban`, `creditor_bic` (the admin
+settings PUT requires all keys), start_tolerance_min (15), cancel_deadline_min (0), cancel_fee_cents (0),
 sepa lead days, invoice footer text, SMTP config.
 
 ### odometer_reading
@@ -303,16 +314,43 @@ Users with a total above 0 and without a valid mandate block finalization
 Format: **`pain.008.001.02`** (SEPA Core Direct Debit, Sammellastschrift),
 imported into Hibiscus. (pain.001 is a credit transfer and does not apply.)
 
-- Mandates are managed in the portal, independent of jVerein:
-  `mandate_ref` (generated, e.g. `OCS-000012`), `mandate_date`, account
-  holder, IBAN, optional BIC.
-- Mandate is given **online** by the user: user enters account holder and
-  IBAN, reads the mandate text, confirms. Stored as evidence: timestamp,
-  client IP, mandate text version. Changing IBAN or holder creates a new
-  mandate. (Online mandates are weaker evidence than paper; chargeback risk
-  accepted by the Verein.)
+- Mandates are managed in the portal, independent of jVerein, in their own
+  table with history (§4 mandate). The reference is `OCS-%06d` of the
+  mandate id.
+- Mandate is given **online** by the user under „Konto“: user enters account
+  holder, IBAN and optional BIC, reads the mandate text, confirms. Stored as
+  evidence: timestamp, client IP, mandate text version, creditor name and ID.
+  (Online mandates are weaker evidence than paper; chargeback risk accepted
+  by the Verein.)
+- A new mandate ends every other `active` row of the user (`replaced`).
+  Re-submitting identical holder, IBAN and BIC is idempotent: no new
+  mandate, no mail.
+- The mandate text is built into the server and versioned by a constant
+  (`MANDATE_TEXT_VERSION`, currently 1; any text change bumps it). Creditor
+  name and creditor ID come from the settings; users cannot give a mandate
+  until both are set.
+- After giving a mandate the user gets the mail „SEPA-Lastschriftmandat
+  erteilt“ with reference, holder, masked IBAN and the mandate text. Mail
+  failure does not undo the mandate.
+- Revocation: user (`DELETE /api/me/mandate`, password required) or admin
+  (`POST /api/admin/users/{id}/mandate/revoke`). It ends all `active` rows
+  (`revoked`), cancels all `reserved` bookings of the user with cancel fee 0,
+  deactivates the account and ends its sessions. An `active` (running)
+  booking stays and is billed normally. The last active admin cannot revoke
+  their own mandate (409 `last_admin`); an admin cannot revoke their own
+  mandate through the admin endpoint (400 `self`).
+- Booking gate: without a current mandate, `POST /api/bookings`,
+  `PUT /api/bookings/{id}` and `POST /api/bookings/{id}/start` return
+  403 `no_mandate`. Club trips are not exempt. Bookings created through the
+  admin API are exempt. Admins are users and need a mandate to book
+  themselves.
+- Full IBANs never leave the server in API responses or mails; only
+  `iban_masked` (`DE89 **** 3000`). Exception: the Verein's creditor IBAN is
+  shown in full in the admin settings.
+- Validation on input: IBAN restricted to SEPA countries (country length
+  table, exact length, mod-97 == 1); BIC 8 or 11 characters; creditor ID
+  mod-97 (DE: length 18). Characters other than `[A-Za-z0-9 ]` are invalid.
 - Sequence type: always `RCUR` (allowed for the first collection since 2016).
-- IBAN validated with mod-97 on input.
 
 ### Invoice PDF
 Minimal built-in PDF writer (standard Helvetica, WinAnsi encoding for
@@ -356,6 +394,7 @@ km still pending 24 h after return (daily, §8).
 ```
 POST /api/login | /api/logout | /api/password-reset
 GET/PUT /api/me
+GET/POST/DELETE /api/me/mandate   (DELETE needs the password)
 GET  /api/cars
 GET  /api/calendar?car=&from=&to=
 GET  /api/bookings?scope=upcoming|history
@@ -366,6 +405,9 @@ POST /api/damage/{id}/photos      (raw image/jpeg body, ≤ 2 MiB)
 GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
 GET  /api/bookings/{id}/pin
 admin:
+  GET  /api/admin/users/{id}/mandates
+  POST /api/admin/users/{id}/mandate/revoke
+  (GET /api/admin/users includes a "mandate" summary per user)
   /api/admin/users, /cars, /keysafes, /tariffs, /bookings, /settings
   POST /api/admin/billing?period=    GET /api/admin/billing/{id}
   POST /api/admin/billing/{id}/finalize | /send

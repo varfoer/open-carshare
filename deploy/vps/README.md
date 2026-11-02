@@ -60,6 +60,11 @@ read -rs PW && printf '%s\n' "$PW" | sudo -u ocs /opt/ocs/ocs-server \
 sudo systemctl start ocs-server
 ```
 
+After the first login the admin enters the Verein data (name, address) and
+the Gläubiger-ID, creditor IBAN and BIC in „Einstellungen“. Until name and
+Gläubiger-ID are set, nobody can give a SEPA mandate. Every member (admins
+included) gives a mandate under „Konto“ before booking.
+
 ## 6. systemd
 
 ```sh
