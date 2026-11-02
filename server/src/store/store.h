@@ -9,13 +9,11 @@
 int store_read_lines(const char *path, int (*cb)(const cJSON *obj, void *ctx), void *ctx);
 
 /* Like store_read_lines, but for append-only logs: a final line without a
- * trailing '\n' that does not parse is skipped (torn append), not an error. */
-int store_read_log(const char *path, int (*cb)(const cJSON *obj, void *ctx), void *ctx);
-
-/* As store_read_log; *keep is set to the byte offset where a skipped torn last
- * line starts (the end of the last complete line), or -1 if none was skipped. */
-int store_read_log_keep(const char *path, int (*cb)(const cJSON *obj, void *ctx), void *ctx,
-                        long *keep);
+ * trailing '\n' is torn (never acknowledged) and is skipped unparsed. *keep
+ * (may be NULL) is set to the byte offset where it starts, i.e. the end of the
+ * last complete line, or -1 if the file ends in '\n' or is empty/missing. */
+int store_read_log(const char *path, int (*cb)(const cJSON *obj, void *ctx), void *ctx,
+                   long *keep);
 
 /* Appends data (O_APPEND, mode 0600, created if missing) and fsyncs. On any
  * failure truncates back to the size before the call and returns -1. */

@@ -170,7 +170,7 @@ int db_load(db_t *db, const char *dir) {
     char path[512];
     long keep = -1;
     rc = table_path(db, "odometer_readings.jsonl", path, sizeof path);
-    if (rc == 0) rc = store_read_log_keep(path, load_readings, db, &keep);
+    if (rc == 0) rc = store_read_log(path, load_readings, db, &keep);
     /* Cut a torn last line, else the next append would be glued onto it. */
     if (rc == 0 && keep >= 0 && truncate(path, (off_t)keep) != 0) rc = -1;
   }

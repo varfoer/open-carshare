@@ -26,8 +26,8 @@ static int handle_line(const char *s, size_t n, int (*cb)(const cJSON *, void *)
   return rc == 0 ? 0 : -1;
 }
 
-/* log != 0: an unterminated last line that does not parse is skipped and
- * *keep (if non-NULL) is set to the offset where it starts; else *keep = -1. */
+/* log != 0: any unterminated last line is treated as torn and skipped without
+ * parsing; *keep (if non-NULL) is set to the offset where it starts, else -1. */
 static int read_impl(const char *path, int (*cb)(const cJSON *, void *), void *ctx, int log,
                      long *keep) {
   if (keep) *keep = -1;
@@ -63,16 +63,13 @@ static int read_impl(const char *path, int (*cb)(const cJSON *, void *), void *c
     buf[n++] = (char)c;
   }
   if (rc == 0 && ferror(f)) rc = -1;
-  if (rc == 0 && n > 0) buf[n] = '\0';
   if (rc == 0 && n > 0) {
-    rc = handle_line(buf, n, cb, ctx);
-    if (rc == -2) {
-      if (log) {
-        rc = 0;
-        if (keep) *keep = line_start;
-      } else {
-        rc = -1;
-      }
+    if (log) {
+      if (keep) *keep = line_start;
+    } else {
+      buf[n] = '\0';
+      rc = handle_line(buf, n, cb, ctx);
+      if (rc == -2) rc = -1;
     }
   }
   free(buf);
@@ -84,12 +81,7 @@ int store_read_lines(const char *path, int (*cb)(const cJSON *, void *), void *c
   return read_impl(path, cb, ctx, 0, NULL);
 }
 
-int store_read_log(const char *path, int (*cb)(const cJSON *, void *), void *ctx) {
-  return read_impl(path, cb, ctx, 1, NULL);
-}
-
-int store_read_log_keep(const char *path, int (*cb)(const cJSON *, void *), void *ctx,
-                        long *keep) {
+int store_read_log(const char *path, int (*cb)(const cJSON *, void *), void *ctx, long *keep) {
   return read_impl(path, cb, ctx, 1, keep);
 }
 

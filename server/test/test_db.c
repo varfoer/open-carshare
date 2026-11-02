@@ -351,6 +351,42 @@ void test_readings_append_after_torn_line_reloads(void) {
   db_free(&db);
 }
 
+void test_readings_unterminated_valid_last_line_is_dropped(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  odometer_reading_t a = mkreading(1, 10, 1000), b = mkreading(1, 30, 3000);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &a, 1));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  struct stat st;
+  TEST_ASSERT_EQUAL_INT(0, stat(p, &st));
+  off_t good = st.st_size;
+  write_raw(p, "ab", "{\"car_id\":1,\"ts\":20,\"odometer_m\":2000,\"received_at\":21}");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_readings);
+  TEST_ASSERT_EQUAL_INT(0, stat(p, &st));
+  TEST_ASSERT_EQUAL_INT64((int64_t)good, (int64_t)st.st_size);
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&db, &b, 1));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_readings);
+  TEST_ASSERT_EQUAL_INT64(30, db.readings[1].ts);
+  db_free(&db);
+}
+
+void test_readings_unterminated_invalid_reading_is_dropped(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  db_free(&db);
+  char p[300];
+  rpath(p, sizeof p);
+  write_raw(p, "wb", "{\"car_id\":1}");
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_readings);
+  db_free(&db);
+}
+
 void test_readings_corrupt_middle_line_fails_load(void) {
   odometer_reading_t a = mkreading(1, 10, 1000);
   db_t db;
@@ -450,6 +486,8 @@ int main(void) {
   RUN_TEST(test_readings_append_and_reload);
   RUN_TEST(test_readings_load_skips_torn_last_line);
   RUN_TEST(test_readings_append_after_torn_line_reloads);
+  RUN_TEST(test_readings_unterminated_valid_last_line_is_dropped);
+  RUN_TEST(test_readings_unterminated_invalid_reading_is_dropped);
   RUN_TEST(test_readings_corrupt_middle_line_fails_load);
   RUN_TEST(test_readings_prune);
   RUN_TEST(test_reading_line_has_only_four_keys);
