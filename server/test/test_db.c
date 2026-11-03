@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "core/codec.h"
 #include "store/db.h"
 #include "store/store.h"
 #include "unity.h"
@@ -609,6 +610,207 @@ void test_load_without_tariffs_file(void) {
   db_free(&db);
 }
 
+static billing_run_t mkrun_db(run_state_t st) {
+  billing_run_t r;
+  memset(&r, 0, sizeof r);
+  r.created_at = 100; r.state = st;
+  snprintf(r.period, sizeof r.period, "2026-10");
+  return r;
+}
+
+static invoice_t mkinv(int64_t number, int64_t user_id, int64_t run_id) {
+  invoice_t v;
+  memset(&v, 0, sizeof v);
+  v.number = number; v.user_id = user_id; v.run_id = run_id; v.total_cents = 500; v.n_lines = 1;
+  snprintf(v.period, sizeof v.period, "2026-10");
+  snprintf(v.name, sizeof v.name, "Max");
+  return v;
+}
+
+static invoice_line_t mkinvline(int64_t number, int64_t booking_id) {
+  invoice_line_t l;
+  memset(&l, 0, sizeof l);
+  l.invoice_number = number; l.booking_id = booking_id; l.total_cents = 500;
+  snprintf(l.car_name, sizeof l.car_name, "Zoe");
+  return l;
+}
+
+/* Two bookings, two invoices (1 line each), run still draft; returns finalized run in *run. */
+static void finalize_fixture(db_t *db, billing_run_t *run) {
+  booking_t b1 = mkbooking(), b2 = mkbooking();
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(db, &b1));
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(db, &b2));
+  *run = mkrun_db(RUN_DRAFT);
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(db, run));
+  invoice_t inv[2] = {mkinv(1, 1, run->id), mkinv(2, 2, run->id)};
+  invoice_line_t ln[2] = {mkinvline(1, b1.id), mkinvline(2, b2.id)};
+  run->state = RUN_FINAL; run->finalized_at = 200;
+  TEST_ASSERT_EQUAL_INT(0, db_finalize_run(db, run, inv, 2, ln, 2));
+}
+
+void test_run_put_delete_and_reload(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  billing_run_t a = mkrun_db(RUN_DRAFT), b = mkrun_db(RUN_DRAFT);
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&db, &b));
+  TEST_ASSERT_EQUAL_INT64(1, a.id);
+  TEST_ASSERT_EQUAL_INT64(2, b.id);
+  TEST_ASSERT_EQUAL_INT(-1, db_delete_run(&db, 99));
+  TEST_ASSERT_EQUAL_INT(0, db_delete_run(&db, a.id));
+  TEST_ASSERT_NULL(db_run(&db, a.id));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_runs);
+  TEST_ASSERT_NOT_NULL(db_run(&db, 2));
+  db_free(&db);
+}
+
+void test_put_invoices_replaces_by_number(void) {
+  db_t db;
+  billing_run_t run;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  finalize_fixture(&db, &run);
+  invoice_t upd[2] = {mkinv(2, 2, run.id), mkinv(3, 3, run.id)};
+  upd[0].mailed_at = 777;
+  TEST_ASSERT_EQUAL_INT(0, db_put_invoices(&db, upd, 2));
+  TEST_ASSERT_EQUAL_size_t(3, db.n_invoices);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(3, db.n_invoices);
+  TEST_ASSERT_EQUAL_INT64(777, db_invoice(&db, 2)->mailed_at);
+  TEST_ASSERT_NOT_NULL(db_invoice(&db, 3));
+  db_free(&db);
+}
+
+void test_finalize_run_persists_and_locks(void) {
+  db_t db;
+  billing_run_t run;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  finalize_fixture(&db, &run);
+  TEST_ASSERT_EQUAL_INT64(1, db_booking(&db, 1)->invoice_id);
+  TEST_ASSERT_EQUAL_INT64(2, db_booking(&db, 2)->invoice_id);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_invoices);
+  TEST_ASSERT_EQUAL_size_t(2, db.n_lines);
+  TEST_ASSERT_EQUAL_INT(RUN_FINAL, db_run(&db, run.id)->state);
+  TEST_ASSERT_EQUAL_INT64(200, db_run(&db, run.id)->finalized_at);
+  TEST_ASSERT_EQUAL_INT64(1, db_booking(&db, 1)->invoice_id);
+  TEST_ASSERT_EQUAL_INT64(2, db_booking(&db, 2)->invoice_id);
+  TEST_ASSERT_NOT_NULL(db_invoice(&db, 2));
+  TEST_ASSERT_EQUAL_INT64(2, db.lines[1].invoice_number);
+  TEST_ASSERT_EQUAL_INT64(3, db_next_invoice_number(&db));
+  db_free(&db);
+}
+
+void test_load_drops_invoices_of_draft_run(void) {
+  db_t db;
+  billing_run_t run;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  finalize_fixture(&db, &run);
+  /* Simulate a crash before billing_runs.jsonl was written: run is still draft. */
+  run.state = RUN_DRAFT; run.finalized_at = 0;
+  char path[300];
+  snprintf(path, sizeof path, "%s/billing_runs.jsonl", dir);
+  cJSON *j = billing_run_to_json(&run);
+  char *s = cJSON_PrintUnformatted(j);
+  char line[600];
+  int n = snprintf(line, sizeof line, "%s\n", s);
+  TEST_ASSERT_EQUAL_INT(0, store_write_atomic(path, line, (size_t)n));
+  free(s);
+  cJSON_Delete(j);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(1, db.n_runs);
+  TEST_ASSERT_EQUAL_INT(RUN_DRAFT, db_run(&db, run.id)->state);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_invoices);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_lines);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&db, 1)->invoice_id);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&db, 2)->invoice_id);
+  TEST_ASSERT_EQUAL_INT64(1, db_next_invoice_number(&db));
+  db_free(&db);
+}
+
+void test_load_drops_invoices_of_missing_run(void) {
+  db_t db;
+  billing_run_t run;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  finalize_fixture(&db, &run);
+  char path[300];
+  snprintf(path, sizeof path, "%s/billing_runs.jsonl", dir);
+  TEST_ASSERT_EQUAL_INT(0, store_write_atomic(path, "", 0));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_invoices);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_lines);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&db, 1)->invoice_id);
+  db_free(&db);
+}
+
+void test_finalize_run_rolls_back_on_write_failure(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  booking_t b1 = mkbooking();
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b1));
+  billing_run_t run = mkrun_db(RUN_DRAFT);
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&db, &run));
+  invoice_t inv = mkinv(1, 1, run.id);
+  invoice_line_t ln = mkinvline(1, b1.id);
+  run.state = RUN_FINAL;
+  chmod(dir, 0500);
+  if (access(dir, W_OK) == 0) { /* running as root: cannot provoke a failure */
+    chmod(dir, 0700);
+    db_free(&db);
+    TEST_IGNORE_MESSAGE("directory stays writable");
+  }
+  TEST_ASSERT_EQUAL_INT(-1, db_finalize_run(&db, &run, &inv, 1, &ln, 1));
+  chmod(dir, 0700);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_invoices);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_lines);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&db, b1.id)->invoice_id);
+  TEST_ASSERT_EQUAL_INT(RUN_DRAFT, db_run(&db, run.id)->state);
+  db_free(&db);
+}
+
+void test_next_invoice_number(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT64(1, db_next_invoice_number(&db));
+  billing_run_t run = mkrun_db(RUN_FINAL);
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&db, &run));
+  invoice_t inv[2] = {mkinv(1, 1, run.id), mkinv(5, 2, run.id)};
+  TEST_ASSERT_EQUAL_INT(0, db_put_invoices(&db, inv, 2));
+  TEST_ASSERT_EQUAL_INT64(6, db_next_invoice_number(&db));
+  db_free(&db);
+}
+
+void test_load_creates_invoice_and_billing_dirs(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  char p[300];
+  struct stat st;
+  snprintf(p, sizeof p, "%s/invoices", dir);
+  TEST_ASSERT_EQUAL_INT(0, stat(p, &st));
+  snprintf(p, sizeof p, "%s/billing", dir);
+  TEST_ASSERT_EQUAL_INT(0, stat(p, &st));
+  db_free(&db);
+}
+
+void test_invoice_and_run_paths(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  char out[300], exp[300];
+  TEST_ASSERT_EQUAL_INT(0, db_invoice_pdf_path(&db, 17, out, sizeof out));
+  snprintf(exp, sizeof exp, "%s/invoices/17.pdf", dir);
+  TEST_ASSERT_EQUAL_STRING(exp, out);
+  TEST_ASSERT_EQUAL_INT(-1, db_invoice_pdf_path(&db, 17, out, 5));
+  TEST_ASSERT_EQUAL_INT(0, db_run_xml_relpath(3, out, sizeof out));
+  TEST_ASSERT_EQUAL_STRING("billing/run-3-pain008.xml", out);
+  TEST_ASSERT_EQUAL_INT(-1, db_run_xml_relpath(3, out, 5));
+  db_free(&db);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_load_empty_dir);
@@ -644,5 +846,14 @@ int main(void) {
   RUN_TEST(test_tariff_at_other_car);
   RUN_TEST(test_delete_tariff);
   RUN_TEST(test_load_without_tariffs_file);
+  RUN_TEST(test_run_put_delete_and_reload);
+  RUN_TEST(test_put_invoices_replaces_by_number);
+  RUN_TEST(test_finalize_run_persists_and_locks);
+  RUN_TEST(test_load_drops_invoices_of_draft_run);
+  RUN_TEST(test_load_drops_invoices_of_missing_run);
+  RUN_TEST(test_finalize_run_rolls_back_on_write_failure);
+  RUN_TEST(test_next_invoice_number);
+  RUN_TEST(test_load_creates_invoice_and_billing_dirs);
+  RUN_TEST(test_invoice_and_run_paths);
   return UNITY_END();
 }

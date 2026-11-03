@@ -114,6 +114,7 @@ static const char *const KIND_NAMES[] = {"reset", "invite"};
 static const char *const KM_SOURCE_NAMES[] = {"none", "telematics", "manual"};
 static const char *const PHASE_NAMES[] = {"start", "end"};
 static const char *const MANDATE_STATUS_NAMES[] = {"active", "replaced", "revoked"};
+static const char *const RUN_STATE_NAMES[] = {"draft", "final"};
 
 static const char *enum_name(const char *const *names, int count, int v) {
   return (v >= 0 && v < count) ? names[v] : names[0];
@@ -229,6 +230,7 @@ cJSON *booking_to_json(const booking_t *v) {
   PUT(put_i64(o, "km_end", v->km_end));
   PUT(put_cstr(o, "km_source", enum_name(KM_SOURCE_NAMES, 3, v->km_source)));
   PUT(put_bool(o, "km_pending", v->km_pending));
+  PUT(put_i64(o, "invoice_id", v->invoice_id));
   return o;
 }
 
@@ -262,6 +264,7 @@ int booking_from_json(const cJSON *j, booking_t *out) {
     TRY(get_enum_opt(j, "km_source", KM_SOURCE_NAMES, 3, &km_source));
   out->km_source = (km_source_t)km_source;
   TRY(get_bool_opt(j, "km_pending", &out->km_pending));
+  TRY(get_i64_opt(j, "invoice_id", &out->invoice_id));
   return 0;
 }
 
@@ -382,6 +385,10 @@ cJSON *settings_to_json(const settings_t *v) {
   PUT(put_str(o, "creditor_id", v->creditor_id, sizeof v->creditor_id));
   PUT(put_str(o, "creditor_iban", v->creditor_iban, sizeof v->creditor_iban));
   PUT(put_str(o, "creditor_bic", v->creditor_bic, sizeof v->creditor_bic));
+  PUT(put_i64(o, "sepa_lead_days", v->sepa_lead_days));
+  /* put_str truncates at 255; the footer is up to 511, so it is length-checked here. */
+  if (strnlen(v->invoice_footer, sizeof v->invoice_footer) >= sizeof v->invoice_footer) PUT(-1);
+  PUT(put_cstr(o, "invoice_footer", v->invoice_footer));
   return o;
 }
 
@@ -389,6 +396,7 @@ int settings_from_json(const cJSON *j, settings_t *out) {
   OBJ_OR_FAIL(j);
   memset(out, 0, sizeof *out);
   out->start_tolerance_min = 15;
+  out->sepa_lead_days = 5;
   /* Present keys must be valid; missing keys keep their defaults. */
   if (cJSON_GetObjectItemCaseSensitive(j, "start_tolerance_min"))
     TRY(get_int(j, "start_tolerance_min", &out->start_tolerance_min));
@@ -396,6 +404,8 @@ int settings_from_json(const cJSON *j, settings_t *out) {
     TRY(get_int(j, "cancel_deadline_min", &out->cancel_deadline_min));
   if (cJSON_GetObjectItemCaseSensitive(j, "cancel_fee_cents"))
     TRY(get_i64(j, "cancel_fee_cents", &out->cancel_fee_cents));
+  if (cJSON_GetObjectItemCaseSensitive(j, "sepa_lead_days"))
+    TRY(get_int(j, "sepa_lead_days", &out->sepa_lead_days));
   /* String keys default to "" when missing. */
 #define SETTINGS_STR(field)                                                   \
   if (cJSON_GetObjectItemCaseSensitive(j, #field))                            \
@@ -407,6 +417,7 @@ int settings_from_json(const cJSON *j, settings_t *out) {
   SETTINGS_STR(creditor_id);
   SETTINGS_STR(creditor_iban);
   SETTINGS_STR(creditor_bic);
+  SETTINGS_STR(invoice_footer);
 #undef SETTINGS_STR
   return 0;
 }
@@ -508,5 +519,129 @@ int tariff_from_json(const cJSON *j, tariff_t *out) {
   TRY(get_i64(j, "late_fee_cents_per_started_h", &out->late_fee_cents_per_started_h));
   TRY(get_i64(j, "created_at", &out->created_at));
   if (!tariff_valid(out)) return -1;
+  return 0;
+}
+
+/* ---- billing run ---- */
+
+cJSON *billing_run_to_json(const billing_run_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "created_at", v->created_at));
+  PUT(put_i64(o, "finalized_at", v->finalized_at));
+  PUT(put_i64(o, "sent_at", v->sent_at));
+  PUT(put_str(o, "period", v->period, sizeof v->period));
+  PUT(put_cstr(o, "state", enum_name(RUN_STATE_NAMES, 2, v->state)));
+  PUT(put_str(o, "collection_date", v->collection_date, sizeof v->collection_date));
+  PUT(put_str(o, "sepa_file", v->sepa_file, sizeof v->sepa_file));
+  return o;
+}
+
+int billing_run_from_json(const cJSON *j, billing_run_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  int state;
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  TRY(get_i64(j, "finalized_at", &out->finalized_at));
+  TRY(get_i64(j, "sent_at", &out->sent_at));
+  TRY(get_str(j, "period", out->period, sizeof out->period));
+  TRY(get_enum(j, "state", RUN_STATE_NAMES, 2, &state));
+  out->state = (run_state_t)state;
+  TRY(get_str(j, "collection_date", out->collection_date, sizeof out->collection_date));
+  TRY(get_str(j, "sepa_file", out->sepa_file, sizeof out->sepa_file));
+  return 0;
+}
+
+/* ---- invoice ---- */
+
+cJSON *invoice_to_json(const invoice_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "number", v->number));
+  PUT(put_i64(o, "user_id", v->user_id));
+  PUT(put_i64(o, "run_id", v->run_id));
+  PUT(put_i64(o, "total_cents", v->total_cents));
+  PUT(put_i64(o, "n_lines", v->n_lines));
+  PUT(put_i64(o, "created_at", v->created_at));
+  PUT(put_i64(o, "issued_at", v->issued_at));
+  PUT(put_i64(o, "mailed_at", v->mailed_at));
+  PUT(put_i64(o, "mandate_id", v->mandate_id));
+  PUT(put_str(o, "period", v->period, sizeof v->period));
+  PUT(put_str(o, "name", v->name, sizeof v->name));
+  PUT(put_str(o, "street", v->street, sizeof v->street));
+  PUT(put_str(o, "zip", v->zip, sizeof v->zip));
+  PUT(put_str(o, "city", v->city, sizeof v->city));
+  return o;
+}
+
+int invoice_from_json(const cJSON *j, invoice_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  TRY(get_i64(j, "number", &out->number));
+  TRY(get_i64(j, "user_id", &out->user_id));
+  TRY(get_i64(j, "run_id", &out->run_id));
+  TRY(get_i64(j, "total_cents", &out->total_cents));
+  TRY(get_i64(j, "n_lines", &out->n_lines));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  TRY(get_i64(j, "issued_at", &out->issued_at));
+  TRY(get_i64(j, "mailed_at", &out->mailed_at));
+  TRY(get_i64(j, "mandate_id", &out->mandate_id));
+  TRY(get_str(j, "period", out->period, sizeof out->period));
+  TRY(get_str(j, "name", out->name, sizeof out->name));
+  TRY(get_str(j, "street", out->street, sizeof out->street));
+  TRY(get_str(j, "zip", out->zip, sizeof out->zip));
+  TRY(get_str(j, "city", out->city, sizeof out->city));
+  return 0;
+}
+
+/* ---- invoice line ---- */
+
+cJSON *invoice_line_to_json(const invoice_line_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "invoice_number", v->invoice_number));
+  PUT(put_i64(o, "booking_id", v->booking_id));
+  PUT(put_str(o, "car_name", v->car_name, sizeof v->car_name));
+  PUT(put_i64(o, "start", v->start));
+  PUT(put_i64(o, "end", v->end));
+  PUT(put_bool(o, "never_started", v->never_started));
+  PUT(put_bool(o, "cancelled", v->cancelled));
+  PUT(put_bool(o, "club_trip", v->club_trip));
+  PUT(put_i64(o, "day_min", v->day_min));
+  PUT(put_i64(o, "night_min", v->night_min));
+  PUT(put_i64(o, "unused_min", v->unused_min));
+  PUT(put_i64(o, "km", v->km));
+  PUT(put_i64(o, "time_cents", v->time_cents));
+  PUT(put_i64(o, "km_cents", v->km_cents));
+  PUT(put_i64(o, "cap_cut_cents", v->cap_cut_cents));
+  PUT(put_i64(o, "late_fee_cents", v->late_fee_cents));
+  PUT(put_i64(o, "cancel_fee_cents", v->cancel_fee_cents));
+  PUT(put_i64(o, "total_cents", v->total_cents));
+  return o;
+}
+
+int invoice_line_from_json(const cJSON *j, invoice_line_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  TRY(get_i64(j, "invoice_number", &out->invoice_number));
+  TRY(get_i64(j, "booking_id", &out->booking_id));
+  TRY(get_str(j, "car_name", out->car_name, sizeof out->car_name));
+  TRY(get_i64(j, "start", &out->start));
+  TRY(get_i64(j, "end", &out->end));
+  TRY(get_bool(j, "never_started", &out->never_started));
+  TRY(get_bool(j, "cancelled", &out->cancelled));
+  TRY(get_bool(j, "club_trip", &out->club_trip));
+  TRY(get_i64(j, "day_min", &out->day_min));
+  TRY(get_i64(j, "night_min", &out->night_min));
+  TRY(get_i64(j, "unused_min", &out->unused_min));
+  TRY(get_i64(j, "km", &out->km));
+  TRY(get_i64(j, "time_cents", &out->time_cents));
+  TRY(get_i64(j, "km_cents", &out->km_cents));
+  TRY(get_i64(j, "cap_cut_cents", &out->cap_cut_cents));
+  TRY(get_i64(j, "late_fee_cents", &out->late_fee_cents));
+  TRY(get_i64(j, "cancel_fee_cents", &out->cancel_fee_cents));
+  TRY(get_i64(j, "total_cents", &out->total_cents));
   return 0;
 }

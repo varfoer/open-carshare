@@ -1,5 +1,6 @@
 #include "store/db.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -109,6 +110,9 @@ DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking
 DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
 DEFINE_LOADER_X(tariffs, tariff_t, tariffs, n_tariffs, cap_tariffs, tariff_from_json)
 DEFINE_LOADER_X(mandates, mandate_t, mandates, n_mandates, cap_mandates, mandate_from_json)
+DEFINE_LOADER_X(runs, billing_run_t, runs, n_runs, cap_runs, billing_run_from_json)
+DEFINE_LOADER_X(invoices, invoice_t, invoices, n_invoices, cap_invoices, invoice_from_json)
+DEFINE_LOADER_X(lines, invoice_line_t, lines, n_lines, cap_lines, invoice_line_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
 DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
@@ -141,10 +145,32 @@ void db_free(db_t *db) {
   free(db->damages);
   free(db->tariffs);
   free(db->mandates);
+  free(db->runs);
+  free(db->invoices);
+  free(db->lines);
   free(db->sessions);
   free(db->tokens);
   free(db->readings);
   memset(db, 0, sizeof *db);
+}
+
+/* A crash during db_finalize_run can leave invoices and lines on disk whose run was never
+ * written as FINAL. Drop them (RAM only) and unlock their bookings; the next finalize
+ * rewrites the files, so no invoice number is burned. */
+static void drop_orphan_invoices(db_t *db) {
+  size_t w = 0;
+  for (size_t i = 0; i < db->n_invoices; i++) {
+    const billing_run_t *r = db_run(db, db->invoices[i].run_id);
+    if (r && r->state == RUN_FINAL) db->invoices[w++] = db->invoices[i];
+  }
+  db->n_invoices = w;
+  w = 0;
+  for (size_t i = 0; i < db->n_lines; i++)
+    if (db_invoice(db, db->lines[i].invoice_number)) db->lines[w++] = db->lines[i];
+  db->n_lines = w;
+  for (size_t i = 0; i < db->n_bookings; i++)
+    if (db->bookings[i].invoice_id != 0 && !db_invoice(db, db->bookings[i].invoice_id))
+      db->bookings[i].invoice_id = 0;
 }
 
 int db_load(db_t *db, const char *dir) {
@@ -163,10 +189,14 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "damage_reports.jsonl", load_damages);
   if (rc == 0) rc = load_file(db, "tariffs.jsonl", load_tariffs);
   if (rc == 0) rc = load_file(db, "mandates.jsonl", load_mandates);
-  if (rc == 0) {
-    char photos[512];
-    rc = table_path(db, "photos", photos, sizeof photos);
-    if (rc == 0) rc = store_ensure_dir(photos);
+  if (rc == 0) rc = load_file(db, "billing_runs.jsonl", load_runs);
+  if (rc == 0) rc = load_file(db, "invoices.jsonl", load_invoices);
+  if (rc == 0) rc = load_file(db, "invoice_lines.jsonl", load_lines);
+  static const char *const subdirs[] = {"photos", "invoices", "billing"};
+  for (size_t i = 0; i < sizeof subdirs / sizeof *subdirs && rc == 0; i++) {
+    char d[512];
+    rc = table_path(db, subdirs[i], d, sizeof d);
+    if (rc == 0) rc = store_ensure_dir(d);
   }
   if (rc == 0) rc = load_file(db, "sessions.jsonl", load_sessions);
   if (rc == 0) rc = load_file(db, "tokens.jsonl", load_tokens);
@@ -184,6 +214,7 @@ int db_load(db_t *db, const char *dir) {
     db_free(db);
     return -1;
   }
+  drop_orphan_invoices(db);
   return 0;
 }
 
@@ -262,6 +293,25 @@ const mandate_t *db_mandate_current(const db_t *db, int64_t user_id) {
   return best;
 }
 
+billing_run_t *db_run(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_runs; i++)
+    if (db->runs[i].id == id) return &db->runs[i];
+  return NULL;
+}
+
+invoice_t *db_invoice(db_t *db, int64_t number) {
+  for (size_t i = 0; i < db->n_invoices; i++)
+    if (db->invoices[i].number == number) return &db->invoices[i];
+  return NULL;
+}
+
+int64_t db_next_invoice_number(const db_t *db) {
+  int64_t max = 0;
+  for (size_t i = 0; i < db->n_invoices; i++)
+    if (db->invoices[i].number > max) max = db->invoices[i].number;
+  return max + 1;
+}
+
 const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts) {
   const tariff_t *best = NULL;
   for (size_t i = 0; i < db->n_tariffs; i++) {
@@ -304,6 +354,121 @@ DEFINE_PUT_ENTITY(db_put_tariff, tariff_t, tariffs, n_tariffs, cap_tariffs,
 DEFINE_PUT_ENTITY(db_put_mandate, mandate_t, mandates, n_mandates, cap_mandates,
                   "mandates.jsonl", mandate_to_json)
 
+DEFINE_PUT_ENTITY(db_put_run, billing_run_t, runs, n_runs, cap_runs,
+                  "billing_runs.jsonl", billing_run_to_json)
+
+/* Removes one run; RAM restored if persisting fails. */
+int db_delete_run(db_t *db, int64_t id) {
+  size_t n = db->n_runs, at = n;
+  for (size_t i = 0; i < n; i++)
+    if (db->runs[i].id == id) at = i;
+  if (at == n) return -1;
+  billing_run_t *copy = malloc(n * sizeof *copy);
+  if (!copy) return -1;
+  memcpy(copy, db->runs, n * sizeof *copy);
+  memmove(db->runs + at, db->runs + at + 1, (n - at - 1) * sizeof *copy);
+  db->n_runs = n - 1;
+  int rc = persist_table(db, "billing_runs.jsonl", db->runs, n - 1, sizeof *copy,
+                         (to_json_fn)billing_run_to_json);
+  if (rc != 0) {
+    memcpy(db->runs, copy, n * sizeof *copy);
+    db->n_runs = n;
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
+
+/* Snapshot of one table for restore after a failed multi-table write. */
+typedef struct { void *copy; size_t n; } snap_t;
+
+static int snap_take(snap_t *s, const void *arr, size_t n, size_t esz) {
+  s->n = n;
+  s->copy = n ? malloc(n * esz) : NULL;
+  if (n && !s->copy) return -1;
+  if (n) memcpy(s->copy, arr, n * esz);
+  return 0;
+}
+
+/* Puts the snapshot back; capacity never shrinks, so the (possibly moved) array holds it. */
+static void snap_restore(const snap_t *s, void *arr, size_t *n, size_t esz) {
+  if (s->n) memcpy(arr, s->copy, s->n * esz);
+  *n = s->n;
+}
+
+int db_put_invoices(db_t *db, const invoice_t *inv, size_t n) {
+  if (n == 0) return 0;
+  snap_t snap;
+  if (snap_take(&snap, db->invoices, db->n_invoices, sizeof *inv) != 0) return -1;
+  int rc = grow((void **)&db->invoices, &db->cap_invoices, db->n_invoices + n, sizeof *inv);
+  for (size_t i = 0; i < n && rc == 0; i++) {
+    invoice_t *at = db_invoice(db, inv[i].number);
+    if (at)
+      *at = inv[i];
+    else
+      db->invoices[db->n_invoices++] = inv[i];
+  }
+  if (rc == 0)
+    rc = persist_table(db, "invoices.jsonl", db->invoices, db->n_invoices, sizeof *inv,
+                       (to_json_fn)invoice_to_json);
+  if (rc != 0) snap_restore(&snap, db->invoices, &db->n_invoices, sizeof *inv);
+  free(snap.copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_finalize_run(db_t *db, const billing_run_t *run, const invoice_t *inv, size_t n_inv,
+                    const invoice_line_t *lines, size_t n_lines) {
+  if (!db_run(db, run->id)) return -1;
+  for (size_t i = 0; i < n_lines; i++)
+    if (!db_booking(db, lines[i].booking_id)) return -1;
+  for (size_t i = 0; i < n_inv; i++)
+    if (db_invoice(db, inv[i].number)) return -1;
+  snap_t s_lines, s_inv, s_book, s_runs;
+  memset(&s_lines, 0, sizeof s_lines);
+  memset(&s_inv, 0, sizeof s_inv);
+  memset(&s_book, 0, sizeof s_book);
+  memset(&s_runs, 0, sizeof s_runs);
+  int rc = snap_take(&s_lines, db->lines, db->n_lines, sizeof *lines);
+  if (rc == 0) rc = snap_take(&s_inv, db->invoices, db->n_invoices, sizeof *inv);
+  if (rc == 0) rc = snap_take(&s_book, db->bookings, db->n_bookings, sizeof *db->bookings);
+  if (rc == 0) rc = snap_take(&s_runs, db->runs, db->n_runs, sizeof *run);
+  if (rc == 0)
+    rc = grow((void **)&db->lines, &db->cap_lines, db->n_lines + n_lines, sizeof *lines);
+  if (rc == 0)
+    rc = grow((void **)&db->invoices, &db->cap_invoices, db->n_invoices + n_inv, sizeof *inv);
+  bool mutated = false;
+  if (rc == 0) {
+    mutated = true;
+    for (size_t i = 0; i < n_lines; i++) {
+      db->lines[db->n_lines++] = lines[i];
+      db_booking(db, lines[i].booking_id)->invoice_id = lines[i].invoice_number;
+    }
+    for (size_t i = 0; i < n_inv; i++) db->invoices[db->n_invoices++] = inv[i];
+    *db_run(db, run->id) = *run;
+    rc = persist_table(db, "invoice_lines.jsonl", db->lines, db->n_lines, sizeof *lines,
+                       (to_json_fn)invoice_line_to_json);
+    if (rc == 0)
+      rc = persist_table(db, "invoices.jsonl", db->invoices, db->n_invoices, sizeof *inv,
+                         (to_json_fn)invoice_to_json);
+    if (rc == 0)
+      rc = persist_table(db, "bookings.jsonl", db->bookings, db->n_bookings,
+                         sizeof *db->bookings, (to_json_fn)booking_to_json);
+    if (rc == 0)
+      rc = persist_table(db, "billing_runs.jsonl", db->runs, db->n_runs, sizeof *run,
+                         (to_json_fn)billing_run_to_json);
+  }
+  if (rc != 0 && mutated) {
+    snap_restore(&s_lines, db->lines, &db->n_lines, sizeof *lines);
+    snap_restore(&s_inv, db->invoices, &db->n_invoices, sizeof *inv);
+    snap_restore(&s_book, db->bookings, &db->n_bookings, sizeof *db->bookings);
+    snap_restore(&s_runs, db->runs, &db->n_runs, sizeof *run);
+  }
+  free(s_lines.copy);
+  free(s_inv.copy);
+  free(s_book.copy);
+  free(s_runs.copy);
+  return rc == 0 ? 0 : -1;
+}
+
 /* Removes one tariff; RAM restored if persisting fails. */
 int db_delete_tariff(db_t *db, int64_t id) {
   size_t n = db->n_tariffs, at = n;
@@ -327,6 +492,16 @@ int db_delete_tariff(db_t *db, int64_t id) {
 
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap) {
   int n = snprintf(out, cap, "%s/photos/r%lld-%d.jpg", db->dir, (long long)report_id, k);
+  return (n < 0 || (size_t)n >= cap) ? -1 : 0;
+}
+
+int db_invoice_pdf_path(const db_t *db, int64_t number, char *out, size_t cap) {
+  int n = snprintf(out, cap, "%s/invoices/%lld.pdf", db->dir, (long long)number);
+  return (n < 0 || (size_t)n >= cap) ? -1 : 0;
+}
+
+int db_run_xml_relpath(int64_t run_id, char *out, size_t cap) {
+  int n = snprintf(out, cap, "billing/run-%lld-pain008.xml", (long long)run_id);
   return (n < 0 || (size_t)n >= cap) ? -1 : 0;
 }
 

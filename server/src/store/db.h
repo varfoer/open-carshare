@@ -15,13 +15,18 @@ typedef struct {
   damage_report_t *damages; size_t n_damages, cap_damages;
   tariff_t *tariffs; size_t n_tariffs, cap_tariffs;
   mandate_t *mandates; size_t n_mandates, cap_mandates;
+  billing_run_t *runs; size_t n_runs, cap_runs;
+  invoice_t *invoices; size_t n_invoices, cap_invoices;
+  invoice_line_t *lines; size_t n_lines, cap_lines;
   settings_t settings;
   odometer_reading_t *readings; size_t n_readings, cap_readings;
   int64_t km_mail_day;
 } db_t;
 
 /* 0 ok, -1 on bad dir, unreadable or corrupt file. db is freed on failure.
- * Creates <dir>/photos if missing. */
+ * Creates <dir>/photos, <dir>/invoices and <dir>/billing if missing. Afterwards drops (RAM
+ * only) invoices and lines whose run is missing or not RUN_FINAL, then sets invoice_id = 0
+ * on bookings whose invoice no longer exists. */
 int  db_load(db_t *db, const char *dir);
 void db_free(db_t *db);
 
@@ -35,6 +40,9 @@ token_t *db_token(db_t *db, const char *token_hash);
 tariff_t *db_tariff(db_t *db, int64_t id);
 mandate_t *db_mandate(db_t *db, int64_t id);
 const mandate_t *db_mandate_current(const db_t *db, int64_t user_id); /* status ACTIVE, largest id; NULL if none */
+billing_run_t *db_run(db_t *db, int64_t id);
+invoice_t *db_invoice(db_t *db, int64_t number);
+int64_t db_next_invoice_number(const db_t *db);      /* max number + 1 */
 /* Version of the car with the largest valid_from <= ts; NULL if none. */
 const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts);
 
@@ -47,6 +55,15 @@ int db_put_damage(db_t *db, damage_report_t *d);
 int db_put_tariff(db_t *db, tariff_t *t);      /* id==0: assign max+1 and insert; else replace */
 int db_put_mandate(db_t *db, mandate_t *m);   /* id==0: assign max+1 and insert; else replace */
 int db_delete_tariff(db_t *db, int64_t id);    /* -1 if unknown id or persisting failed */
+int db_put_run(db_t *db, billing_run_t *r);   /* id==0: assign max+1 and insert; else replace */
+int db_delete_run(db_t *db, int64_t id);      /* -1 if unknown id or persisting failed */
+int db_put_invoices(db_t *db, const invoice_t *inv, size_t n); /* replace by number, one write */
+/* Inserts invoices and lines, sets invoice_id = line.invoice_number on every line's booking,
+ * then replaces the run. Writes invoice_lines.jsonl, invoices.jsonl, bookings.jsonl,
+ * billing_runs.jsonl in this order, so a crash before the last leaves the run DRAFT and load
+ * drops the orphans. RAM restored on -1. */
+int db_finalize_run(db_t *db, const billing_run_t *run, const invoice_t *inv, size_t n_inv,
+                    const invoice_line_t *lines, size_t n_lines);
 int db_put_settings(db_t *db, const settings_t *s);
 int db_put_session(db_t *db, const session_t *s);
 int db_delete_sessions(db_t *db, const char *token_hash, int64_t user_id); /* by hash if non-NULL, else all of user */
@@ -62,5 +79,10 @@ int db_put_km_mail_day(db_t *db, int64_t day);
 
 /* Writes "<dir>/photos/r<report_id>-<k>.jpg" (k is 1-based) into out. -1 if it does not fit. */
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap);
+
+/* "<dir>/invoices/<number>.pdf" and "billing/run-<id>-pain008.xml" (relative to dir).
+ * -1 if it does not fit. */
+int db_invoice_pdf_path(const db_t *db, int64_t number, char *out, size_t cap);
+int db_run_xml_relpath(int64_t run_id, char *out, size_t cap);
 
 #endif

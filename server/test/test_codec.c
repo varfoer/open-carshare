@@ -577,6 +577,150 @@ static void test_tariff_requires_all_keys(void) {
     }
 }
 
+static billing_run_t mkrun(void) {
+    billing_run_t r = {.id = 2, .created_at = 100, .finalized_at = 200, .sent_at = 300,
+                       .state = RUN_FINAL};
+    snprintf(r.period, sizeof r.period, "2026-10");
+    snprintf(r.collection_date, sizeof r.collection_date, "2026-11-10");
+    snprintf(r.sepa_file, sizeof r.sepa_file, "billing/run-2-pain008.xml");
+    return r;
+}
+
+static void test_billing_run_roundtrip(void) {
+    billing_run_t v = mkrun(), r;
+    cJSON *j = billing_run_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, billing_run_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    TEST_ASSERT_EQUAL_STRING("2026-10", cJSON_GetObjectItem(j, "period")->valuestring);
+    cJSON_Delete(j);
+    v.state = RUN_DRAFT;
+    j = billing_run_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, billing_run_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(RUN_DRAFT, r.state);
+    cJSON_Delete(j);
+}
+
+static void test_billing_run_requires_all_keys(void) {
+    const char *keys[] = {"id", "created_at", "finalized_at", "sent_at", "period", "state",
+                          "collection_date", "sepa_file"};
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        billing_run_t v = mkrun(), r;
+        cJSON *j = billing_run_to_json(&v);
+        TEST_ASSERT_EQUAL_INT(8, cJSON_GetArraySize(j));
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, billing_run_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+    cJSON *j = billing_run_to_json(&(billing_run_t){0});
+    cJSON_ReplaceItemInObject(j, "state", cJSON_CreateString("bogus"));
+    billing_run_t r;
+    TEST_ASSERT_EQUAL_INT(-1, billing_run_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
+static invoice_t mkinvoice(void) {
+    invoice_t v = {.number = 17, .user_id = 4, .run_id = 2, .total_cents = 1234, .n_lines = 3,
+                   .created_at = 200, .issued_at = 300, .mailed_at = 310, .mandate_id = 9};
+    snprintf(v.period, sizeof v.period, "2026-10");
+    snprintf(v.name, sizeof v.name, "Jürgen Müller");
+    snprintf(v.street, sizeof v.street, "Hauptstr. 1");
+    snprintf(v.zip, sizeof v.zip, "12345");
+    snprintf(v.city, sizeof v.city, "Köln");
+    return v;
+}
+
+static void test_invoice_roundtrip(void) {
+    invoice_t v = mkinvoice(), r;
+    cJSON *j = invoice_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, invoice_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    cJSON_Delete(j);
+}
+
+static void test_invoice_requires_all_keys(void) {
+    const char *keys[] = {"number", "user_id", "run_id", "total_cents", "n_lines", "created_at",
+                          "issued_at", "mailed_at", "mandate_id", "period", "name", "street",
+                          "zip", "city"};
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        invoice_t v = mkinvoice(), r;
+        cJSON *j = invoice_to_json(&v);
+        TEST_ASSERT_EQUAL_INT(14, cJSON_GetArraySize(j));
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, invoice_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
+static invoice_line_t mkline(void) {
+    invoice_line_t v = {.invoice_number = 17, .booking_id = 5, .start = 1000, .end = 5000,
+                        .never_started = false, .cancelled = true, .club_trip = false,
+                        .day_min = 60, .night_min = 30, .unused_min = 10, .km = 42,
+                        .time_cents = 500, .km_cents = 420, .cap_cut_cents = 50,
+                        .late_fee_cents = 100, .cancel_fee_cents = 200, .total_cents = 1170};
+    snprintf(v.car_name, sizeof v.car_name, "Zoë");
+    return v;
+}
+
+static void test_invoice_line_roundtrip(void) {
+    invoice_line_t v = mkline(), r;
+    cJSON *j = invoice_line_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, invoice_line_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    cJSON_Delete(j);
+    v.never_started = true; v.cancelled = false; v.club_trip = true;
+    j = invoice_line_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, invoice_line_from_json(j, &r));
+    TEST_ASSERT_TRUE(r.never_started);
+    TEST_ASSERT_FALSE(r.cancelled);
+    TEST_ASSERT_TRUE(r.club_trip);
+    cJSON_Delete(j);
+}
+
+static void test_invoice_line_requires_all_keys(void) {
+    const char *keys[] = {"invoice_number", "booking_id", "car_name", "start", "end",
+                          "never_started", "cancelled", "club_trip", "day_min", "night_min",
+                          "unused_min", "km", "time_cents", "km_cents", "cap_cut_cents",
+                          "late_fee_cents", "cancel_fee_cents", "total_cents"};
+    for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
+        invoice_line_t v = mkline(), r;
+        cJSON *j = invoice_line_to_json(&v);
+        TEST_ASSERT_EQUAL_INT(18, cJSON_GetArraySize(j));
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, invoice_line_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
+static void test_booking_invoice_id_roundtrip_and_default(void) {
+    booking_t b = {.id = 7, .state = BK_DONE, .invoice_id = 17}, r;
+    cJSON *j = booking_to_json(&b);
+    TEST_ASSERT_EQUAL_INT64(17, (int64_t)cJSON_GetObjectItem(j, "invoice_id")->valuedouble);
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(17, r.invoice_id);
+    cJSON_DeleteItemFromObject(j, "invoice_id");
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(0, r.invoice_id);
+    cJSON_Delete(j);
+}
+
+static void test_settings_billing_defaults_and_roundtrip(void) {
+    cJSON *j = cJSON_Parse("{}");
+    settings_t s;
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &s));
+    TEST_ASSERT_EQUAL_INT(5, s.sepa_lead_days);
+    TEST_ASSERT_EQUAL_STRING("", s.invoice_footer);
+    cJSON_Delete(j);
+    s.sepa_lead_days = 9;
+    memset(s.invoice_footer, 'f', 500);
+    s.invoice_footer[500] = '\0';
+    j = settings_to_json(&s);
+    settings_t r;
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(9, r.sepa_lead_days);
+    TEST_ASSERT_EQUAL_STRING(s.invoice_footer, r.invoice_footer);
+    cJSON_Delete(j);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
@@ -619,5 +763,13 @@ int main(void) {
     RUN_TEST(test_tariff_roundtrip);
     RUN_TEST(test_tariff_rejects_out_of_range);
     RUN_TEST(test_tariff_requires_all_keys);
+    RUN_TEST(test_billing_run_roundtrip);
+    RUN_TEST(test_billing_run_requires_all_keys);
+    RUN_TEST(test_invoice_roundtrip);
+    RUN_TEST(test_invoice_requires_all_keys);
+    RUN_TEST(test_invoice_line_roundtrip);
+    RUN_TEST(test_invoice_line_requires_all_keys);
+    RUN_TEST(test_booking_invoice_id_roundtrip_and_default);
+    RUN_TEST(test_settings_billing_defaults_and_roundtrip);
     return UNITY_END();
 }

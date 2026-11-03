@@ -59,6 +59,8 @@ typedef struct {
   int64_t cancel_fee_cents;
   char assoc_name[96], assoc_street[96], assoc_zip[16], assoc_city[64];
   char creditor_id[36], creditor_iban[35], creditor_bic[12];
+  int sepa_lead_days;                  /* default 5 */
+  char invoice_footer[512];
 } settings_t;
 typedef enum { MANDATE_ACTIVE = 0, MANDATE_REPLACED, MANDATE_REVOKED } mandate_status_t;
 typedef struct {
@@ -69,5 +71,19 @@ typedef struct {
   char client_ip[64]; int text_version;
   char creditor_name[96], creditor_id[36];  /* snapshot at creation */
 } mandate_t;
+
+typedef enum { RUN_DRAFT = 0, RUN_FINAL } run_state_t;
+typedef struct {
+  int64_t id, created_at, finalized_at, sent_at;   /* 0 = not yet */
+  char period[8]; run_state_t state;
+  char collection_date[11];                        /* "" until first send */
+  char sepa_file[64];                              /* relative to data dir; "" none */
+} billing_run_t;
+typedef struct {
+  int64_t number, user_id, run_id, total_cents, n_lines;
+  int64_t created_at, issued_at, mailed_at, mandate_id;  /* issued/mailed/mandate 0 until send */
+  char period[8];
+  char name[96], street[96], zip[16], city[64];          /* addressee at finalize */
+} invoice_t;
 
 #endif
