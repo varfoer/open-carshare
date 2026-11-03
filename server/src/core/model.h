@@ -26,7 +26,17 @@ typedef struct {
   bool club_trip;
   int64_t actual_start, actual_end, km_start, km_end; /* actual_*: 0 = unset */
   km_source_t km_source; bool km_pending;
+  int64_t invoice_id;  /* 0 = not invoiced */
 } booking_t;
+typedef struct {
+  int64_t invoice_number, booking_id;
+  char car_name[64];
+  int64_t start, end;                 /* actual if started, else booked; cancelled: booked */
+  bool never_started, cancelled, club_trip;
+  int64_t day_min, night_min, unused_min, km;
+  int64_t time_cents, km_cents, cap_cut_cents;   /* cap_cut = time_cap_cut + combined_cap_cut */
+  int64_t late_fee_cents, cancel_fee_cents, total_cents;
+} invoice_line_t;
 typedef struct {
   int64_t id, booking_id, user_id, created_at; damage_phase_t phase;
   char text[1024]; int n_photos;
