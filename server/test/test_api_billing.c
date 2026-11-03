@@ -1,9 +1,11 @@
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "auth/session.h"
 #include "cJSON.h"
+#include "core/sepa.h"
 #include "helpers.h"
 #include "http/api.h"
 #include "unity.h"
@@ -97,6 +99,7 @@ static cJSON *call(const char *m, const char *p, const char *body, int status, c
   api_res_t r = th_req(a, m, p, body, tadm, N);
   TEST_ASSERT_NOT_NULL(r.body);
   TEST_ASSERT_EQUAL_INT_MESSAGE(status, r.status, r.body);
+  TEST_ASSERT_NULL_MESSAGE(strstr(r.body, FULL_IBAN), "full IBAN in response");
   cJSON *j = cJSON_Parse(r.body);
   api_res_free(&r);
   TEST_ASSERT_NOT_NULL(j);
@@ -434,6 +437,263 @@ void test_settings_lead_days_range(void) {
   call_free("PUT", "/api/admin/settings", SETTINGS(",\"sepa_lead_days\":5", ",\"invoice_footer\":\"\""), 200, NULL);
 }
 
+/* ---- send ---- */
+
+#define OTHER_IBAN "DE02120300000000202051"
+
+static int64_t finalized_april(void) {
+  add_april();
+  int64_t id = create_run("2026-04");
+  call_free("POST", rpath(id, "/finalize"), NULL, 200, NULL);
+  return id;
+}
+
+/* Binary GET; caller frees. */
+static api_res_t get_bin(const char *p, int status) {
+  api_res_t r = th_req(a, "GET", p, NULL, tadm, N);
+  TEST_ASSERT_NOT_NULL(r.body);
+  TEST_ASSERT_EQUAL_INT(status, r.status);
+  return r;
+}
+
+static char *xml_of(int64_t id) {
+  api_res_t r = get_bin(rpath(id, "/sepa.xml"), 200);
+  size_t n = r.body_len ? r.body_len : strlen(r.body);
+  char *c = malloc(n + 1);
+  TEST_ASSERT_NOT_NULL(c);
+  memcpy(c, r.body, n);
+  c[n] = 0;
+  api_res_free(&r);
+  return c;
+}
+
+void test_send_draft_409(void) {
+  add_april();
+  int64_t id = create_run("2026-04");
+  call_free("POST", rpath(id, "/send"), NULL, 409, "not_final");
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+  call_free("POST", rpath(999, "/send"), NULL, 404, "not_found");
+}
+
+void test_send_mails_with_pdf(void) {
+  int64_t id = finalized_april();
+  int before = th_mail_count();
+  cJSON *j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(2, num(j, "sent"));
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(j, "failed")));
+  TEST_ASSERT_EQUAL_INT64(N, num(obj(j, "run"), "sent_at"));
+  TEST_ASSERT_EQUAL_STRING("billing/run-1-pain008.xml", obj(obj(j, "run"), "sepa_file")->valuestring);
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("Rechnung-2.pdf", th_last_mail_att_name());   /* Zora, number 2, mailed last */
+  TEST_ASSERT_TRUE(th_last_mail_att_len() > 100);
+  TEST_ASSERT_EQUAL_STRING("zora@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_subject(), "Rechnung 2"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Zora Z"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "15.06.2026"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "OCS-"));
+  TEST_ASSERT_TRUE(db_invoice(&a->db, 1)->mailed_at == N && db_invoice(&a->db, 2)->mailed_at == N);
+  TEST_ASSERT_EQUAL_INT64(N, db_invoice(&a->db, 1)->issued_at);
+  TEST_ASSERT_TRUE(db_invoice(&a->db, 1)->mandate_id > 0);
+}
+
+void test_send_zero_invoice_no_prenotification(void) {
+  int64_t ub = th_add_user_bare(a, "club@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(ub > 0);
+  set_name(ub, "Zzz Club");   /* sorts last: number 3, mailed last */
+  int64_t bid = add_done(ub, car1, APR10, 2, 0);
+  booking_t b = *db_booking(&a->db, bid);
+  b.club_trip = true;
+  b.km_start = b.km_end = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  int64_t id = finalized_april();
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("Rechnung-3.pdf", th_last_mail_att_name());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Es wird kein Betrag eingezogen."));
+  TEST_ASSERT_NULL(strstr(th_last_mail_body(), "OCS-"));
+  TEST_ASSERT_EQUAL_INT64(0, db_invoice(&a->db, 3)->mandate_id);
+  char *x = xml_of(id);
+  TEST_ASSERT_NOT_NULL(strstr(x, "<NbOfTxs>2</NbOfTxs>"));
+  TEST_ASSERT_NOT_NULL(strstr(x, "OCS-RE-1<"));
+  TEST_ASSERT_NOT_NULL(strstr(x, "OCS-RE-2<"));
+  TEST_ASSERT_NULL(strstr(x, "OCS-RE-3<"));
+  free(x);
+}
+
+void test_send_only_zero_invoices_no_xml(void) {
+  int64_t ub = th_add_user_bare(a, "club@x.de", NULL, ROLE_USER);
+  set_name(ub, "Club C");
+  int64_t bid = add_done(ub, car1, APR10, 2, 0);
+  booking_t b = *db_booking(&a->db, bid);
+  b.club_trip = true;
+  b.km_start = b.km_end = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  int64_t id = create_run("2026-04");
+  call_free("POST", rpath(id, "/finalize"), NULL, 200, NULL);
+  cJSON *j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(1, num(j, "sent"));
+  TEST_ASSERT_EQUAL_STRING("", obj(obj(j, "run"), "sepa_file")->valuestring);
+  cJSON_Delete(j);
+  call_free("GET", rpath(id, "/sepa.xml"), NULL, 404, "not_found");
+}
+
+void test_send_sets_collection_date(void) {
+  int64_t id = finalized_april();
+  /* 2026-06-10 + 5 days = Monday 2026-06-15 */
+  cJSON *j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("2026-06-15", obj(obj(j, "run"), "collection_date")->valuestring);
+  cJSON_Delete(j);
+  char *x = xml_of(id);
+  TEST_ASSERT_NOT_NULL(strstr(x, "2026-06-15"));
+  free(x);
+}
+
+void test_send_retry_mails_only_unmailed(void) {
+  int64_t id = finalized_april();
+  int before = th_mail_count();
+  th_mail_fail(1);
+  cJSON *j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(0, num(j, "sent"));
+  cJSON *f = obj(j, "failed");
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(f));
+  TEST_ASSERT_EQUAL_INT64(1, (int64_t)cJSON_GetArrayItem(f, 0)->valuedouble);
+  TEST_ASSERT_EQUAL_INT64(2, (int64_t)cJSON_GetArrayItem(f, 1)->valuedouble);
+  TEST_ASSERT_EQUAL_STRING("2026-06-15", obj(obj(j, "run"), "collection_date")->valuestring);
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT64(0, db_invoice(&a->db, 1)->mailed_at);
+  char *x1 = xml_of(id);
+  th_mail_fail(0);
+  before = th_mail_count();
+  api_res_t r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 86400);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  j = cJSON_Parse(r.body);
+  api_res_free(&r);
+  TEST_ASSERT_EQUAL_INT64(2, num(j, "sent"));
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(j, "failed")));
+  TEST_ASSERT_EQUAL_STRING("2026-06-15", obj(obj(j, "run"), "collection_date")->valuestring);
+  TEST_ASSERT_EQUAL_INT64(N, num(obj(j, "run"), "sent_at"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_INT64(N + 86400, db_invoice(&a->db, 1)->mailed_at);
+  TEST_ASSERT_EQUAL_INT64(N, db_invoice(&a->db, 1)->issued_at);
+  char *x2 = xml_of(id);
+  TEST_ASSERT_EQUAL_STRING(x1, x2);
+  free(x1);
+  free(x2);
+  before = th_mail_count();
+  j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(0, num(j, "sent"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+}
+
+/* Revokes the user's active mandate and (replace) adds a new one with OTHER_IBAN. */
+static void replace_mandate(int64_t user, bool add_new) {
+  mandate_t old = *db_mandate_current(&a->db, user);
+  old.status = add_new ? MANDATE_REPLACED : MANDATE_REVOKED;
+  old.ended_at = N;
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &old));
+  if (!add_new) return;
+  mandate_t m = old;
+  m.id = 0;
+  m.status = MANDATE_ACTIVE;
+  m.ended_at = 0;
+  m.created_at = 1775000000;
+  snprintf(m.iban, sizeof m.iban, "%s", OTHER_IBAN);
+  snprintf(m.holder, sizeof m.holder, "Jürgen Müller-Weiß & Söhne");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+}
+
+void test_send_uses_mandate_current_at_send(void) {
+  int64_t id = finalized_april();
+  replace_mandate(ua, true);
+  int64_t newid = db_mandate_current(&a->db, ua)->id;
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  char ref[24];
+  mandate_ref(newid, ref, sizeof ref);
+  char *x = xml_of(id);
+  TEST_ASSERT_NOT_NULL(strstr(x, ref));
+  TEST_ASSERT_NOT_NULL(strstr(x, OTHER_IBAN));
+  TEST_ASSERT_NOT_NULL(strstr(x, "Juergen Mueller-Weiss + Soehne"));
+  TEST_ASSERT_NOT_NULL(strstr(x, "2026-04-01"));   /* local date of mandate created_at */
+  free(x);
+  TEST_ASSERT_EQUAL_INT64(newid, db_invoice(&a->db, 1)->mandate_id);
+}
+
+void test_send_blocked_mandate_revoked_after_finalize(void) {
+  int64_t id = finalized_april();
+  replace_mandate(uz, false);
+  int before = th_mail_count();
+  cJSON *j = call("POST", rpath(id, "/send"), NULL, 409, "blocked");
+  cJSON *nm = obj(obj(j, "blockers"), "no_mandate");
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(nm));
+  TEST_ASSERT_EQUAL_INT64(uz, (int64_t)cJSON_GetArrayItem(nm, 0)->valuedouble);
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(obj(j, "blockers"), "km_pending")));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+  TEST_ASSERT_EQUAL_INT64(0, a->db.runs[0].sent_at);
+  TEST_ASSERT_EQUAL_INT64(0, db_invoice(&a->db, 1)->issued_at);
+  call_free("GET", rpath(id, "/sepa.xml"), NULL, 404, "not_found");
+}
+
+void test_send_empty_holder_500_and_retry(void) {
+  int64_t id = finalized_april();
+  replace_mandate(uz, true);
+  mandate_t m = *db_mandate_current(&a->db, uz);
+  snprintf(m.holder, sizeof m.holder, "   ");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+  call_free("POST", rpath(id, "/send"), NULL, 500, "storage");
+  TEST_ASSERT_EQUAL_INT64(0, a->db.runs[0].sent_at);
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+  snprintf(m.holder, sizeof m.holder, "Zora Z");
+  TEST_ASSERT_EQUAL_INT(0, db_put_mandate(&a->db, &m));
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(N, a->db.runs[0].sent_at);
+}
+
+void test_sepa_xml_download(void) {
+  int64_t id = finalized_april();
+  call_free("GET", rpath(id, "/sepa.xml"), NULL, 404, "not_found");
+  call_free("GET", rpath(999, "/sepa.xml"), NULL, 404, "not_found");
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  api_res_t r = get_bin(rpath(id, "/sepa.xml"), 200);
+  TEST_ASSERT_EQUAL_STRING("application/xml", r.content_type);
+  TEST_ASSERT_TRUE(r.body_len > 100);
+  TEST_ASSERT_EQUAL_INT(0, strncmp(r.body, "<?xml", 5));
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "OCS-RUN-1"));
+  api_res_free(&r);
+  /* admin only */
+  api_res_t d = th_req(a, "GET", rpath(id, "/sepa.xml"), NULL, NULL, N);
+  TEST_ASSERT_EQUAL_INT(401, d.status);
+  api_res_free(&d);
+}
+
+void test_invoice_pdf_download(void) {
+  int64_t id = finalized_april();
+  call_free("GET", "/api/admin/invoices/1/pdf", NULL, 404, "not_found");
+  call_free("GET", "/api/admin/invoices/99/pdf", NULL, 404, "not_found");
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  api_res_t r = get_bin("/api/admin/invoices/1/pdf", 200);
+  TEST_ASSERT_EQUAL_STRING("application/pdf", r.content_type);
+  TEST_ASSERT_TRUE(r.body_len > 100);
+  TEST_ASSERT_EQUAL_INT(0, strncmp(r.body, "%PDF", 4));
+  api_res_free(&r);
+}
+
+void test_api_responses_never_full_iban(void) {
+  /* call() asserts every JSON response of the flow is free of the full IBAN */
+  int64_t id = finalized_april();
+  call_free("GET", "/api/admin/billing", NULL, 200, NULL);
+  cJSON_Delete(detail(id));
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  cJSON_Delete(detail(id));
+  TEST_ASSERT_NULL(strstr(th_last_mail_body(), FULL_IBAN));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "****"));
+  api_res_t r = get_bin("/api/admin/invoices/1/pdf", 200);
+  TEST_ASSERT_NULL(memmem(r.body, r.body_len, FULL_IBAN, strlen(FULL_IBAN)));
+  api_res_free(&r);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_create_requires_closed_month);
@@ -453,5 +713,17 @@ int main(void) {
   RUN_TEST(test_finalize_twice_409);
   RUN_TEST(test_delete_draft);
   RUN_TEST(test_settings_lead_days_range);
+  RUN_TEST(test_send_draft_409);
+  RUN_TEST(test_send_mails_with_pdf);
+  RUN_TEST(test_send_zero_invoice_no_prenotification);
+  RUN_TEST(test_send_only_zero_invoices_no_xml);
+  RUN_TEST(test_send_sets_collection_date);
+  RUN_TEST(test_send_retry_mails_only_unmailed);
+  RUN_TEST(test_send_uses_mandate_current_at_send);
+  RUN_TEST(test_send_blocked_mandate_revoked_after_finalize);
+  RUN_TEST(test_send_empty_holder_500_and_retry);
+  RUN_TEST(test_sepa_xml_download);
+  RUN_TEST(test_invoice_pdf_download);
+  RUN_TEST(test_api_responses_never_full_iban);
   return UNITY_END();
 }

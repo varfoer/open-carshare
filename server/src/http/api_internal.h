@@ -109,6 +109,9 @@ void h_admin_billing_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
 void h_admin_billing_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_billing_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_billing_finalize(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_send(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_sepa(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_invoice_pdf(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_tariff.c (all MIN_ADMIN) */
 void h_admin_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
