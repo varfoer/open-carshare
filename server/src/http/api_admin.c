@@ -330,6 +330,7 @@ void h_admin_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   b.created_at = b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_notify_booking(a, NT_CREATED, &b, ctx->user->id);
   api_json(res, 201, booking_admin_json(a, &b));
 }
 
@@ -353,7 +354,9 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   if (r != BR_OK) { api_br_error(res, r); return; }
   nb.modified_at = req->now;
   nb.modified_by = ctx->user->id;
+  api_booking_changed(&old, &nb);
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
+  if (api_booking_mail_worthy(&old, &nb)) api_notify_booking(a, NT_MODIFIED, &nb, ctx->user->id);
   api_json(res, 200, booking_admin_json(a, &nb));
 }
 
@@ -372,6 +375,7 @@ void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
   b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_notify_booking(a, NT_CANCELLED, &b, ctx->user->id);
   api_json(res, 200, booking_admin_json(a, &b));
 }
 

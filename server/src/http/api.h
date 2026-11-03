@@ -7,6 +7,7 @@
 
 #include "app.h"
 #include "cJSON.h"
+#include "core/notify.h"
 
 /* All strings borrowed for the duration of api_handle. body need not be
  * NUL-terminated; body_len is authoritative. query excludes the '?'. */
@@ -47,6 +48,10 @@ int api_resolve_km(app_t *a, int64_t now);
 /* Daily mail to all active admins listing km_pending bookings of tracker cars with
  * now - actual_end > 86400. 1 sent, 0 nothing to send or already sent this UTC day, -1 all sends failed. */
 int api_km_pending_mail(app_t *a, int64_t now);
+
+/* Mails the booking's user about kind (NT_CREATED/MODIFIED/CANCELLED). actor_id: who acted.
+ * 0 sent, 1 skipped (user missing or inactive), -1 build or send failed. Never touches the db. */
+int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t actor_id);
 
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
