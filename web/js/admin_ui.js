@@ -14,7 +14,8 @@ export function adminNav(active) {
   const nav = el('nav', { className: 'subnav' });
   for (const [href, label] of [
     ['#/admin/nutzer', 'Nutzer'], ['#/admin/autos', 'Autos'],
-    ['#/admin/buchungen', 'Buchungen'], ['#/admin/einstellungen', 'Einstellungen'],
+    ['#/admin/buchungen', 'Buchungen'], ['#/admin/abrechnung', 'Abrechnung'],
+    ['#/admin/einstellungen', 'Einstellungen'],
   ]) {
     const a = el('a', { href, text: label });
     if (href === active) a.setAttribute('aria-current', 'page');

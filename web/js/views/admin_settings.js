@@ -16,11 +16,14 @@ export async function render(root) {
   const cid = textField('Gläubiger-ID', s.creditor_id, { maxLength: 35 });
   const ciban = textField('IBAN des Vereins', s.creditor_iban, { maxLength: 50 });
   const cbic = textField('BIC des Vereins (optional)', s.creditor_bic, { maxLength: 20 });
+  const lead = textField('Vorlauf Lastschrift (Tage)', String(s.sepa_lead_days), { inputMode: 'numeric', required: true });
+  const footer = el('textarea', { value: s.invoice_footer, maxLength: 500, rows: 3 });
+  const footerNode = el('label', {}, 'Rechnungsfußzeile', footer);
   const err = messageBox('error');
   const ok = messageBox('success');
   const sepaCard = el('div', { className: 'card' },
     el('h2', { text: 'Verein und Lastschrift' }),
-    aname.node, astreet.node, azip.node, acity.node, cid.node, ciban.node, cbic.node);
+    aname.node, astreet.node, azip.node, acity.node, cid.node, ciban.node, cbic.node, lead.node, footerNode);
   const form = el('form', { className: 'card' },
     el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, sepaCard,
     err.node, ok.node, primaryButton('Speichern'));
@@ -32,6 +35,9 @@ export async function render(root) {
     const cents = parseEuroToCents(fee.input.value);
     if (t === null) return err.show('Starttoleranz: bitte eine ganze Zahl von Minuten eingeben.');
     if (d === null) return err.show('Stornofrist: bitte eine ganze Zahl von Minuten eingeben.');
+    const l = minutes(lead.input.value);
+    if (l === null || l < 5 || l > 30) return err.show('Vorlauf Lastschrift: bitte 5 bis 30 Tage eingeben.');
+    if (new TextEncoder().encode(footer.value).length >= 512) return err.show('Rechnungsfußzeile: höchstens 511 Bytes.');
     if (cents === null) return err.show('Stornogebühr: bitte einen Eurobetrag wie 5 oder 5,50 eingeben.');
     try {
       const r = await api('PUT', '/api/admin/settings',
@@ -41,6 +47,7 @@ export async function render(root) {
           assoc_zip: azip.input.value.trim(), assoc_city: acity.input.value.trim(),
           creditor_id: cid.input.value.trim(), creditor_iban: ciban.input.value.trim(),
           creditor_bic: cbic.input.value.trim(),
+          sepa_lead_days: l, invoice_footer: footer.value,
         });
       tol.input.value = String(r.start_tolerance_min);
       dead.input.value = String(r.cancel_deadline_min);
@@ -52,6 +59,8 @@ export async function render(root) {
       cid.input.value = r.creditor_id;
       ciban.input.value = r.creditor_iban;
       cbic.input.value = r.creditor_bic;
+      lead.input.value = String(r.sepa_lead_days);
+      footer.value = r.invoice_footer;
       ok.show('Gespeichert.');
     } catch (x) { err.show(x.message); }
   });

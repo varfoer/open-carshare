@@ -73,12 +73,12 @@ export async function render(root) {
     const carName = new Map(cars.map((c) => [c.id, c.name]));
     for (const b of rows) {
       const actions = el('div', { className: 'dialog-actions' });
-      if (b.state !== 'cancelled') {
+      if (b.state !== 'cancelled' && !b.invoice_id) {
         const edit = el('button', { type: 'button', text: 'Bearbeiten' });
         edit.addEventListener('click', () => showForm(b));
         actions.append(edit);
       }
-      if (b.state === 'reserved') {
+      if (b.state === 'reserved' && !b.invoice_id) {
         const del = el('button', { type: 'button', className: 'danger', text: 'Stornieren' });
         del.addEventListener('click', async () => {
           if (!window.confirm(`Buchung von ${b.user_name} (${formatDateTime(b.booked_start)}) stornieren?`)) return;
@@ -103,7 +103,8 @@ export async function render(root) {
         el('p', { className: 'booking-time', text: `${formatDateTime(b.booked_start)} – ${formatDateTime(b.booked_end)}` }),
         el('p', { className: 'booking-car',
           text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` },
-          ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : [])),
+          ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : []),
+          ...(b.invoice_id ? [' ', el('span', { className: 'badge', text: `Rechnung ${b.invoice_id}` })] : [])),
         ...trip, ...(b.price && (b.state === 'done' || b.state === 'cancelled') ? [el('p', { text: `Preis: ${priceSummary(b.price)}` })] : []), actions));
     }
   }

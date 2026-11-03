@@ -49,7 +49,7 @@ function mandateCard(user) {
   function giveForm(data) {
     const holder = textField('Kontoinhaber', user.name, { required: true, autocomplete: 'off' });
     const iban = textField('IBAN', '', { required: true, autocomplete: 'off', inputMode: 'text' });
-    const bic = textField('BIC (optional)', '', { autocomplete: 'off' });
+    const bic = textField('BIC (für IBANs außerhalb des EWR erforderlich)', '', { autocomplete: 'off' });
     iban.input.addEventListener('blur', () => { iban.input.value = formatIban(iban.input.value); });
     const text = el('pre', { className: 'mandate-text', text: data.text || '' });
     const acc = checkField('Ich erteile dieses SEPA-Lastschriftmandat.', false);

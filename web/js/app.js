@@ -12,6 +12,7 @@ const ROUTES = {
   '#/admin/nutzer': 'admin_users',
   '#/admin/autos': 'admin_cars',
   '#/admin/buchungen': 'admin_bookings',
+  '#/admin/abrechnung': 'admin_billing',
   '#/admin/einstellungen': 'admin_settings',
 };
 const PUBLIC = new Set(['#/login', '#/passwort']);
