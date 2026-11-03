@@ -648,7 +648,7 @@ void test_admin_bookings_list_filters(void) {
   adm_free("GET", "/api/admin/bookings?car=x", NULL, 400, "invalid");
 }
 
-#define ALLSTR ",\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\",\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\""
+#define ALLSTR ",\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\",\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"sepa_lead_days\":5,\"invoice_footer\":\"\""
 void test_settings_roundtrip_and_negative_400(void) {
   cJSON *j = call("GET", "/api/admin/settings", NULL, tadm, 200, NULL);
   TEST_ASSERT_EQUAL_INT64(15, num(j, "start_tolerance_min"));
@@ -701,7 +701,8 @@ void test_settings_trims_assoc_strings(void) {
                   "{\"start_tolerance_min\":5,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
                   "\"assoc_name\":\"   \",\"assoc_street\":\" \\tWeg 1 \",\"assoc_zip\":\" 24103\","
                   "\"assoc_city\":\"Kiel\\t\",\"creditor_id\":\"DE98ZZZ09999999999\","
-                  "\"creditor_iban\":\"\",\"creditor_bic\":\"\"}",
+                  "\"creditor_iban\":\"\",\"creditor_bic\":\"\","
+                  "\"sepa_lead_days\":5,\"invoice_footer\":\"\"}",
                   tadm, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("", cJSON_GetObjectItem(j, "assoc_name")->valuestring);
   TEST_ASSERT_EQUAL_STRING("Weg 1", cJSON_GetObjectItem(j, "assoc_street")->valuestring);
@@ -719,7 +720,8 @@ void test_settings_creditor_roundtrip(void) {
                   "{\"start_tolerance_min\":5,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
                   "\"assoc_name\":\"Carsharing e.V.\",\"assoc_street\":\"Weg 1\",\"assoc_zip\":\"24103\","
                   "\"assoc_city\":\"Kiel\",\"creditor_id\":\"de98 zzz0 9999 9999 99\","
-                  "\"creditor_iban\":\"de89 3704 0044 0532 0130 00\",\"creditor_bic\":\"cobadeff xxx\"}",
+                  "\"creditor_iban\":\"de89 3704 0044 0532 0130 00\",\"creditor_bic\":\"cobadeff xxx\","
+                  "\"sepa_lead_days\":5,\"invoice_footer\":\"\"}",
                   tadm, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("DE98ZZZ09999999999", cJSON_GetObjectItem(j, "creditor_id")->valuestring);
   TEST_ASSERT_EQUAL_STRING("DE89370400440532013000", cJSON_GetObjectItem(j, "creditor_iban")->valuestring);
@@ -736,7 +738,8 @@ void test_settings_creditor_roundtrip(void) {
 #define CRED(ci, iban, bic)                                                                      \
   "{\"start_tolerance_min\":1,\"cancel_deadline_min\":1,\"cancel_fee_cents\":1,"               \
   "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","         \
-  "\"creditor_id\":\"" ci "\",\"creditor_iban\":\"" iban "\",\"creditor_bic\":\"" bic "\"}"
+  "\"creditor_id\":\"" ci "\",\"creditor_iban\":\"" iban "\",\"creditor_bic\":\"" bic "\","  \
+  "\"sepa_lead_days\":5,\"invoice_footer\":\"\"}"
 
 void test_settings_creditor_invalid_400(void) {
   settings_t before = a->db.settings;

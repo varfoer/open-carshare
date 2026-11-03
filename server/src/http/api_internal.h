@@ -1,7 +1,7 @@
 #ifndef OCS_HTTP_API_INTERNAL_H
 #define OCS_HTTP_API_INTERNAL_H
 
-/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c, api_mandate.c).
+/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c, api_mandate.c, api_billing.c).
  * To add an endpoint: declare its handler here, implement it in the endpoint
  * file, and add a row to ROUTES in api.c. */
 
@@ -102,6 +102,13 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
 void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_settings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_billing.c (all MIN_ADMIN) */
+void h_admin_billing_list(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_billing_finalize(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_tariff.c (all MIN_ADMIN) */
 void h_admin_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

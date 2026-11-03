@@ -63,6 +63,11 @@ static const route_t ROUTES[] = {
     {"GET", "/api/admin/cars/*/tariffs", h_admin_tariffs_get, MIN_ADMIN, BODY_JSON},
     {"POST", "/api/admin/cars/*/tariffs", h_admin_tariff_post, MIN_ADMIN, BODY_JSON},
     {"DELETE", "/api/admin/tariffs/*", h_admin_tariff_delete, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/billing", h_admin_billing_list, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/billing", h_admin_billing_post, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/billing/*", h_admin_billing_get, MIN_ADMIN, BODY_JSON},
+    {"DELETE", "/api/admin/billing/*", h_admin_billing_delete, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/billing/*/finalize", h_admin_billing_finalize, MIN_ADMIN, BODY_JSON},
 };
 
 static bool pattern_match(const char *pat, const char *path) {

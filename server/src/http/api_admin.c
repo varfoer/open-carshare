@@ -336,6 +336,7 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   if (!api_path_id(req->path, "/api/admin/bookings/", &id)) { api_invalid(res); return; }
   const booking_t *old_p = db_booking(&a->db, id);
   if (!old_p) { api_not_found(res); return; }
+  if (old_p->invoice_id != 0) { api_error(res, 409, "invoiced", "Die Buchung ist bereits abgerechnet."); return; }
   booking_t old = *old_p, nb = old;
   bool has_actual = false;
   if (!read_booking_fields(ctx->body, &nb) || !read_trip_fields(ctx->body, &nb, &has_actual)) {
@@ -359,6 +360,7 @@ void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
   if (!api_path_id(req->path, "/api/admin/bookings/", &id)) { api_invalid(res); return; }
   const booking_t *old_p = db_booking(&a->db, id);
   if (!old_p) { api_not_found(res); return; }
+  if (old_p->invoice_id != 0) { api_error(res, 409, "invoiced", "Die Buchung ist bereits abgerechnet."); return; }
   booking_t b = *old_p;
   br_result_t r = br_check_cancel(ctx->user, &b, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
@@ -384,7 +386,9 @@ static void settings_response(api_res_t *res, const settings_t *s) {
       !cJSON_AddStringToObject(o, "assoc_city", s->assoc_city) ||
       !cJSON_AddStringToObject(o, "creditor_id", s->creditor_id) ||
       !cJSON_AddStringToObject(o, "creditor_iban", s->creditor_iban) ||
-      !cJSON_AddStringToObject(o, "creditor_bic", s->creditor_bic)) {
+      !cJSON_AddStringToObject(o, "creditor_bic", s->creditor_bic) ||
+      !cJSON_AddNumberToObject(o, "sepa_lead_days", s->sepa_lead_days) ||
+      !cJSON_AddStringToObject(o, "invoice_footer", s->invoice_footer)) {
     cJSON_Delete(o);
     api_json(res, 500, NULL);
     return;
@@ -425,7 +429,13 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   const char *cid = api_get_str(ctx->body, "creditor_id", 256);
   const char *iban = api_get_str(ctx->body, "creditor_iban", 256);
   const char *bic = api_get_str(ctx->body, "creditor_bic", 256);
-  if (!name || !street || !zip || !city || !cid || !iban || !bic) { api_invalid(res); return; }
+  const char *footer = api_get_str(ctx->body, "invoice_footer", sizeof s.invoice_footer);
+  int64_t lead;
+  if (!name || !street || !zip || !city || !cid || !iban || !bic || !footer ||
+      !api_get_int(ctx->body, "sepa_lead_days", &lead) || lead < SEPA_PRENOTIFY_MIN_DAYS || lead > 30) {
+    api_invalid(res);
+    return;
+  }
   if (sepa_normalize(cid, s.creditor_id, sizeof s.creditor_id) != 0 ||
       (*s.creditor_id && !creditor_id_valid(s.creditor_id))) {
     api_error(res, 400, "invalid_creditor_id", "Ungültige Gläubiger-ID.");
@@ -445,6 +455,8 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   trim_copy(s.assoc_street, street);
   trim_copy(s.assoc_zip, zip);
   trim_copy(s.assoc_city, city);
+  trim_copy(s.invoice_footer, footer);
+  s.sepa_lead_days = (int)lead;
   s.start_tolerance_min = (int)tol;
   s.cancel_deadline_min = (int)dl;
   s.cancel_fee_cents = fee;
