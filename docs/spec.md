@@ -515,6 +515,11 @@ it (the mailer logs it).
 - Mail is sent synchronously in the event loop: while the SMTP relay is
   unreachable, a booking request that mails waits up to the SMTP timeout
   (connect 5 s, total 20 s) before it answers.
+- **Trip finished** (`Fahrt beendet: <car>`, to every active admin, so they
+  can check and later unplug the car at the public charger): when a member
+  returns a trip (`POST /api/bookings/{id}/return`). Body: the local return
+  time (`Zurückgegeben: 04.11.2026 14:30`) and a link to `#/admin/buchungen`.
+  An admin closing a forgotten trip and an expired reservation send nothing.
 - **Billing run done** (`Abrechnung <Monat Jahr> versendet`, to every active
   admin): after each send call that reached the mail loop, retries included;
   not when the send was refused. Content: run id, period, invoices mailed so

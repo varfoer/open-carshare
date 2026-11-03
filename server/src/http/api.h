@@ -64,6 +64,10 @@ int api_send_reminders(app_t *a, int64_t now);
 int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *invs, size_t n,
                         size_t sent_now, const int64_t *failed, size_t n_failed);
 
+/* Mails "Fahrt beendet: <car>" with the local return time (actual_end) to every active admin, so
+ * they can check the charger. 1 if at least one sent, 0 no admin, -1 all failed. */
+int api_notify_returned(app_t *a, const booking_t *b);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);
