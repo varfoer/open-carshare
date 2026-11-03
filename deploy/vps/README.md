@@ -170,6 +170,28 @@ Check: after the first drive the car's readings appear:
 sudo tail /var/lib/ocs/odometer_readings.jsonl
 ```
 
+## 11. Billing run and Hibiscus
+
+After a billing run is finalized and sent (admin view „Abrechnung“), the
+SEPA collection is imported into Hibiscus by hand:
+
+1. In the run detail click „SEPA-XML herunterladen“ (file
+   `run-<id>-pain008.xml`; only present if at least one invoice has a total
+   above 0).
+2. In Hibiscus: Konto, then „SEPA-Sammellastschrift importieren“, and pick
+   the file.
+3. Check the collection date, the number of transactions and the total
+   against the run, then submit the collection in Hibiscus.
+
+Manual acceptance check of Phase 6 (product owner): „XML imports into
+Hibiscus“ without error. It cannot be automated here.
+
+The collection date is fixed at the first send (send date plus
+`sepa_lead_days`, next TARGET2 business day) and is the one named in the
+invoice mails (pre-notification); a repeated send does not change it.
+Invoice PDFs and the XML live under `/var/lib/ocs/invoices/` and
+`/var/lib/ocs/billing/`.
+
 ## Updating
 
 ```sh

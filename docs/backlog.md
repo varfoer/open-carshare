@@ -118,12 +118,27 @@ when it is fixed.
 
 ## SEPA
 
-- [P6] Holder names need SEPA character-set transliteration for `pain.008`.
-- [P6] Non-DE IBANs may need the BIC in `pain.008` for non-EEA countries
-  (CH, GB, ...).
 - [any] `DELETE /api/me/mandate` and `PUT /api/me/password` are not rate
   limited (password guessing for a logged-in session).
 - [any] A failed user revoke is not retryable if a late step fails: move the
   mandate step last in `api_mandate_revoke`.
-- [P6] Check with the bank whether the online mandate text must show the
-  creditor address; if so, bump `MANDATE_TEXT_VERSION`.
+
+## Billing
+
+- [any] Run `pain008_xsd` with `xmllint` in CI/dev: `xmllint` is not
+  installed on the dev machine, so the test skips. The vendored schema
+  (`server/test/data/pain.008.001.02.xsd`, from the python-sepaxml mirror)
+  was checked once against the sample XML with python `xmlschema`.
+- [any] Name sort in the billing run uses `strcmp`: Ä, Ö, Ü sort after Z.
+  Use German collation (or fold umlauts for the sort key).
+- [any] Invoice footer is printed on the last PDF page only.
+- [any] PDF WinAnsi mapping covers only € „ “ – ’ ” … —; any other
+  character outside Latin-1 prints `?`.
+- [any] PDF width tables come from the gsfonts AFMs and differ from Adobe
+  Core14 for about 10 rare glyphs: regenerate from the urw-base35 NimbusSans
+  AFMs.
+- [any] Send step 2 is two db writes (`db_put_invoices`, `db_put_run`), and a
+  failed final `db_put_invoices` after the mails went out leads to
+  re-mailing on retry.
+- [any] Admin cannot preview invoice PDFs before send (PDFs are written at
+  the first send).

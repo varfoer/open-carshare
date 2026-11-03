@@ -103,7 +103,8 @@ Pricing uses the tariff valid at the booking's booked start.
 id, car_id, user_id, booked_start, booked_end, state
 (`reserved`|`active`|`done`|`cancelled`), actual_start, actual_end,
 km_start, km_end, km_source (`telematics`|`manual`), km_pending,
-cancelled_at, club_trip (default false), invoice_id, created_at, modified_at,
+cancelled_at, club_trip (default false), invoice_id (0 = not invoiced, else
+the number of the invoice that billed it), created_at, modified_at,
 modified_by.
 
 ### damage_report
@@ -115,18 +116,41 @@ before upload; each upload is one raw `image/jpeg` body of at most 2 MiB
 nothing; only real damage creates a report.
 
 ### invoice
-number (gapless sequence, assigned at finalize), user_id, period (YYYY-MM),
-line items, total_cents, billing_run_id, mailed_at.
+number (global gapless integer starting at 1, assigned at finalize, shown as
+plain number: „Rechnung 17“; it is also the key, `booking.invoice_id` holds
+it), user_id, run_id, period (YYYY-MM), total_cents (sum of the line
+totals), n_lines, name, street, zip, city (addressee, snapshot at finalize),
+created_at (finalize), issued_at (first send, 0 before; the invoice date is
+its local date), mailed_at (0 until the mail went out), mandate_id (mandate
+current at send; 0 for 0 EUR invoices and before send). Stored in
+`data/invoices.jsonl`; a missing file means no invoices. The PDF is stored
+at `data/invoices/<number>.pdf` (written at first send).
+
+### invoice_line
+One per billed booking, a snapshot of the computed figures at finalize:
+invoice_number, booking_id, car_name, start, end (actual if started, else
+booked; cancelled: booked), never_started, cancelled, club_trip, day_min,
+night_min, unused_min, km, time_cents, km_cents, cap_cut_cents, late_fee_cents,
+cancel_fee_cents, total_cents. Stored in `data/invoice_lines.jsonl`. Later
+tariff, booking or user edits never change an issued invoice.
 
 ### billing_run
-id, period, state (`draft`|`final`), created_at, finalized_at,
-collection_date, sepa_file.
+id, period (YYYY-MM), state (`draft`|`final`), created_at, finalized_at,
+sent_at (0 until the first send), collection_date (`YYYY-MM-DD`, empty until
+the first send), sepa_file (path relative to `data/`, empty if none).
+Stored in `data/billing_runs.jsonl`; the SEPA XML is
+`data/billing/run-<id>-pain008.xml`. A draft holds no invoices: it is
+computed live from the bookings on every read. Loading drops invoices and
+lines of a run that is still `draft` (crash safety).
 
 ### settings
 String keys `assoc_name`, `assoc_street`, `assoc_zip`, `assoc_city`,
 `creditor_id` (Gläubiger-ID), `creditor_iban`, `creditor_bic` (the admin
 settings PUT requires all keys), start_tolerance_min (15), cancel_deadline_min (0), cancel_fee_cents (0),
-sepa lead days, invoice footer text, SMTP config.
+`sepa_lead_days` (integer 5..30, default 5: days between the send and the
+collection; the minimum is the 5-day pre-notification promised in the
+mandate text), `invoice_footer` (free text, printed on the invoice PDF),
+SMTP config.
 
 ### odometer_reading
 car_id, ts (device GNSS time, epoch seconds), odometer_m (tracker total
@@ -291,23 +315,72 @@ Resolution:
 
 ## 9. Billing run (admin)
 
-1. Admin picks period (month). Bookings with `actual_end` (or `booked_end`
-   if never started) inside the period are included.
-2. Draft: per user, line items and totals computed. Admin reviews and may
-   edit bookings, then recompute.
-3. Finalize: invoice numbers assigned (gapless), bookings locked
-   (`invoice_id` set), SEPA file generated.
-4. Send: invoice PDFs mailed to users. The mail is the SEPA pre-notification
-   (amount, collection date, mandate ref, creditor ID).
-5. Admin downloads the SEPA XML and imports it into Hibiscus.
+A run is created for a closed month (`period_end <= now`, else 400
+`period_open` „Der Monat ist noch nicht abgeschlossen.“). Runs are
+ascending: no new run while a draft is open (409 `draft_exists`), and the
+period must be greater than the period of every existing run (409
+`period_exists`). A draft can be deleted (`DELETE`); a final run cannot (409
+`not_draft`).
 
-A club trip appears on the invoice as a line with date/times and km, amount
-0 EUR, marked "Vereinsfahrt". A user whose month has only club trips gets a
-0 EUR invoice listing them: it takes the next invoice number and is mailed
-like any other, but has no SEPA entry, the mail carries no pre-notification,
-and it needs no mandate. Users with no invoice lines at all get no invoice.
-Users with a total above 0 and without a valid mandate block finalization
-(listed in the draft).
+1. **Inclusion.** A booking is billed in the first run whose period end is
+   after its bill time: `invoice_id == 0` and bill time `< period_end`. Bill
+   time is `actual_end`, or `booked_end` if never started, or `cancelled_at`
+   for a cancelled booking. A booking whose times an admin moves into an
+   already billed month therefore lands in the next run instead of being
+   lost. Cancelled bookings are included only with `cancel_fee_cents > 0`
+   and not `club_trip`; `reserved` and `active` bookings are not.
+2. **Draft.** Per user, line items and totals computed live from the current
+   bookings (every read recomputes; reservations past their end are expired
+   first). Users are sorted by name (tie: user id), lines by start (tie:
+   booking id). Prices come only from the pricing engine (§6); the invoice
+   total is the sum of the line totals. The admin reviews and may edit
+   bookings; the next read shows the result. The draft lists blockers:
+   `km_pending` (every included booking with km pending, club trips
+   included), `no_tariff` (included non-cancelled non-club bookings without a
+   tariff at `booked_start`), `no_mandate` (users with total > 0 without a
+   current mandate).
+3. **Finalize** (`POST …/finalize`). Refused with 409 `no_creditor` „Bitte
+   zuerst Vereins- und Gläubigerdaten eintragen.“ while association name,
+   address, creditor ID or creditor IBAN are empty, and with 409 `blocked`
+   „Abschluss nicht möglich.“ (response carries `blockers`) while any
+   blocker is non-empty. Otherwise the figures are computed again from the
+   state at that moment (not what the admin saw), invoice numbers are
+   assigned in user order (gapless), invoices and lines are stored, bookings
+   are locked (`invoice_id` set) and the run becomes `final`, in one
+   persisted step: a crash leaves no numbers burned and no locked bookings.
+   The invoice stores the addressee as it is at that moment. No PDF, no
+   collection date, no XML yet.
+4. **Send** (`POST …/send`, only for a `final` run, else 409 `not_final`
+   „Der Abrechnungslauf ist noch nicht abgeschlossen.“). The first send
+   issues everything: it refuses with 409 `blocked` while a user with total >
+   0 has no current mandate (the mandate current at send is used and stored
+   as `invoice.mandate_id`), then sets the collection date, the invoice date
+   (`issued_at`), writes all invoice PDFs and the SEPA XML, and records
+   `sent_at`. Collection date = first TARGET2 business day on or after
+   (local send date + `sepa_lead_days`); TARGET2 closing days are Saturday,
+   Sunday, 1 Jan, Good Friday, Easter Monday, 1 May, 25 Dec, 26 Dec. The
+   mail is the SEPA pre-notification (amount, collection date, mandate ref,
+   creditor ID), so the date is fixed here, not at finalize. Then every
+   invoice with `mailed_at == 0` is mailed (PDF attached; the user is
+   addressed with „du“) and `mailed_at` stored. The answer is
+   `{"sent": n, "run": …, "failed": [invoice numbers]}`. Send is
+   retryable: a repeated call mails only the unmailed invoices; collection
+   date, PDFs and XML of the first send stay.
+5. Admin downloads the SEPA XML (`GET …/sepa.xml`, „SEPA-XML herunterladen“,
+   404 while it does not exist or if the run has no entry with total > 0)
+   and imports it into Hibiscus. Invoice PDFs are downloadable per invoice
+   after the first send.
+6. **Edit lock.** Admin edits (`PUT`/`DELETE /api/admin/bookings/{id}`) of a
+   booking with `invoice_id != 0` are refused with 409 `invoiced` „Die
+   Buchung ist bereits abgerechnet.“
+
+A club trip appears on the invoice as a line with date/times and km (from
+the booking), amount 0 EUR, marked "Vereinsfahrt". A user whose month has
+only club trips gets a 0 EUR invoice listing them: it takes the next invoice
+number and is mailed like any other, but has no SEPA entry, the mail carries
+no pre-notification, and it needs no mandate. Users with no invoice lines at
+all get no invoice. Users with a total above 0 and without a valid mandate
+block finalization (listed in the draft) and the first send.
 
 ### SEPA
 
@@ -333,9 +406,11 @@ imported into Hibiscus. (pain.001 is a credit transfer and does not apply.)
   after normalizing), the answer is 409 `text_changed` and nothing is stored;
   a missing `creditor_id` is 400 `invalid`.
 - The mandate text is built into the server and versioned by a constant
-  (`MANDATE_TEXT_VERSION`, currently 1; any text change bumps it). Creditor
-  name and creditor ID come from the settings; users cannot give a mandate
-  until both are set.
+  (`MANDATE_TEXT_VERSION`, currently 2; any text change bumps it). The text
+  names the creditor (name, address, creditor ID) and promises a
+  pre-notification of 5 calendar days (`SEPA_PRENOTIFY_MIN_DAYS`). Creditor
+  name, address and creditor ID come from the settings; users cannot give a
+  mandate until name, street, ZIP, city and creditor ID are set.
 - After giving a mandate the user gets the mail „SEPA-Lastschriftmandat
   erteilt“ with reference, holder, masked IBAN and the mandate text. Mail
   failure does not undo the mandate.
@@ -364,14 +439,30 @@ imported into Hibiscus. (pain.001 is a credit transfer and does not apply.)
 - Validation on input: IBAN restricted to SEPA countries (country length
   table, exact length, mod-97 == 1); BIC 8 or 11 characters; creditor ID
   mod-97 (DE: length 18). Characters other than `[A-Za-z0-9 ]` are invalid.
+  IBANs of non-EEA countries (`AD CH GB GI MC SM VA`) require a BIC: 400
+  `bic_required` „Für diese IBAN ist die BIC erforderlich.“.
 - Sequence type: always `RCUR` (allowed for the first collection since 2016).
+- `pain.008.001.02` details: scheme `CORE`, `SeqTp` `RCUR`, `ChrgBr` `SLEV`,
+  `BtchBookg` `true`; one transaction per invoice with total > 0, end-to-end
+  ID `OCS-RE-<invoice number>`, remittance „Rechnung <n> Carsharing
+  <Monat Jahr>“; message ID `OCS-RUN-<run id>`. Text fields are restricted
+  to the SEPA set `A-Z a-z 0-9 / - ? : ( ) . , ' +` and space (names max 70,
+  remittance max 140) by transliteration: ä→ae, ö→oe, ü→ue, ß→ss, `&`→`+`
+  („Jürgen Müller-Weiß & Söhne“ becomes `Juergen Mueller-Weiss + Soehne`).
+  An empty creditor or debtor BIC is written as `<Othr><Id>NOTPROVIDED</Id>
+  </Othr>`. The full IBANs appear only in the XML file, never in API
+  responses or mails. The schema is vendored at
+  `server/test/data/pain.008.001.02.xsd` for the `pain008_xsd` test.
 
 ### Invoice PDF
 Minimal built-in PDF writer (standard Helvetica, WinAnsi encoding for
 umlauts), one or more pages: association header, user address, invoice
 number/date, period, one line per booking (date, times, hours day/night,
-unused, km, fees), total, footer text (configurable), SEPA pre-notification
-block.
+unused, km, fees), total, footer text (`invoice_footer`), SEPA
+pre-notification block (mandate reference, masked IBAN, collection date; only
+for total > 0). Stored under `data/invoices/<number>.pdf`; written at the
+first send, so the admin cannot download a PDF before that. The mail carries
+it as attachment `Rechnung-<number>.pdf`.
 
 ## 10. Notifications (mail only)
 
@@ -423,9 +514,13 @@ admin:
   POST /api/admin/users/{id}/mandate/revoke
   (GET /api/admin/users includes a "mandate" summary per user)
   /api/admin/users, /cars, /keysafes, /tariffs, /bookings, /settings
-  POST /api/admin/billing?period=    GET /api/admin/billing/{id}
+  GET  /api/admin/billing                       (runs, newest first, with n_invoices, total_cents)
+  POST /api/admin/billing?period=YYYY-MM        (new draft)
+  GET  /api/admin/billing/{id}                  (detail; draft: live, with blockers)
+  DELETE /api/admin/billing/{id}                (draft only)
   POST /api/admin/billing/{id}/finalize | /send
-  GET  /api/admin/billing/{id}/sepa.xml
+  GET  /api/admin/billing/{id}/sepa.xml         (application/xml)
+  GET  /api/admin/invoices/{number}/pdf         (application/pdf, after first send)
 ```
 
 ## 14. Deferred
@@ -506,7 +601,8 @@ Depends on: Phase 1.
 - Admin: mandate status per user; settings for creditor ID, IBAN, BIC.
 Done when: users can give and replace a mandate and admin sees who lacks one.
 
-### Phase 6: Billing run
+### Phase 6: Billing run — done (merged 2026-11-03)
+Plan: `docs/superpowers/plans/2026-11-03-phase6-billing-run.md`.
 Depends on: Phases 4 and 5 (Phase 3 for the `km_pending` gate).
 - Billing run per month (§9): draft, admin edits and recompute, finalize
   (gapless invoice numbers, bookings locked via `invoice_id`), send.
@@ -514,7 +610,7 @@ Depends on: Phases 4 and 5 (Phase 3 for the `km_pending` gate).
   valid mandate; 0 EUR invoices for months with only club trips.
 - Invoice PDF writer (§9 Invoice PDF), invoice mail with SEPA
   pre-notification.
-- SEPA `pain.008.001.02` export for Hibiscus, `sepa lead days` setting.
+- SEPA `pain.008.001.02` export for Hibiscus, `sepa_lead_days` setting.
 Done when: a month can be billed end-to-end and the XML imports into
 Hibiscus.
 
