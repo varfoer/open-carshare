@@ -397,11 +397,11 @@ void h_admin_billing_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
   api_ok(res);
 }
 
-static void err_blocked(api_res_t *res, const calc_t *c) {
+static void err_blocked(api_res_t *res, const calc_t *c, const char *message) {
   cJSON *o = cJSON_CreateObject();
   cJSON *bl = blockers_json(c);
   if (!o || !bl || !cJSON_AddStringToObject(o, "error", "blocked") ||
-      !cJSON_AddStringToObject(o, "message", "Abschluss nicht möglich.") ||
+      !cJSON_AddStringToObject(o, "message", message) ||
       !cJSON_AddItemToObject(o, "blockers", bl)) {
     cJSON_Delete(bl);
     cJSON_Delete(o);
@@ -426,7 +426,7 @@ void h_admin_billing_finalize(app_t *a, const api_req_t *req, const api_ctx_t *c
   calc_t c;
   if (calc_draft(a, &run, req->now, &c) != 0) { api_storage_error(res); return; }
   if (c.n_km || c.n_nt || c.n_nm) {
-    err_blocked(res, &c);
+    err_blocked(res, &c, "Abschluss nicht möglich.");
     calc_free(&c);
     return;
   }
@@ -562,7 +562,7 @@ static int send_issue(app_t *a, billing_run_t *run, invoice_t *invs, const calc_
     else bl.no_mandate[bl.n_nm++] = invs[i].user_id;
   }
   if (bl.n_nm) {
-    err_blocked(res, &bl);
+    err_blocked(res, &bl, "Versand nicht möglich.");
     free(mands);
     free(missing);
     return -1;
@@ -643,20 +643,31 @@ void h_admin_billing_send(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   int64_t *failed = malloc((n + 1) * sizeof *failed);
   if (!invs || !failed) { api_storage_error(res); goto out; }
   for (size_t i = 0; i < n; i++) invs[i] = *c.groups[i].inv;
+  if (run.sent_at != 0) {
+    /* Retry: the collection date is fixed; the pre-notification must still precede it. */
+    bool pending = false;
+    for (size_t i = 0; i < n; i++) pending = pending || (invs[i].mailed_at == 0 && invs[i].total_cents > 0);
+    char earliest[11];
+    billing_local_date_plus(req->now, SEPA_PRENOTIFY_MIN_DAYS, earliest);
+    if (pending && strcmp(earliest, run.collection_date) > 0) {
+      api_error(res, 409, "prenotify_late",
+                "Der Einzugstermin ist zu nah, die Vorabankündigung wäre nicht mehr fristgerecht.");
+      goto out;
+    }
+  }
   if (run.sent_at == 0 && send_issue(a, &run, invs, &c, n, req->now, res) != 0) goto out;
   size_t sent = 0, nf = 0;
-  bool dirty = false;
   for (size_t i = 0; i < n; i++) {
     if (invs[i].mailed_at != 0) continue;
     if (mail_invoice(a, &run, &invs[i], &c, i) == 0) {
       invs[i].mailed_at = req->now;
-      dirty = true;
+      /* Persist right away so a later failure never re-mails this user. */
+      if (db_put_invoices(&a->db, &invs[i], 1) != 0) { api_storage_error(res); goto out; }
       sent++;
     } else {
       failed[nf++] = invs[i].number;
     }
   }
-  if (dirty && db_put_invoices(&a->db, invs, n) != 0) { api_storage_error(res); goto out; }
   cJSON *o = cJSON_CreateObject();
   cJSON *r = billing_run_to_json(&run), *f = id_array(failed, nf);
   if (!o || !r || !f || !jnum(o, "sent", (int64_t)sent) || !cJSON_AddItemToObject(o, "run", r)) {

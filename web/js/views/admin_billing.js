@@ -113,7 +113,10 @@ export async function render(root, params = {}) {
       const unsent = d.users.some((u) => u.invoice && !u.invoice.mailed_at);
       if (unsent) {
         actions.append(button(run.sent_at ? 'Erneut versenden' : 'Versenden', async () => {
-          if (!window.confirm(`Rechnungen jetzt per Mail versenden? Der Einzug erfolgt frühestens in ${settings.sepa_lead_days} Tagen.`)) return;
+          const q = run.sent_at
+            ? `Rechnungen jetzt erneut per Mail versenden? Einzug am ${dateDe(run.collection_date)}.`
+            : `Rechnungen jetzt per Mail versenden? Der Einzug erfolgt frühestens in ${settings.sepa_lead_days} Tagen.`;
+          if (!window.confirm(q)) return;
           try {
             const r = await api('POST', `/api/admin/billing/${id}/send`);
             await showDetail(id, true);

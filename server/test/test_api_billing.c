@@ -564,7 +564,7 @@ void test_send_retry_mails_only_unmailed(void) {
   char *x1 = xml_of(id);
   th_mail_fail(0);
   before = th_mail_count();
-  api_res_t r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 86400);
+  api_res_t r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 3600);
   TEST_ASSERT_EQUAL_INT(200, r.status);
   j = cJSON_Parse(r.body);
   api_res_free(&r);
@@ -574,7 +574,7 @@ void test_send_retry_mails_only_unmailed(void) {
   TEST_ASSERT_EQUAL_INT64(N, num(obj(j, "run"), "sent_at"));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
-  TEST_ASSERT_EQUAL_INT64(N + 86400, db_invoice(&a->db, 1)->mailed_at);
+  TEST_ASSERT_EQUAL_INT64(N + 3600, db_invoice(&a->db, 1)->mailed_at);
   TEST_ASSERT_EQUAL_INT64(N, db_invoice(&a->db, 1)->issued_at);
   char *x2 = xml_of(id);
   TEST_ASSERT_EQUAL_STRING(x1, x2);
@@ -585,6 +585,30 @@ void test_send_retry_mails_only_unmailed(void) {
   TEST_ASSERT_EQUAL_INT64(0, num(j, "sent"));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+}
+
+void test_send_retry_too_late_409(void) {
+  int64_t id = finalized_april();   /* first send at N: collection date 2026-06-15 */
+  th_mail_fail(1);
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  th_mail_fail(0);
+  int before = th_mail_count();
+  /* N + 1 day: +5 days = 2026-06-16 > 2026-06-15 */
+  api_res_t r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 86400);
+  TEST_ASSERT_EQUAL_INT(409, r.status);
+  cJSON *j = cJSON_Parse(r.body);
+  api_res_free(&r);
+  TEST_ASSERT_EQUAL_STRING("prenotify_late", obj(j, "error")->valuestring);
+  TEST_ASSERT_EQUAL_STRING("Der Einzugstermin ist zu nah, die Vorabankündigung wäre nicht mehr fristgerecht.",
+                           obj(j, "message")->valuestring);
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+  TEST_ASSERT_EQUAL_INT64(0, db_invoice(&a->db, 1)->mailed_at);
+  /* same local day: +5 days = 2026-06-15, still fits */
+  r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 3600);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  api_res_free(&r);
+  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
 }
 
 /* Revokes the user's active mandate and (replace) adds a new one with OTHER_IBAN. */
@@ -625,6 +649,7 @@ void test_send_blocked_mandate_revoked_after_finalize(void) {
   replace_mandate(uz, false);
   int before = th_mail_count();
   cJSON *j = call("POST", rpath(id, "/send"), NULL, 409, "blocked");
+  TEST_ASSERT_EQUAL_STRING("Versand nicht möglich.", obj(j, "message")->valuestring);
   cJSON *nm = obj(obj(j, "blockers"), "no_mandate");
   TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(nm));
   TEST_ASSERT_EQUAL_INT64(uz, (int64_t)cJSON_GetArrayItem(nm, 0)->valuedouble);
@@ -719,6 +744,7 @@ int main(void) {
   RUN_TEST(test_send_only_zero_invoices_no_xml);
   RUN_TEST(test_send_sets_collection_date);
   RUN_TEST(test_send_retry_mails_only_unmailed);
+  RUN_TEST(test_send_retry_too_late_409);
   RUN_TEST(test_send_uses_mandate_current_at_send);
   RUN_TEST(test_send_blocked_mandate_revoked_after_finalize);
   RUN_TEST(test_send_empty_holder_500_and_retry);

@@ -125,6 +125,12 @@ bool target2_open(int year, int month, int day) {
   return n != easter - 2 && n != easter + 1;
 }
 
+void billing_local_date_plus(int64_t now, int days, char out[11]) {
+  int y, m, d;
+  civil_from_days(local_day(now) + days, &y, &m, &d);
+  snprintf(out, 11, "%04d-%02d-%02d", y, m, d);
+}
+
 void billing_collection_date(int64_t now, int lead_days, char out[11]) {
   int64_t n = local_day(now) + lead_days;
   for (;;) {
