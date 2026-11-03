@@ -137,7 +137,11 @@ export async function render(root, params = {}) {
         const inv = u.invoice;
         const invCell = el('td');
         if (inv) {
-          invCell.append(el('a', { href: `/api/admin/invoices/${inv.number}/pdf`, target: '_blank', rel: 'noopener', text: `PDF ${inv.number}` }),
+          // PDFs exist only after the first send.
+          const label = data.run.sent_at
+            ? el('a', { href: `/api/admin/invoices/${inv.number}/pdf`, target: '_blank', rel: 'noopener', text: `PDF ${inv.number}` })
+            : `Rechnung ${inv.number}`;
+          invCell.append(label,
             ` · ${inv.mailed_at ? `versendet ${formatDateTime(inv.mailed_at)}` : 'nicht versendet'}`);
         }
         const det = el('details', {}, el('summary', { text: u.name }));
