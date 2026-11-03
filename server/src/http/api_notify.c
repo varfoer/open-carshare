@@ -1,5 +1,6 @@
 /* Glue between booking/billing events and the pure mail texts of core/notify (spec §10).
  * Mail failures never change the outcome of the request that triggered them. */
+#include <stdio.h>
 #include <string.h>
 
 #include "core/notify.h"
@@ -63,4 +64,28 @@ int api_send_reminders(app_t *a, int64_t now) {
     sent++;
   }
   return sent;
+}
+
+int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *invs, size_t n,
+                        size_t sent_now, const int64_t *failed, size_t n_failed) {
+  notify_run_t r = {.run_id = run->id, .period = run->period, .n_invoices = n, .n_sent_now = sent_now,
+                    .failed = failed, .n_failed = n_failed, .collection_date = run->collection_date,
+                    .base_url = a->cfg.base_url};
+  for (size_t i = 0; i < n; i++) {
+    r.n_mailed_total += invs[i].mailed_at != 0;
+    r.total_cents += invs[i].total_cents;
+  }
+  char subject[256], body[8192];
+  if (notify_run_mail(&r, subject, sizeof subject, body, sizeof body) != 0) return -1;
+  int admins = 0, ok = 0;
+  for (size_t i = 0; i < a->db.n_users; i++) {
+    const user_t *u = &a->db.users[i];
+    if (u->role != ROLE_ADMIN || !u->active) continue;
+    admins++;
+    char to[sizeof u->email];
+    snprintf(to, sizeof to, "%s", u->email);
+    if (api_send_mail(a, to, subject, body) == 0) ok++;
+  }
+  if (!admins) return 0;
+  return ok ? 1 : -1;
 }

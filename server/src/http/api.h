@@ -58,6 +58,11 @@ int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t
  * (flag stays false, retried next call). */
 int api_send_reminders(app_t *a, int64_t now);
 
+/* Mails the "billing run done" text to every active admin. 1 if at least one sent, 0 no admin,
+ * -1 all failed (or the text does not fit). */
+int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *invs, size_t n,
+                        size_t sent_now, const int64_t *failed, size_t n_failed);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);

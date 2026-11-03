@@ -22,6 +22,7 @@ const char *th_last_mail_att_name(void);  /* "" if the last mail had no attachme
 size_t th_last_mail_att_len(void);         /* 0 if none */
 int th_mail_count(void);                   /* reset by th_app */
 void th_mail_fail(int fail);               /* nonzero: fake mailer returns -1 */
+void th_mail_fail_to(const char *to);      /* fake mailer fails only for this recipient; NULL = off; reset by th_app */
 /* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.
  * th_add_user also inserts an ACTIVE mandate (holder "Test User", IBAN DE89370400440532013000,
  * text_version 1); th_add_user_bare does not. */

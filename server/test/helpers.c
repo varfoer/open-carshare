@@ -18,11 +18,12 @@
 static char last_to[256], last_subject[256], last_body[8192], last_att_name[256];
 static size_t last_att_len;
 static int mail_count, mail_fail;
+static char mail_fail_to[256];
 
 static int fake_mail(void *ctx, const char *to, const char *subject, const char *body,
                      const mail_att_t *att) {
   (void)ctx;
-  if (mail_fail) return -1;
+  if (mail_fail || (mail_fail_to[0] && to && strcmp(to, mail_fail_to) == 0)) return -1;
   snprintf(last_to, sizeof last_to, "%s", to ? to : "");
   snprintf(last_subject, sizeof last_subject, "%s", subject ? subject : "");
   snprintf(last_body, sizeof last_body, "%s", body ? body : "");
@@ -39,6 +40,7 @@ const char *th_last_mail_att_name(void) { return last_att_name; }
 size_t th_last_mail_att_len(void) { return last_att_len; }
 int th_mail_count(void) { return mail_count; }
 void th_mail_fail(int fail) { mail_fail = fail; }
+void th_mail_fail_to(const char *to) { snprintf(mail_fail_to, sizeof mail_fail_to, "%s", to ? to : ""); }
 
 /* ---- app ---- */
 
@@ -79,6 +81,7 @@ app_t *th_app(void) {
   a->mail_ctx = NULL;
   mail_count = 0;
   mail_fail = 0;
+  mail_fail_to[0] = 0;
   last_to[0] = last_subject[0] = last_body[0] = last_att_name[0] = 0;
   last_att_len = 0;
   return a;
