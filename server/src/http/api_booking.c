@@ -234,7 +234,7 @@ void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
   nb.modified_by = ctx->user->id;
   api_booking_changed(&old, &nb);
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
-  if (api_booking_mail_worthy(&old, &nb)) api_notify_booking(a, NT_MODIFIED, &nb, ctx->user->id);
+  api_notify_booking_update(a, &old, &nb, ctx->user->id);
   api_json(res, 200, api_booking_json(a, &nb));
 }
 

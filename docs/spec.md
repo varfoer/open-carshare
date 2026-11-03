@@ -493,7 +493,9 @@ it (the mailer logs it).
   `POST /api/admin/bookings`.
 - **Modified** (`Buchung <id> geändert`): user or admin `PUT` that changes
   `booked_start`, `booked_end`, `car_id` or `club_trip`. Admin edits of only
-  actual times or km send nothing.
+  actual times or km send nothing. An admin `PUT` that moves the booking to
+  another member mails „storniert“ to the old and „bestätigt“ to the new
+  member and re-arms both reminders.
 - **Cancelled** (`Buchung <id> storniert`, with the cancel fee if > 0): user
   or admin `DELETE`. Start, return, expiry and the cancellations caused by
   mandate revocation or deactivation send nothing.
@@ -509,7 +511,10 @@ it (the mailer logs it).
   successful send, so a failed send is retried on the next 5-min tick while
   the condition holds. A change of `booked_start` clears `start_reminded`, a
   change of `booked_end` clears `late_reminded`. The reminders run in the
-  5-min expiry job, after expiry.
+  5-min expiry job, after expiry; the first failed send ends that tick.
+- Mail is sent synchronously in the event loop: while the SMTP relay is
+  unreachable, a booking request that mails waits up to the SMTP timeout
+  (connect 5 s, total 20 s) before it answers.
 - **Billing run done** (`Abrechnung <Monat Jahr> versendet`, to every active
   admin): after each send call that reached the mail loop, retries included;
   not when the send was refused. Content: run id, period, invoices mailed so

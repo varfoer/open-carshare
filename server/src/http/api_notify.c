@@ -19,13 +19,20 @@ int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t
 }
 
 void api_booking_changed(const booking_t *old, booking_t *nb) {
-  if (nb->booked_start != old->booked_start) nb->start_reminded = false;
-  if (nb->booked_end != old->booked_end) nb->late_reminded = false;
+  bool reassigned = nb->user_id != old->user_id;   /* the new user was never reminded */
+  if (reassigned || nb->booked_start != old->booked_start) nb->start_reminded = false;
+  if (reassigned || nb->booked_end != old->booked_end) nb->late_reminded = false;
 }
 
-bool api_booking_mail_worthy(const booking_t *old, const booking_t *nb) {
-  return nb->booked_start != old->booked_start || nb->booked_end != old->booked_end ||
-         nb->car_id != old->car_id || nb->club_trip != old->club_trip;
+void api_notify_booking_update(app_t *a, const booking_t *old, const booking_t *nb, int64_t actor_id) {
+  if (nb->user_id != old->user_id) {
+    /* Admin moved the booking to another member: the old one loses it, the new one gets it. */
+    api_notify_booking(a, NT_CANCELLED, old, actor_id);
+    api_notify_booking(a, NT_CREATED, nb, actor_id);
+  } else if (nb->booked_start != old->booked_start || nb->booked_end != old->booked_end ||
+             nb->car_id != old->car_id || nb->club_trip != old->club_trip) {
+    api_notify_booking(a, NT_MODIFIED, nb, actor_id);
+  }
 }
 
 /* Due reminder kind for b at now, or -1 (spec §10, rules in plan builder calls 4–6). */
@@ -57,7 +64,9 @@ int api_send_reminders(app_t *a, int64_t now) {
     }
     char subject[256], body[4096];
     if (notify_booking_mail(&n, subject, sizeof subject, body, sizeof body) != 0) continue;
-    if (api_send_mail(a, u->email, subject, body) != 0) continue;   /* retried on the next call */
+    /* Retried on the next call. Stop the tick: with the relay down every further send would
+     * block the event loop for another SMTP timeout. */
+    if (api_send_mail(a, u->email, subject, body) != 0) break;
     if (kind == NT_REMIND_START) b.start_reminded = true;
     else b.late_reminded = true;
     if (db_put_booking(&a->db, &b) != 0) return -1;

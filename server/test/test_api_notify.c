@@ -382,6 +382,74 @@ void test_reminder_flag_persisted(void) {
   db_free(&d);
 }
 
+void test_admin_reassign_mails_both_and_clears_flags(void) {
+  int64_t u2 = th_add_user(a, "ben@x.de", NULL, ROLE_USER);
+  int64_t id = user_post(T + 2 * H, T + 4 * H, T);
+  set_flags(id, true, true);
+  int before = th_mail_count();
+  char p[64], body[200];
+  snprintf(p, sizeof p, "/api/admin/bookings/%lld", (long long)id);
+  snprintf(body, sizeof body, "{\"car_id\":%lld,\"user_id\":%lld,\"start\":%lld,\"end\":%lld}", (long long)car1,
+           (long long)u2, (long long)(T + 2 * H), (long long)(T + 4 * H));
+  th_mail_fail_to("ben@x.de");   /* the old user's mail is recorded, the new one counted below */
+  call_free("PUT", p, body, tadm, 200, T);
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("anna@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_subject(), "storniert"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Vereinsverwaltung"));
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->start_reminded);
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->late_reminded);
+  /* the new user gets the "bestätigt" mail */
+  th_mail_fail_to("anna@x.de");
+  snprintf(body, sizeof body, "{\"car_id\":%lld,\"user_id\":%lld,\"start\":%lld,\"end\":%lld}", (long long)car1,
+           (long long)u1, (long long)(T + 2 * H), (long long)(T + 4 * H));
+  before = th_mail_count();
+  call_free("PUT", p, body, tadm, 200, T);
+  th_mail_fail_to(NULL);
+  /* back to Anna: Ben gets "storniert", Anna's "bestätigt" failed */
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("ben@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_subject(), "storniert"));
+}
+
+void test_admin_reassign_new_user_gets_created(void) {
+  int64_t u2 = th_add_user(a, "ben@x.de", NULL, ROLE_USER);
+  int64_t id = user_post(T + 2 * H, T + 4 * H, T);
+  char p[64], body[200];
+  snprintf(p, sizeof p, "/api/admin/bookings/%lld", (long long)id);
+  snprintf(body, sizeof body, "{\"car_id\":%lld,\"user_id\":%lld,\"start\":%lld,\"end\":%lld}", (long long)car1,
+           (long long)u2, (long long)(T + 2 * H), (long long)(T + 4 * H));
+  int before = th_mail_count();
+  call_free("PUT", p, body, tadm, 200, T);
+  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("ben@x.de", th_last_mail_to());
+  char subj[64];
+  snprintf(subj, sizeof subj, "Buchung %lld best\xC3\xA4tigt", (long long)id);
+  TEST_ASSERT_EQUAL_STRING(subj, th_last_mail_subject());
+}
+
+void test_reminders_stop_after_first_mail_failure(void) {
+  int64_t u2 = th_add_user(a, "ben@x.de", NULL, ROLE_USER);
+  int64_t r1 = plant(BK_RESERVED, S, S + 2 * H, T);                 /* anna, first in the table */
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = car1;
+  b.user_id = u2;
+  b.booked_start = T + H;
+  b.booked_end = T + 2 * H;
+  b.actual_start = T + H;
+  b.state = BK_ACTIVE;
+  b.created_at = T;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));             /* ben, overdue */
+  th_mail_fail_to("anna@x.de");
+  /* relay trouble: one failed send ends the tick, so a down relay costs one timeout per tick */
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_FALSE(db_booking(&a->db, b.id)->late_reminded);
+  th_mail_fail_to(NULL);
+  TEST_ASSERT_EQUAL_INT(2, api_send_reminders(a, S - 25 * M));
+  TEST_ASSERT_TRUE(db_booking(&a->db, r1)->start_reminded);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_post_mails_user_created);
@@ -408,5 +476,8 @@ int main(void) {
   RUN_TEST(test_reminder_retried_after_mail_failure_then_once);
   RUN_TEST(test_reminder_inactive_user_skipped);
   RUN_TEST(test_reminder_flag_persisted);
+  RUN_TEST(test_admin_reassign_mails_both_and_clears_flags);
+  RUN_TEST(test_admin_reassign_new_user_gets_created);
+  RUN_TEST(test_reminders_stop_after_first_mail_failure);
   return UNITY_END();
 }
