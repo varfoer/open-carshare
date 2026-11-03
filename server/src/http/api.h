@@ -53,6 +53,11 @@ int api_km_pending_mail(app_t *a, int64_t now);
  * 0 sent, 1 skipped (user missing or inactive), -1 build or send failed. Never touches the db. */
 int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t actor_id);
 
+/* Sends due start/late reminders (rules: spec §10) and persists the flag after each
+ * successful send. Returns number sent, -1 on storage error (stops). Mail failures are skipped
+ * (flag stays false, retried next call). */
+int api_send_reminders(app_t *a, int64_t now);
+
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */
 void api_error(api_res_t *res, int status, const char *code, const char *msg_de);

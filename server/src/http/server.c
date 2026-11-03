@@ -275,7 +275,10 @@ static void prune_cb(void *arg) {
 
 static void expire_cb(void *arg) {
   app_t *a = arg;
-  if (api_expire_bookings(a, platform_now()) < 0) fprintf(stderr, "ocs-server: api_expire_bookings failed\n");
+  int64_t now = platform_now();
+  if (api_expire_bookings(a, now) < 0) fprintf(stderr, "ocs-server: api_expire_bookings failed\n");
+  /* After expiry, so past reservations are closed first. */
+  if (api_send_reminders(a, now) < 0) fprintf(stderr, "ocs-server: api_send_reminders failed\n");
 }
 
 static void km_cb(void *arg) {

@@ -240,6 +240,148 @@ void test_put_end_clears_late_reminded(void) {
   TEST_ASSERT_FALSE(db_booking(&a->db, id)->late_reminded);
 }
 
+/* ---- reminders ---- */
+
+static int64_t plant(booking_state_t st, int64_t start, int64_t end, int64_t created_at) {
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = car1;
+  b.user_id = u1;
+  b.booked_start = start;
+  b.booked_end = end;
+  b.state = st;
+  b.created_at = b.modified_at = created_at;
+  if (st == BK_ACTIVE) b.actual_start = start;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  return b.id;
+}
+
+#define S (T + 10 * H)
+
+void test_start_reminder_in_window(void) {
+  int64_t id = plant(BK_RESERVED, S, S + 2 * H, T);
+  int before = th_mail_count();
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("Erinnerung: Fahrt ab 12:00", th_last_mail_subject()); /* 10:00 UTC, CEST */
+  TEST_ASSERT_EQUAL_STRING("anna@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Starten kannst du ab 29.03.2026 11:45."));
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->start_reminded);
+}
+
+void test_start_reminder_not_before_window(void) {
+  int64_t id = plant(BK_RESERVED, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 61 * M));
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->start_reminded);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 60 * M));
+}
+
+void test_start_reminder_once(void) {
+  plant(BK_RESERVED, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 25 * M));
+  TEST_ASSERT_EQUAL_INT(1, th_mail_count());
+}
+
+void test_start_reminder_off_when_0(void) {
+  settings_t s = a->db.settings;
+  s.reminder_before_min = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
+  plant(BK_RESERVED, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 1 * M));
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S));
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+}
+
+void test_start_reminder_skipped_when_created_in_window(void) {
+  plant(BK_RESERVED, S, S + 2 * H, S - 10 * M);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 5 * M));
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+}
+
+void test_no_start_reminder_after_start(void) {
+  plant(BK_RESERVED, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S));
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 10 * M));
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+}
+
+void test_late_reminder_at_end(void) {
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 2 * H - 1));
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
+  TEST_ASSERT_EQUAL_STRING("R\xC3\xBC" "ckgabe \xC3\xBC" "berf\xC3\xA4llig: Golf", th_last_mail_subject());
+  TEST_ASSERT_NULL(strstr(th_last_mail_body(), "Versp\xC3\xA4tungsgeb\xC3\xBChr")); /* no tariff */
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->late_reminded);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 3 * H));
+}
+
+void test_late_reminder_fee_from_tariff(void) {
+  tariff_t t;
+  memset(&t, 0, sizeof t);
+  t.car_id = car1;
+  t.valid_from = 1;
+  t.rate_day_cents_per_h = 300;
+  t.rate_night_cents_per_h = 150;
+  t.night_start = 1200;
+  t.night_end = 360;
+  t.late_fee_cents_per_started_h = 300;
+  t.created_at = 1;
+  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&a->db, &t));
+  plant(BK_ACTIVE, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "kostet jede angefangene Stunde 3,00 \xE2\x82\xAC"));
+}
+
+void test_late_reminder_after_extension_waits_for_new_end(void) {
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
+  user_put(id, S, S + 4 * H, "", 200, S + 2 * H + 30);
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->late_reminded);
+  int before = th_mail_count();
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 2 * H + M));
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 4 * H - 1));
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 4 * H));
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());
+}
+
+void test_reminder_retried_after_mail_failure_then_once(void) {
+  int64_t id = plant(BK_RESERVED, S, S + 2 * H, T);
+  th_mail_fail(1);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->start_reminded);
+  th_mail_fail(0);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 25 * M));
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->start_reminded);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 20 * M));
+  TEST_ASSERT_EQUAL_INT(1, th_mail_count());
+}
+
+void test_reminder_inactive_user_skipped(void) {
+  int64_t r = plant(BK_RESERVED, S, S + 2 * H, T);
+  int64_t l = plant(BK_ACTIVE, T + H, T + 2 * H, T);
+  user_t u = *db_user(&a->db, u1);
+  u.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+  TEST_ASSERT_FALSE(db_booking(&a->db, r)->start_reminded);
+  TEST_ASSERT_FALSE(db_booking(&a->db, l)->late_reminded);
+}
+
+void test_reminder_flag_persisted(void) {
+  int64_t r = plant(BK_RESERVED, S, S + 2 * H, T);
+  int64_t l = plant(BK_ACTIVE, T + H, T + 2 * H, T);
+  TEST_ASSERT_EQUAL_INT(2, api_send_reminders(a, S - 30 * M));
+  db_t d;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
+  TEST_ASSERT_TRUE(db_booking(&d, r)->start_reminded);
+  TEST_ASSERT_TRUE(db_booking(&d, l)->late_reminded);
+  db_free(&d);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_post_mails_user_created);
@@ -254,5 +396,17 @@ int main(void) {
   RUN_TEST(test_inactive_user_no_mail);
   RUN_TEST(test_put_start_clears_start_reminded);
   RUN_TEST(test_put_end_clears_late_reminded);
+  RUN_TEST(test_start_reminder_in_window);
+  RUN_TEST(test_start_reminder_not_before_window);
+  RUN_TEST(test_start_reminder_once);
+  RUN_TEST(test_start_reminder_off_when_0);
+  RUN_TEST(test_start_reminder_skipped_when_created_in_window);
+  RUN_TEST(test_no_start_reminder_after_start);
+  RUN_TEST(test_late_reminder_at_end);
+  RUN_TEST(test_late_reminder_fee_from_tariff);
+  RUN_TEST(test_late_reminder_after_extension_waits_for_new_end);
+  RUN_TEST(test_reminder_retried_after_mail_failure_then_once);
+  RUN_TEST(test_reminder_inactive_user_skipped);
+  RUN_TEST(test_reminder_flag_persisted);
   return UNITY_END();
 }
