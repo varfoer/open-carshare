@@ -11,6 +11,17 @@
 int mail_build(char *buf, size_t n, const char *from, const char *to,
                const char *subject, const char *body, int64_t date);
 
+typedef struct { const char *filename, *content_type; const void *data; size_t len; } mail_att_t;
+
+/* att NULL: identical output to mail_build (text/plain). Otherwise multipart/mixed with boundary
+ * "=_ocs_part_0": text part as in mail_build, attachment base64 (76-char lines, CRLF),
+ * Content-Disposition: attachment; filename="<filename>" (ASCII only, no '"' or '\\'; -1 otherwise). */
+int mail_build_att(char *buf, size_t n, const char *from, const char *to, const char *subject,
+                   const char *body, int64_t date, const mail_att_t *att);
+
+/* Buffer size enough for mail_build_att (from/to/subject together under ~2 KiB). */
+size_t mail_size_bound(size_t body_len, size_t att_len);
+
 /* SMTP envelope sender (MAIL FROM) for a configured mail_from value, which may
  * be "Name <addr>" or a bare "addr". Writes the part between '<' and '>' if a
  * '<' is present, else the whole value with surrounding blanks trimmed.

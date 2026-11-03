@@ -15,15 +15,19 @@
 
 /* ---- fake mailer ---- */
 
-static char last_to[256], last_subject[256], last_body[8192];
+static char last_to[256], last_subject[256], last_body[8192], last_att_name[256];
+static size_t last_att_len;
 static int mail_count, mail_fail;
 
-static int fake_mail(void *ctx, const char *to, const char *subject, const char *body) {
+static int fake_mail(void *ctx, const char *to, const char *subject, const char *body,
+                     const mail_att_t *att) {
   (void)ctx;
   if (mail_fail) return -1;
   snprintf(last_to, sizeof last_to, "%s", to ? to : "");
   snprintf(last_subject, sizeof last_subject, "%s", subject ? subject : "");
   snprintf(last_body, sizeof last_body, "%s", body ? body : "");
+  snprintf(last_att_name, sizeof last_att_name, "%s", att ? att->filename : "");
+  last_att_len = att ? att->len : 0;
   mail_count++;
   return 0;
 }
@@ -31,6 +35,8 @@ static int fake_mail(void *ctx, const char *to, const char *subject, const char 
 const char *th_last_mail_to(void) { return last_to; }
 const char *th_last_mail_subject(void) { return last_subject; }
 const char *th_last_mail_body(void) { return last_body; }
+const char *th_last_mail_att_name(void) { return last_att_name; }
+size_t th_last_mail_att_len(void) { return last_att_len; }
 int th_mail_count(void) { return mail_count; }
 void th_mail_fail(int fail) { mail_fail = fail; }
 
@@ -73,7 +79,8 @@ app_t *th_app(void) {
   a->mail_ctx = NULL;
   mail_count = 0;
   mail_fail = 0;
-  last_to[0] = last_subject[0] = last_body[0] = 0;
+  last_to[0] = last_subject[0] = last_body[0] = last_att_name[0] = 0;
+  last_att_len = 0;
   return a;
 }
 

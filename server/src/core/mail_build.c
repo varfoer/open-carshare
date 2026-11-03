@@ -121,10 +121,50 @@ static void put_subject(out_t *o, const char *s) {
   puts_(o, "\r\n");
 }
 
-int mail_build(char *buf, size_t n, const char *from, const char *to,
-               const char *subject, const char *body, int64_t date) {
+static void put_body(out_t *o, const char *body) {
+  size_t blen = strlen(body);
+  for (size_t i = 0; i < blen; i++) {
+    if (body[i] == '\r' && i + 1 < blen && body[i + 1] == '\n') continue;
+    if (body[i] == '\n') puts_(o, "\r\n");
+    else put(o, &body[i], 1);
+  }
+  if (blen > 0 && body[blen - 1] != '\n') puts_(o, "\r\n");
+}
+
+#define BOUNDARY "=_ocs_part_0"
+#define TEXT_HDRS "Content-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"
+
+/* Base64 in 76-char lines, every line CRLF-terminated. */
+static void b64_lines(out_t *o, const unsigned char *in, size_t len) {
+  for (size_t i = 0; i < len; i += 57) {
+    size_t k = len - i < 57 ? len - i : 57;
+    b64_padded(o, in + i, k);
+    puts_(o, "\r\n");
+  }
+}
+
+static int header_token_ok(const char *s) {
+  if (!s || !*s || !is_ascii(s)) return 0;
+  for (; *s; s++)
+    if ((unsigned char)*s < 0x20 || *s == 0x7f || *s == '"' || *s == '\\') return 0;
+  return 1;
+}
+
+size_t mail_size_bound(size_t body_len, size_t att_len) {
+  /* 4096: headers incl. subject (RFC 2047 words < 2x) and MIME framing;
+   * body LF -> CRLF at worst doubles; base64 4/3 plus CRLF per 57 bytes. */
+  return 4096 + 2 * body_len + att_len / 3 * 4 + 4 + (att_len / 57 + 1) * 2 + 1;
+}
+
+int mail_build_att(char *buf, size_t n, const char *from, const char *to,
+                   const char *subject, const char *body, int64_t date,
+                   const mail_att_t *att) {
   if (!buf || n == 0 || !from || !to || !subject || !body) return -1;
   if (has_crlf(from) || has_crlf(to) || has_crlf(subject)) return -1;
+  if (att) {
+    if (!header_token_ok(att->filename) || !header_token_ok(att->content_type)) return -1;
+    if (!att->data && att->len > 0) return -1;
+  }
   out_t o = {buf, n, 0, 0};
   put_date(&o, date);
   puts_(&o, "From: ");
@@ -133,19 +173,31 @@ int mail_build(char *buf, size_t n, const char *from, const char *to,
   puts_(&o, to);
   puts_(&o, "\r\n");
   put_subject(&o, subject);
-  puts_(&o, "MIME-Version: 1.0\r\n"
-            "Content-Type: text/plain; charset=UTF-8\r\n"
-            "Content-Transfer-Encoding: 8bit\r\n\r\n");
-  size_t blen = strlen(body);
-  for (size_t i = 0; i < blen; i++) {
-    if (body[i] == '\r' && i + 1 < blen && body[i + 1] == '\n') continue;
-    if (body[i] == '\n') puts_(&o, "\r\n");
-    else put(&o, &body[i], 1);
+  if (!att) {
+    puts_(&o, "MIME-Version: 1.0\r\n" TEXT_HDRS);
+    put_body(&o, body);
+  } else {
+    puts_(&o, "MIME-Version: 1.0\r\n"
+              "Content-Type: multipart/mixed; boundary=\"" BOUNDARY "\"\r\n\r\n"
+              "--" BOUNDARY "\r\n" TEXT_HDRS);
+    put_body(&o, body);
+    puts_(&o, "--" BOUNDARY "\r\nContent-Type: ");
+    puts_(&o, att->content_type);
+    puts_(&o, "\r\nContent-Transfer-Encoding: base64\r\n"
+              "Content-Disposition: attachment; filename=\"");
+    puts_(&o, att->filename);
+    puts_(&o, "\"\r\n\r\n");
+    b64_lines(&o, att->data, att->len);
+    puts_(&o, "--" BOUNDARY "--\r\n");
   }
-  if (blen > 0 && body[blen - 1] != '\n') puts_(&o, "\r\n");
   if (o.over) return -1;
   buf[o.len] = '\0';
   return (int)o.len;
+}
+
+int mail_build(char *buf, size_t n, const char *from, const char *to,
+               const char *subject, const char *body, int64_t date) {
+  return mail_build_att(buf, n, from, to, subject, body, date, NULL);
 }
 
 static int is_blank(char c) { return c == ' ' || c == '\t'; }

@@ -18,6 +18,8 @@ void th_free(app_t *a);                    /* frees app and removes the data dir
 const char *th_last_mail_to(void);
 const char *th_last_mail_subject(void);
 const char *th_last_mail_body(void);
+const char *th_last_mail_att_name(void);  /* "" if the last mail had no attachment */
+size_t th_last_mail_att_len(void);         /* 0 if none */
 int th_mail_count(void);                   /* reset by th_app */
 void th_mail_fail(int fail);               /* nonzero: fake mailer returns -1 */
 /* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.

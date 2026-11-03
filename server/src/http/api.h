@@ -61,5 +61,7 @@ bool api_segment_id(const char *path, const char *prefix, int64_t *id);
 bool api_query_int(const char *query, const char *key, int64_t *out);
 /* 0 ok, -1 if no mailer configured or sending failed. */
 int  api_send_mail(app_t *a, const char *to, const char *subject, const char *body);
+int  api_send_mail_att(app_t *a, const char *to, const char *subject, const char *body,
+                       const mail_att_t *att);
 
 #endif

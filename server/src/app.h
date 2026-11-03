@@ -2,6 +2,7 @@
 #define OCS_APP_H
 
 #include "auth/ratelimit.h"
+#include "core/mail_build.h"
 #include "store/db.h"
 
 typedef struct {
@@ -11,7 +12,8 @@ typedef struct {
 } config_t;
 
 /* 0 ok, -1 fail. Production wires this to mail_build + platform_mail_send. */
-typedef int (*mail_send_fn)(void *ctx, const char *to, const char *subject, const char *body);
+typedef int (*mail_send_fn)(void *ctx, const char *to, const char *subject, const char *body,
+                            const mail_att_t *att);
 
 typedef struct {
   db_t db; config_t cfg; ratelimit_t rl;

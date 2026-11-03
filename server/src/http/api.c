@@ -278,9 +278,14 @@ size_t api_utf8_len(const char *s) {
 
 /* ---- mail ---- */
 
-int api_send_mail(app_t *a, const char *to, const char *subject, const char *body) {
+int api_send_mail_att(app_t *a, const char *to, const char *subject, const char *body,
+                      const mail_att_t *att) {
   if (!a->mail_send) return -1;
-  return a->mail_send(a->mail_ctx, to, subject, body) == 0 ? 0 : -1;
+  return a->mail_send(a->mail_ctx, to, subject, body, att) == 0 ? 0 : -1;
+}
+
+int api_send_mail(app_t *a, const char *to, const char *subject, const char *body) {
+  return api_send_mail_att(a, to, subject, body, NULL);
 }
 
 int api_send_token_mail(app_t *a, int64_t user_id, token_kind_t kind, int64_t now) {

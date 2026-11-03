@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/mail_build.h"
@@ -84,6 +85,63 @@ void test_envelope_addr_rejects(void) {
   TEST_ASSERT_EQUAL_INT(0, mail_envelope_addr("fits@xx.de", a, sizeof a));
 }
 
+void test_att_null_same_as_plain(void) {
+  char a[1024], b[1024];
+  int n = mail_build(a, sizeof a, FROM, TO, "Einladung", "hi\nthere", 1793368800);
+  int m = mail_build_att(b, sizeof b, FROM, TO, "Einladung", "hi\nthere", 1793368800, NULL);
+  TEST_ASSERT_TRUE(n > 0);
+  TEST_ASSERT_EQUAL_INT(n, m);
+  TEST_ASSERT_EQUAL_STRING(a, b);
+  TEST_ASSERT_NULL(strstr(b, "multipart"));
+}
+
+void test_att_multipart(void) {
+  char b[2048];
+  mail_att_t att = {"R-1.pdf", "application/pdf", "%PDF-1.4\n", 9};
+  int n = mail_build_att(b, sizeof b, FROM, TO, "Rechnung", "Anbei\n", 0, &att);
+  TEST_ASSERT_TRUE(n > 0);
+  TEST_ASSERT_EQUAL_INT((int)strlen(b), n);
+  TEST_ASSERT_NOT_NULL(strstr(b, "MIME-Version: 1.0\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(b, "Content-Type: multipart/mixed; boundary=\"=_ocs_part_0\"\r\n\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(b, "--=_ocs_part_0\r\nContent-Type: text/plain; charset=UTF-8\r\n"
+                                 "Content-Transfer-Encoding: 8bit\r\n\r\nAnbei\r\n--=_ocs_part_0\r\n"));
+  TEST_ASSERT_NOT_NULL(strstr(b, "Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n"
+                                 "Content-Disposition: attachment; filename=\"R-1.pdf\"\r\n\r\n"
+                                 "JVBERi0xLjQK\r\n--=_ocs_part_0--\r\n"));
+  TEST_ASSERT_EQUAL_STRING("--=_ocs_part_0--\r\n", b + n - 18);
+}
+
+void test_att_filename_non_ascii_rejected(void) {
+  char b[2048];
+  mail_att_t att = {"R\xC3\xBC.pdf", "application/pdf", "x", 1};
+  TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "x", 0, &att));
+  att.filename = "a\"b.pdf";
+  TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "x", 0, &att));
+  att.filename = "a\r\nBcc: x@y.de";
+  TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "x", 0, &att));
+}
+
+void test_size_bound_suffices(void) {
+  size_t alen = 1024 * 1024, blen = 5000;
+  unsigned char *d = malloc(alen);
+  char *body = malloc(blen + 1);
+  TEST_ASSERT_NOT_NULL(d);
+  TEST_ASSERT_NOT_NULL(body);
+  for (size_t i = 0; i < alen; i++) d[i] = (unsigned char)(i * 31);
+  memset(body, '\n', blen);
+  body[blen] = 0;
+  size_t cap = mail_size_bound(blen, alen);
+  char *buf = malloc(cap);
+  TEST_ASSERT_NOT_NULL(buf);
+  mail_att_t att = {"big.bin", "application/octet-stream", d, alen};
+  int n = mail_build_att(buf, cap, FROM, TO, "Gro\xC3\x9F", body, 0, &att);
+  TEST_ASSERT_TRUE(n > 0);
+  TEST_ASSERT_TRUE((size_t)n < cap);
+  free(buf);
+  free(body);
+  free(d);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_ascii_subject_plain);
@@ -94,5 +152,9 @@ int main(void) {
   RUN_TEST(test_buffer_too_small);
   RUN_TEST(test_envelope_addr);
   RUN_TEST(test_envelope_addr_rejects);
+  RUN_TEST(test_att_null_same_as_plain);
+  RUN_TEST(test_att_multipart);
+  RUN_TEST(test_att_filename_non_ascii_rejected);
+  RUN_TEST(test_size_bound_suffices);
   return UNITY_END();
 }
