@@ -9,6 +9,7 @@ export async function render(root) {
   const tol = textField('Starttoleranz (Minuten)', String(s.start_tolerance_min), { inputMode: 'numeric', required: true });
   const dead = textField('Stornofrist (Minuten vor Start)', String(s.cancel_deadline_min), { inputMode: 'numeric', required: true });
   const fee = textField('Stornogebühr (€)', toEuroInput(s.cancel_fee_cents), { inputMode: 'decimal', required: true });
+  const rem = textField('Erinnerung vor Fahrtbeginn (Minuten, 0 = aus)', String(s.reminder_before_min), { inputMode: 'numeric', required: true });
   const aname = textField('Vereinsname', s.assoc_name, { maxLength: 95 });
   const astreet = textField('Straße', s.assoc_street, { maxLength: 95 });
   const azip = textField('PLZ', s.assoc_zip, { maxLength: 15 });
@@ -25,7 +26,7 @@ export async function render(root) {
     el('h2', { text: 'Verein und Lastschrift' }),
     aname.node, astreet.node, azip.node, acity.node, cid.node, ciban.node, cbic.node, lead.node, footerNode);
   const form = el('form', { className: 'card' },
-    el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, sepaCard,
+    el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, rem.node, sepaCard,
     err.node, ok.node, primaryButton('Speichern'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -35,6 +36,8 @@ export async function render(root) {
     const cents = parseEuroToCents(fee.input.value);
     if (t === null) return err.show('Starttoleranz: bitte eine ganze Zahl von Minuten eingeben.');
     if (d === null) return err.show('Stornofrist: bitte eine ganze Zahl von Minuten eingeben.');
+    const r0 = minutes(rem.input.value);
+    if (r0 === null || r0 > 1440) return err.show('Erinnerung: bitte 0 bis 1440 Minuten eingeben.');
     const l = minutes(lead.input.value);
     if (l === null || l < 5 || l > 30) return err.show('Vorlauf Lastschrift: bitte 5 bis 30 Tage eingeben.');
     if (new TextEncoder().encode(footer.value).length >= 512) return err.show('Rechnungsfußzeile: höchstens 511 Bytes.');
@@ -47,11 +50,12 @@ export async function render(root) {
           assoc_zip: azip.input.value.trim(), assoc_city: acity.input.value.trim(),
           creditor_id: cid.input.value.trim(), creditor_iban: ciban.input.value.trim(),
           creditor_bic: cbic.input.value.trim(),
-          sepa_lead_days: l, invoice_footer: footer.value,
+          sepa_lead_days: l, invoice_footer: footer.value, reminder_before_min: r0,
         });
       tol.input.value = String(r.start_tolerance_min);
       dead.input.value = String(r.cancel_deadline_min);
       fee.input.value = toEuroInput(r.cancel_fee_cents);
+      rem.input.value = String(r.reminder_before_min);
       aname.input.value = r.assoc_name;
       astreet.input.value = r.assoc_street;
       azip.input.value = r.assoc_zip;
