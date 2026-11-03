@@ -6,3 +6,4 @@ timeout-*
 oom-*
 data/
 .superpowers/
+!server/test/data/

@@ -81,3 +81,11 @@ if(OCS_FUZZ)
   target_link_libraries(fuzz_teltonika PRIVATE ocs_core)
   target_link_options(fuzz_teltonika PRIVATE -fsanitize=fuzzer)
 endif()
+ocs_add_test(test_pain008)
+
+# Validates the XML written by test_pain008 against the ISO 20022 schema; skipped (77) without xmllint or XSD.
+set(PAIN008_XSD ${CMAKE_CURRENT_SOURCE_DIR}/test/data/pain.008.001.02.xsd)
+add_test(NAME pain008_xsd COMMAND sh -c
+  [=[command -v xmllint >/dev/null && [ -f "$1" ] || exit 77; exec xmllint --noout --schema "$1" "${TMPDIR:-/tmp}/ocs-pain008-test.xml"]=]
+  sh ${PAIN008_XSD})
+set_tests_properties(pain008_xsd PROPERTIES SKIP_RETURN_CODE 77 DEPENDS test_pain008)
