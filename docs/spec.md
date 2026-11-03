@@ -495,7 +495,7 @@ Depends on: Phase 2 (actual times); Phase 3 km optional (manual km works).
 Done when: every `done` or `cancelled` booking has a computed price that
 matches hand-calculated test cases.
 
-### Phase 5: SEPA mandates
+### Phase 5: SEPA mandates — done (merged 2026-11-03)
 Depends on: Phase 1.
 - User enters account holder, IBAN (mod-97), optional BIC; reads the
   versioned mandate text and confirms online (§9 SEPA).
