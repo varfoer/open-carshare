@@ -20,6 +20,7 @@ bool invoice_footer_fits(const char *footer);
 /* Mail body (pre-notification), length or -1 (does not fit, or mandate data missing for total > 0). */
 int invoice_mail_body(const invoice_doc_t *d, const char *user_first_line_name, char *out, size_t cap);
 void invoice_subject(const invoice_t *inv, char *out, size_t cap);   /* "Rechnung 17 – Oktober 2026" */
+void period_label(const char *period, char *out, size_t cap);         /* "2026-10" -> "Oktober 2026" */
 void money_de(int64_t cents, char *out, size_t cap);                  /* "1.234,56 €", "-0,05 €" */
 
 #endif
