@@ -693,7 +693,7 @@ Depends on: Phases 4 and 5 (Phase 3 for the `km_pending` gate).
 Done when: a month can be billed end-to-end and the XML imports into
 Hibiscus.
 
-### Phase 7: Notifications and operations
+### Phase 7: Notifications and operations — done (merged 2026-11-03)
 Plan: `docs/superpowers/plans/2026-11-03-phase7-notifications-ops.md`.
 Depends on: Phase 2 (reminders reference start/return); can run before
 Phase 6 except the "billing run done" mail.
