@@ -185,10 +185,9 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   respond(res, 201, &n, sent, true);
 }
 
-int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now) {
-  int n = end_active(a, user_id, 0, now, MANDATE_REVOKED, actor_id);
-  if (n < 0) return -1;
-  if (n == 0) return -2;
+int api_cancel_reserved(app_t *a, int64_t user_id, int64_t actor_id, int64_t now) {
+  int n = 0;
+  /* db_put_booking may invalidate pointers into the table: index, copy, put. */
   for (size_t i = 0; i < a->db.n_bookings; i++) {
     booking_t b = a->db.bookings[i];
     if (b.user_id != user_id || b.state != BK_RESERVED) continue;
@@ -198,7 +197,16 @@ int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now)
     b.modified_at = now;
     b.modified_by = actor_id;
     if (db_put_booking(&a->db, &b) != 0) return -1;
+    n++;
   }
+  return n;
+}
+
+int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now) {
+  int n = end_active(a, user_id, 0, now, MANDATE_REVOKED, actor_id);
+  if (n < 0) return -1;
+  if (n == 0) return -2;
+  if (api_cancel_reserved(a, user_id, actor_id, now) < 0) return -1;
   const user_t *up = db_user(&a->db, user_id);
   if (!up) return -1;
   user_t u = *up;

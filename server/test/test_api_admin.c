@@ -980,6 +980,188 @@ void test_users_list_mandate_field(void) {
   cJSON_Delete(j);
 }
 
+/* ---- deactivation, export, retention ---- */
+
+static void deactivate_u1(void) {
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld", (long long)u1);
+  adm_free("PUT", p, user_put_body("anna@x.de", "user", false), 200, NULL);
+}
+
+void test_deactivate_cancels_reserved_fee_0(void) {
+  int64_t id = mk_booking(car1, u1, T + 2 * H, T + 4 * H);   /* inside nothing: fee would be 0 anyway */
+  int64_t soon = mk_booking(car2, u1, T + 30 * 60, T + 2 * H); /* inside the 60-min cancel deadline */
+  int before = th_mail_count();
+  deactivate_u1();
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());   /* no cancellation mails */
+  const booking_t *b = db_booking(&a->db, id);
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, b->state);
+  TEST_ASSERT_EQUAL_INT64(0, b->cancel_fee_cents);
+  TEST_ASSERT_EQUAL_INT64(T, b->cancelled_at);
+  TEST_ASSERT_EQUAL_INT64(adm, b->modified_by);
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, soon)->state);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, soon)->cancel_fee_cents);
+  TEST_ASSERT_EQUAL_INT(0, api_expire_bookings(a, T + 5 * H));
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, id)->state);
+}
+
+void test_deactivate_keeps_active_booking(void) {
+  int64_t id = mk_booking(car1, u1, T, T + 4 * H);
+  booking_t b = *db_booking(&a->db, id);
+  b.state = BK_ACTIVE;
+  b.actual_start = T;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  deactivate_u1();
+  TEST_ASSERT_EQUAL_INT(BK_ACTIVE, db_booking(&a->db, id)->state);
+}
+
+void test_revoke_still_cancels_reserved(void) {
+  int64_t id = mk_booking(car1, u1, T + 2 * H, T + 4 * H);
+  char p[80];
+  snprintf(p, sizeof p, "/api/admin/users/%lld/mandate/revoke", (long long)u1);
+  adm_free("POST", p, NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, id)->state);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, id)->cancel_fee_cents);
+  TEST_ASSERT_FALSE(db_user(&a->db, u1)->active);
+}
+
+/* Final run with one invoice (number 1) for u1 over a DONE booking. Returns the booking id. */
+static int64_t plant_invoice(void) {
+  int64_t bid = mk_booking(car1, u1, T + 2 * H, T + 4 * H);
+  booking_t b = *db_booking(&a->db, bid);
+  b.state = BK_DONE;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  billing_run_t run;
+  memset(&run, 0, sizeof run);
+  snprintf(run.period, sizeof run.period, "2026-03");
+  run.created_at = T;
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&a->db, &run));
+  run.state = RUN_FINAL;
+  run.finalized_at = T;
+  invoice_t inv;
+  memset(&inv, 0, sizeof inv);
+  inv.number = 1;
+  inv.user_id = u1;
+  inv.run_id = run.id;
+  inv.total_cents = 1234;
+  inv.n_lines = 1;
+  inv.created_at = T;
+  snprintf(inv.period, sizeof inv.period, "2026-03");
+  snprintf(inv.name, sizeof inv.name, "Anna");
+  invoice_line_t l;
+  memset(&l, 0, sizeof l);
+  l.invoice_number = 1;
+  l.booking_id = bid;
+  snprintf(l.car_name, sizeof l.car_name, "Golf");
+  l.start = T + 2 * H;
+  l.end = T + 4 * H;
+  l.total_cents = 1234;
+  TEST_ASSERT_EQUAL_INT(0, db_finalize_run(&a->db, &run, &inv, 1, &l, 1));
+  return bid;
+}
+
+static cJSON *export_u1(void) {
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld/export", (long long)u1);
+  return call("GET", p, NULL, tadm, 200, NULL);
+}
+
+void test_export_contains_all_sections(void) {
+  int64_t bid = plant_invoice();
+  cJSON *j = export_u1();
+  static const char *const keys[] = {"exported_at", "user", "bookings", "damage_reports", "mandates", "invoices"};
+  for (size_t i = 0; i < 6; i++) TEST_ASSERT_NOT_NULL_MESSAGE(cJSON_GetObjectItemCaseSensitive(j, keys[i]), keys[i]);
+  TEST_ASSERT_EQUAL_INT64(T, num(j, "exported_at"));
+  cJSON *u = cJSON_GetObjectItemCaseSensitive(j, "user");
+  TEST_ASSERT_EQUAL_STRING("anna@x.de", cJSON_GetObjectItemCaseSensitive(u, "email")->valuestring);
+  TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(u, "pw_hash"));
+  cJSON *bk = cJSON_GetObjectItemCaseSensitive(j, "bookings");
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(bk));
+  TEST_ASSERT_EQUAL_INT64(bid, num(cJSON_GetArrayItem(bk, 0), "id"));
+  cJSON *inv = cJSON_GetObjectItemCaseSensitive(j, "invoices");
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(inv));
+  cJSON *lines = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(inv, 0), "lines");
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(lines));
+  TEST_ASSERT_EQUAL_INT64(bid, num(cJSON_GetArrayItem(lines, 0), "booking_id"));
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "mandates")));
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "damage_reports")));
+  cJSON_Delete(j);
+}
+
+void test_export_only_own_records(void) {
+  int64_t other = th_add_user(a, "bob@x.de", NULL, ROLE_USER);
+  mk_booking(car2, other, T + 2 * H, T + 4 * H);
+  cJSON *j = export_u1();
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "bookings")));
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "mandates")));
+  cJSON_Delete(j);
+}
+
+void test_export_iban_masked(void) {
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld/export", (long long)u1);
+  api_res_t r = th_req(a, "GET", p, NULL, tadm, T);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  TEST_ASSERT_NULL(strstr(r.body, "DE89370400440532013000"));
+  TEST_ASSERT_NOT_NULL(strstr(r.body, "iban_masked"));
+  api_res_free(&r);
+}
+
+void test_export_photo_paths(void) {
+  int64_t bid = mk_booking(car1, u1, T + 2 * H, T + 4 * H);
+  damage_report_t d;
+  memset(&d, 0, sizeof d);
+  d.booking_id = bid;
+  d.user_id = u1;
+  d.created_at = T;
+  d.phase = DMG_START;
+  snprintf(d.text, sizeof d.text, "Kratzer");
+  d.n_photos = 2;
+  TEST_ASSERT_EQUAL_INT(0, db_put_damage(&a->db, &d));
+  cJSON *j = export_u1();
+  cJSON *dr = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(j, "damage_reports"), 0);
+  TEST_ASSERT_NOT_NULL(dr);
+  TEST_ASSERT_EQUAL_STRING("Kratzer", cJSON_GetObjectItemCaseSensitive(dr, "text")->valuestring);
+  cJSON *ph = cJSON_GetObjectItemCaseSensitive(dr, "photos");
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(ph));
+  char want[64];
+  snprintf(want, sizeof want, "/api/damage/%lld/photos/1", (long long)d.id);
+  TEST_ASSERT_EQUAL_STRING(want, cJSON_GetArrayItem(ph, 0)->valuestring);
+  snprintf(want, sizeof want, "/api/damage/%lld/photos/2", (long long)d.id);
+  TEST_ASSERT_EQUAL_STRING(want, cJSON_GetArrayItem(ph, 1)->valuestring);
+  cJSON_Delete(j);
+}
+
+void test_export_unknown_user_404(void) {
+  adm_free("GET", "/api/admin/users/999/export", NULL, 404, "not_found");
+  adm_free("GET", "/api/admin/users/x/export", NULL, 400, "invalid");
+}
+
+void test_export_user_role_403(void) {
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld/export", (long long)u1);
+  cfree("GET", p, NULL, tu1, 403, "forbidden");
+}
+
+void test_deactivate_keeps_invoices_and_mandates(void) {
+  int64_t bid = plant_invoice();
+  deactivate_u1();
+  TEST_ASSERT_EQUAL_INT(0, db_prune(&a->db, T + 400 * 86400));
+  TEST_ASSERT_NOT_NULL(db_invoice(&a->db, 1));
+  TEST_ASSERT_NOT_NULL(db_mandate_current(&a->db, u1));
+  TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, bid)->state);
+  db_t d;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&d, a->cfg.data_dir));
+  TEST_ASSERT_NOT_NULL(db_invoice(&d, 1));
+  TEST_ASSERT_EQUAL_INT64(1, db_booking(&d, bid)->invoice_id);
+  db_free(&d);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, adm, T, tadm));   /* the prune dropped the old session */
+  cJSON *j = export_u1();
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "invoices")));
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(cJSON_GetObjectItemCaseSensitive(j, "mandates")));
+  cJSON_Delete(j);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_user_role_gets_403_on_admin);
@@ -1034,5 +1216,15 @@ int main(void) {
   RUN_TEST(test_admin_user_may_club_trip);
   RUN_TEST(test_admin_booking_club_trip_override);
   RUN_TEST(test_users_list_mandate_field);
+  RUN_TEST(test_deactivate_cancels_reserved_fee_0);
+  RUN_TEST(test_deactivate_keeps_active_booking);
+  RUN_TEST(test_revoke_still_cancels_reserved);
+  RUN_TEST(test_export_contains_all_sections);
+  RUN_TEST(test_export_only_own_records);
+  RUN_TEST(test_export_iban_masked);
+  RUN_TEST(test_export_photo_paths);
+  RUN_TEST(test_export_unknown_user_404);
+  RUN_TEST(test_export_user_role_403);
+  RUN_TEST(test_deactivate_keeps_invoices_and_mandates);
   return UNITY_END();
 }

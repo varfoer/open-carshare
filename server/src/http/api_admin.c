@@ -146,6 +146,8 @@ void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   u.active = active;
   if (db_put_user(&a->db, &u) != 0) { api_storage_error(res); return; }
   if (deactivated && db_delete_sessions(&a->db, NULL, id) != 0) { api_storage_error(res); return; }
+  /* A deactivated user cannot start a reservation; expired it would be billed as unused time. */
+  if (deactivated && api_cancel_reserved(a, id, ctx->user->id, req->now) < 0) { api_storage_error(res); return; }
   api_user_response(res, 200, &u);
 }
 
@@ -158,6 +160,91 @@ void h_admin_user_invite(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   else if (rc == -1) api_storage_error(res);
   else if (rc == -3) api_error(res, 500, "mail", "Die E-Mail konnte nicht gesendet werden.");
   else api_ok(res);
+}
+
+/* ---- GDPR export ---- */
+
+/* Adds item to arr; false (item freed) on NULL or failure. */
+static bool push(cJSON *arr, cJSON *item) {
+  if (!item) return false;
+  if (!cJSON_AddItemToArray(arr, item)) { cJSON_Delete(item); return false; }
+  return true;
+}
+
+static int cmp_line_start(const void *x, const void *y) {
+  const invoice_line_t *p = *(const invoice_line_t *const *)x, *q = *(const invoice_line_t *const *)y;
+  if (p->start != q->start) return p->start < q->start ? -1 : 1;
+  return p->booking_id < q->booking_id ? -1 : p->booking_id > q->booking_id;
+}
+
+/* invoice_to_json plus "lines" sorted by start; NULL on OOM. */
+static cJSON *export_invoice(const db_t *db, const invoice_t *v) {
+  cJSON *o = invoice_to_json(v), *arr = cJSON_CreateArray();
+  const invoice_line_t **ls = malloc((db->n_lines + 1) * sizeof *ls);
+  bool ok = o && arr && ls;
+  size_t n = 0;
+  for (size_t i = 0; ok && i < db->n_lines; i++)
+    if (db->lines[i].invoice_number == v->number) ls[n++] = &db->lines[i];
+  if (ok) qsort(ls, n, sizeof *ls, cmp_line_start);
+  for (size_t i = 0; ok && i < n; i++) ok = push(arr, invoice_line_to_json(ls[i]));
+  free(ls);
+  if (ok && cJSON_AddItemToObject(o, "lines", arr)) return o;
+  cJSON_Delete(arr);
+  cJSON_Delete(o);
+  return NULL;
+}
+
+/* damage_report_to_json plus "photos": API paths of its photos; NULL on OOM. */
+static cJSON *export_damage(const damage_report_t *d) {
+  cJSON *o = damage_report_to_json(d), *arr = cJSON_CreateArray();
+  bool ok = o && arr;
+  for (int k = 1; ok && k <= d->n_photos; k++) {
+    char path[64];
+    snprintf(path, sizeof path, "/api/damage/%lld/photos/%d", (long long)d->id, k);
+    ok = push(arr, cJSON_CreateString(path));
+  }
+  if (ok && cJSON_AddItemToObject(o, "photos", arr)) return o;
+  cJSON_Delete(arr);
+  cJSON_Delete(o);
+  return NULL;
+}
+
+void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)ctx;
+  int64_t id;
+  if (!api_segment_id(req->path, "/api/admin/users/", &id)) { api_invalid(res); return; }
+  const user_t *u = db_user(&a->db, id);
+  if (!u) { api_not_found(res); return; }
+  const db_t *db = &a->db;
+  cJSON *o = cJSON_CreateObject();
+  cJSON *bk = cJSON_CreateArray(), *dm = cJSON_CreateArray(), *md = cJSON_CreateArray(), *iv = cJSON_CreateArray();
+  bool ok = o && bk && dm && md && iv;
+  for (size_t i = 0; ok && i < db->n_bookings; i++)
+    if (db->bookings[i].user_id == id) ok = push(bk, booking_to_json(&db->bookings[i]));
+  for (size_t i = 0; ok && i < db->n_damages; i++)
+    if (db->damages[i].user_id == id) ok = push(dm, export_damage(&db->damages[i]));
+  for (size_t i = 0; ok && i < db->n_mandates; i++)
+    if (db->mandates[i].user_id == id) ok = push(md, mandate_api_json(&db->mandates[i]));
+  for (size_t i = 0; ok && i < db->n_invoices; i++)
+    if (db->invoices[i].user_id == id) ok = push(iv, export_invoice(db, &db->invoices[i]));
+  cJSON *uj = ok ? user_to_public_json(u) : NULL;
+  ok = ok && cJSON_AddNumberToObject(o, "exported_at", (double)req->now) &&
+       (uj ? cJSON_AddItemToObject(o, "user", uj) : false);
+  if (!ok) cJSON_Delete(uj);
+  ok = ok && cJSON_AddItemToObject(o, "bookings", bk);
+  if (ok) bk = NULL;
+  ok = ok && cJSON_AddItemToObject(o, "damage_reports", dm);
+  if (ok) dm = NULL;
+  ok = ok && cJSON_AddItemToObject(o, "mandates", md);
+  if (ok) md = NULL;
+  ok = ok && cJSON_AddItemToObject(o, "invoices", iv);
+  if (ok) iv = NULL;
+  cJSON_Delete(bk);
+  cJSON_Delete(dm);
+  cJSON_Delete(md);
+  cJSON_Delete(iv);
+  if (!ok) { cJSON_Delete(o); api_json(res, 500, NULL); return; }
+  api_json(res, 200, o);
 }
 
 /* ---- cars ---- */

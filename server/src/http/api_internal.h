@@ -93,6 +93,8 @@ void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
 void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_invite(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+/* GDPR export of one user's personal records (spec §12/§13); full IBANs never included. */
+void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_car_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_car_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
@@ -136,6 +138,9 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
  * sets the user inactive and deletes the user's sessions, in this order.
  * 0 ok, -1 storage error (steps done so far stay), -2 no current mandate. */
 int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
+/* Cancels every RESERVED booking of user_id: cancel_fee_cents 0, state CANCELLED,
+ * cancelled_at/modified_at now, modified_by actor_id. No mails. Count or -1 on storage error. */
+int api_cancel_reserved(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
 void h_me_mandate_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_mandates_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
