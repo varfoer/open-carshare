@@ -86,28 +86,42 @@ void mandate_ref(int64_t id, char *out, size_t cap) {
     snprintf(out, cap, "OCS-%06lld", (long long)id);
 }
 
-int mandate_text(char *out, size_t cap, const char *creditor_name, const char *creditor_id) {
+bool iban_needs_bic(const char *iban) {
+    static const char *const cc[] = {"AD", "CH", "GB", "GI", "MC", "SM", "VA"};
+    if (strlen(iban) < 2) return false;
+    for (size_t i = 0; i < sizeof cc / sizeof cc[0]; i++)
+        if (iban[0] == cc[i][0] && iban[1] == cc[i][1]) return true;
+    return false;
+}
+
+int mandate_text(char *out, size_t cap, const settings_t *s) {
     int n = snprintf(out, cap,
         "SEPA-Lastschriftmandat\n\n"
-        "Zahlungsempfänger: %s\n"
+        "Zahlungsempfänger: %s, %s, %s %s\n"
         "Gläubiger-Identifikationsnummer: %s\n"
         "Mandatsreferenz: wird nach Erteilung des Mandats mitgeteilt\n\n"
         "Ich ermächtige %s, Zahlungen von meinem Konto mittels Lastschrift einzuziehen. "
         "Zugleich weise ich mein Kreditinstitut an, die von %s auf mein Konto gezogenen Lastschriften einzulösen.\n\n"
+        "Der Zahlungsempfänger kündigt mir Betrag und Fälligkeitstag jeder Lastschrift spätestens %d Kalendertage vor dem Fälligkeitstag an.\n\n"
         "Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, "
         "die Erstattung des belasteten Betrages verlangen. "
         "Es gelten dabei die mit meinem Kreditinstitut vereinbarten Bedingungen.\n\n"
         "Das Mandat gilt für wiederkehrende Lastschriften.",
-        creditor_name, creditor_id, creditor_name, creditor_name);
+        s->assoc_name, s->assoc_street, s->assoc_zip, s->assoc_city, s->creditor_id,
+        s->assoc_name, s->assoc_name, SEPA_PRENOTIFY_MIN_DAYS);
     if (n < 0 || (size_t)n >= cap) return -1;
     return n;
 }
 
-int mandate_mail_body(char *out, size_t cap, const char *user_name, const mandate_t *m) {
+int mandate_mail_body(char *out, size_t cap, const char *user_name, const mandate_t *m, const settings_t *s) {
     char ref[16], masked[48], text[2048];
     mandate_ref(m->id, ref, sizeof ref);
     iban_mask(m->iban, masked, sizeof masked);
-    if (mandate_text(text, sizeof text, m->creditor_name, m->creditor_id) < 0) return -1;
+    settings_t snap = *s;
+    if (snprintf(snap.assoc_name, sizeof snap.assoc_name, "%s", m->creditor_name) >= (int)sizeof snap.assoc_name ||
+        snprintf(snap.creditor_id, sizeof snap.creditor_id, "%s", m->creditor_id) >= (int)sizeof snap.creditor_id)
+        return -1;
+    if (mandate_text(text, sizeof text, &snap) < 0) return -1;
     int n = snprintf(out, cap,
         "Hallo %s,\n\n"
         "du hast online ein SEPA-Lastschriftmandat erteilt.\n\n"

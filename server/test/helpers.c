@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "auth/password.h"
+#include "core/sepa.h"
 #include "cJSON.h"
 #include "platform/platform.h"
 
@@ -106,7 +107,7 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
   m.created_at = 1;
   snprintf(m.holder, sizeof m.holder, "Test User");
   snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
-  m.text_version = 1;
+  m.text_version = MANDATE_TEXT_VERSION;
   snprintf(m.creditor_name, sizeof m.creditor_name, "Carsharing Testverein e.V.");
   snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
   if (db_put_mandate(&a->db, &m) != 0) return -1;
@@ -116,6 +117,9 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
 int th_set_creditor(app_t *a) {
   settings_t s = a->db.settings;
   snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
+  snprintf(s.assoc_street, sizeof s.assoc_street, "Hauptstr. 1");
+  snprintf(s.assoc_zip, sizeof s.assoc_zip, "12345");
+  snprintf(s.assoc_city, sizeof s.assoc_city, "Teststadt");
   snprintf(s.creditor_id, sizeof s.creditor_id, "DE98ZZZ09999999999");
   return db_put_settings(&a->db, &s);
 }

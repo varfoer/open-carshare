@@ -45,7 +45,7 @@ static void post(const char *body, int status, const char *code) {
 }
 
 static const char *GOOD =
-    "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"de89 3704 0044 0532 0130 00\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}";
+    "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"de89 3704 0044 0532 0130 00\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}";
 
 static const char *str(const cJSON *o, const char *k) {
   const cJSON *e = cJSON_GetObjectItemCaseSensitive(o, k);
@@ -59,7 +59,7 @@ void test_get_not_ready(void) {
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "text")));
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "creditor_id")));
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "mandate")));
-  TEST_ASSERT_EQUAL_INT(1, cJSON_GetObjectItemCaseSensitive(j, "text_version")->valueint);
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetObjectItemCaseSensitive(j, "text_version")->valueint);
   cJSON_Delete(j);
 }
 
@@ -70,6 +70,30 @@ void test_get_ready_has_text(void) {
   TEST_ASSERT_NOT_NULL(strstr(str(j, "text"), "Carsharing Testverein e.V."));
   TEST_ASSERT_EQUAL_STRING("DE98ZZZ09999999999", str(j, "creditor_id"));
   cJSON_Delete(j);
+}
+
+void test_mandate_not_ready_without_address(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  settings_t st = a->db.settings;
+  st.assoc_city[0] = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &st));
+  cJSON *j = do_req("GET", NULL, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(j, "ready")));
+  TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "creditor_id")));
+  cJSON_Delete(j);
+  post(GOOD, 409, "no_creditor");
+}
+
+void test_post_mandate_ch_without_bic_400(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  post("{\"account_holder\":\"A\",\"iban\":\"CH9300762011623852957\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 400, "bic_required");
+  TEST_ASSERT_EQUAL_INT(0, (int)a->db.n_mandates);
+}
+
+void test_post_mandate_ch_with_bic_201(void) {
+  TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
+  post("{\"account_holder\":\"A\",\"iban\":\"CH9300762011623852957\",\"bic\":\"UBSWCHZH80A\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 201, NULL);
+  TEST_ASSERT_EQUAL_INT(1, (int)a->db.n_mandates);
 }
 
 void test_post_not_ready_409(void) { post(GOOD, 409, "no_creditor"); }
@@ -94,14 +118,14 @@ void test_post_mandate_normalizes(void) {
 
 void test_post_rejects_bad_input(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013001\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid_iban");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"bic\":\"XX\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid_bic");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":false}", 400, "invalid");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1}", 400, "invalid");
-  post("{\"account_holder\":\"  \",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 400, "invalid");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013001\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 400, "invalid_iban");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"bic\":\"XX\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 400, "invalid_bic");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":false}", 400, "invalid");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2}", 400, "invalid");
+  post("{\"account_holder\":\"  \",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 400, "invalid");
   char body[400];
   snprintf(body, sizeof body,
-           "{\"account_holder\":\"%071d\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 0);
+           "{\"account_holder\":\"%071d\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 0);
   post(body, 400, "invalid");
   TEST_ASSERT_EQUAL_INT(0, (int)a->db.n_mandates);
 }
@@ -113,10 +137,10 @@ void test_post_stale_text_version_409(void) {
 
 void test_post_stale_creditor_409(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ00000000001\",\"text_version\":1,\"accept\":true}", 409, "text_changed");
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":1,\"accept\":true}", 400, "invalid");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"DE98ZZZ00000000001\",\"text_version\":2,\"accept\":true}", 409, "text_changed");
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"text_version\":2,\"accept\":true}", 400, "invalid");
   /* spaces/lowercase are normalized before the compare */
-  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"de98 zzz0 9999 9999 99\",\"text_version\":1,\"accept\":true}", 201, NULL);
+  post("{\"account_holder\":\"A\",\"iban\":\"DE89370400440532013000\",\"creditor_id\":\"de98 zzz0 9999 9999 99\",\"text_version\":2,\"accept\":true}", 201, NULL);
 }
 
 void test_post_same_data_is_idempotent(void) {
@@ -133,7 +157,7 @@ void test_post_same_data_is_idempotent(void) {
 void test_post_new_iban_replaces(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   post(GOOD, 201, NULL);
-  post("{\"account_holder\":\"Anna Beispiel\",\"iban\":\"GB82WEST12345698765432\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}", 201, NULL);
+  post("{\"account_holder\":\"Anna Beispiel\",\"iban\":\"GB82WEST12345698765432\",\"bic\":\"NWBKGB2L\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}", 201, NULL);
   TEST_ASSERT_EQUAL_INT(2, (int)a->db.n_mandates);
   TEST_ASSERT_EQUAL_INT(MANDATE_REPLACED, a->db.mandates[0].status);
   TEST_ASSERT_EQUAL_INT64(T, a->db.mandates[0].ended_at);
@@ -370,7 +394,7 @@ void test_admin_mandates_history_newest_first(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON_Delete(do_req("POST", GOOD, 201, NULL));
   cJSON_Delete(do_req("POST",
-      "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"DE02 1203 0000 0000 2020 51\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":1,\"accept\":true}",
+      "{\"account_holder\":\"Anna Beispiel\",\"iban\":\"DE02 1203 0000 0000 2020 51\",\"creditor_id\":\"DE98ZZZ09999999999\",\"text_version\":2,\"accept\":true}",
       201, NULL));
   char path[64];
   snprintf(path, sizeof path, "/api/admin/users/%lld/mandates", (long long)uid);
@@ -422,6 +446,9 @@ int main(void) {
   RUN_TEST(test_get_not_ready);
   RUN_TEST(test_get_ready_has_text);
   RUN_TEST(test_post_not_ready_409);
+  RUN_TEST(test_mandate_not_ready_without_address);
+  RUN_TEST(test_post_mandate_ch_without_bic_400);
+  RUN_TEST(test_post_mandate_ch_with_bic_201);
   RUN_TEST(test_post_mandate_normalizes);
   RUN_TEST(test_post_rejects_bad_input);
   RUN_TEST(test_post_stale_text_version_409);

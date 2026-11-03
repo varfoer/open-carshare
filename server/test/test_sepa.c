@@ -56,25 +56,43 @@ static void test_mandate_ref(void) {
     TEST_ASSERT_EQUAL_STRING("OCS-1234567", out);
 }
 
+static settings_t creditor_settings(void) {
+    settings_t s;
+    memset(&s, 0, sizeof s);
+    snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
+    snprintf(s.assoc_street, sizeof s.assoc_street, "Hauptstr. 1");
+    snprintf(s.assoc_zip, sizeof s.assoc_zip, "12345");
+    snprintf(s.assoc_city, sizeof s.assoc_city, "Teststadt");
+    snprintf(s.creditor_id, sizeof s.creditor_id, "DE98ZZZ09999999999");
+    return s;
+}
+
 static void test_mandate_text_fills_creditor(void) {
     char out[2048];
-    int n = mandate_text(out, sizeof out, "Carsharing Testverein e.V.", "DE98ZZZ09999999999");
+    settings_t s = creditor_settings();
+    int n = mandate_text(out, sizeof out, &s);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_INT((int)strlen(out), n);
     static const char golden[] =
         "SEPA-Lastschriftmandat\n\n"
-        "Zahlungsempfänger: Carsharing Testverein e.V.\n"
+        "Zahlungsempfänger: Carsharing Testverein e.V., Hauptstr. 1, 12345 Teststadt\n"
         "Gläubiger-Identifikationsnummer: DE98ZZZ09999999999\n"
         "Mandatsreferenz: wird nach Erteilung des Mandats mitgeteilt\n\n"
         "Ich ermächtige Carsharing Testverein e.V., Zahlungen von meinem Konto mittels Lastschrift einzuziehen. "
         "Zugleich weise ich mein Kreditinstitut an, die von Carsharing Testverein e.V. auf mein Konto gezogenen Lastschriften einzulösen.\n\n"
+        "Der Zahlungsempfänger kündigt mir Betrag und Fälligkeitstag jeder Lastschrift spätestens 5 Kalendertage vor dem Fälligkeitstag an.\n\n"
         "Hinweis: Ich kann innerhalb von acht Wochen, beginnend mit dem Belastungsdatum, die Erstattung des belasteten Betrages verlangen. "
         "Es gelten dabei die mit meinem Kreditinstitut vereinbarten Bedingungen.\n\n"
         "Das Mandat gilt für wiederkehrende Lastschriften.";
     TEST_ASSERT_EQUAL_STRING(golden, out);
-    TEST_ASSERT_NOT_NULL(strstr(out, "Ich ermächtige Carsharing Testverein e.V., Zahlungen"));
-    TEST_ASSERT_NOT_NULL(strstr(out, "Gläubiger-Identifikationsnummer: DE98ZZZ09999999999"));
-    TEST_ASSERT_EQUAL_INT(-1, mandate_text(out, 10, "Carsharing Testverein e.V.", "DE98ZZZ09999999999"));
+    TEST_ASSERT_EQUAL_INT(-1, mandate_text(out, 10, &s));
+}
+
+static void test_iban_needs_bic(void) {
+    TEST_ASSERT_TRUE(iban_needs_bic("CH9300762011623852957"));
+    TEST_ASSERT_TRUE(iban_needs_bic("GB29NWBK60161331926819"));
+    TEST_ASSERT_FALSE(iban_needs_bic("DE89370400440532013000"));
+    TEST_ASSERT_FALSE(iban_needs_bic("AT611904300234573201"));
 }
 
 static void test_mandate_mail_body(void) {
@@ -83,8 +101,10 @@ static void test_mandate_mail_body(void) {
     snprintf(m.iban, sizeof m.iban, "DE89370400440532013000");
     snprintf(m.creditor_name, sizeof m.creditor_name, "Carsharing Testverein e.V.");
     snprintf(m.creditor_id, sizeof m.creditor_id, "DE98ZZZ09999999999");
+    settings_t cs = creditor_settings();
+    snprintf(cs.assoc_name, sizeof cs.assoc_name, "Neuer Name");
     char out[4096];
-    int n = mandate_mail_body(out, sizeof out, "Erika", &m);
+    int n = mandate_mail_body(out, sizeof out, "Erika", &m, &cs);
     TEST_ASSERT_TRUE(n > 0);
     TEST_ASSERT_EQUAL_size_t((size_t)n, strlen(out));
     TEST_ASSERT_EQUAL_INT(0, strncmp(out, "Hallo Erika,\n\ndu hast online ein SEPA-Lastschriftmandat erteilt.\n\n", 63));
@@ -93,7 +113,9 @@ static void test_mandate_mail_body(void) {
     TEST_ASSERT_NOT_NULL(strstr(out, "IBAN: DE89 **** 3000"));
     TEST_ASSERT_NULL(strstr(out, "DE89370400440532013000"));
     TEST_ASSERT_NOT_NULL(strstr(out, "Ich ermächtige Carsharing Testverein e.V., Zahlungen"));
-    TEST_ASSERT_EQUAL_INT(-1, mandate_mail_body(out, 20, "Erika", &m));
+    TEST_ASSERT_NULL(strstr(out, "Neuer Name"));
+    TEST_ASSERT_NOT_NULL(strstr(out, "Hauptstr. 1, 12345 Teststadt"));
+    TEST_ASSERT_EQUAL_INT(-1, mandate_mail_body(out, 20, "Erika", &m, &cs));
 }
 
 int main(void) {
@@ -105,6 +127,7 @@ int main(void) {
     RUN_TEST(test_iban_mask);
     RUN_TEST(test_mandate_ref);
     RUN_TEST(test_mandate_text_fills_creditor);
+    RUN_TEST(test_iban_needs_bic);
     RUN_TEST(test_mandate_mail_body);
     return UNITY_END();
 }

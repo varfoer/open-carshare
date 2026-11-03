@@ -5,7 +5,9 @@
 #include "core/sepa.h"
 #include "http/api_internal.h"
 
-static bool creditor_ready(const settings_t *s) { return s->assoc_name[0] && s->creditor_id[0]; }
+static bool creditor_ready(const settings_t *s) {
+  return s->assoc_name[0] && s->assoc_street[0] && s->assoc_zip[0] && s->assoc_city[0] && s->creditor_id[0];
+}
 
 static bool add_str(cJSON *o, const char *k, const char *v) { return cJSON_AddStringToObject(o, k, v) != NULL; }
 
@@ -46,7 +48,7 @@ void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   ok = ok && cJSON_AddBoolToObject(o, "ready", ready) != NULL;
   if (ok) {
     char text[4096];
-    if (ready && mandate_text(text, sizeof text, s->assoc_name, s->creditor_id) >= 0)
+    if (ready && mandate_text(text, sizeof text, s) >= 0)
       ok = add_str(o, "text", text);
     else
       ok = !ready && cJSON_AddNullToObject(o, "text") != NULL;
@@ -136,6 +138,10 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     api_error(res, 400, "invalid_bic", "Die BIC ist ungültig.");
     return;
   }
+  if (!n.bic[0] && iban_needs_bic(n.iban)) {
+    api_error(res, 400, "bic_required", "Für diese IBAN ist die BIC erforderlich.");
+    return;
+  }
   char cid_n[sizeof n.creditor_id];
   if (sepa_normalize(cid, cid_n, sizeof cid_n) != 0 || strcmp(cid_n, s->creditor_id) != 0 ||
       ver != MANDATE_TEXT_VERSION) {
@@ -174,7 +180,7 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     return;
   }
   char body[4096];
-  bool sent = mandate_mail_body(body, sizeof body, ctx->user->name, &n) >= 0 &&
+  bool sent = mandate_mail_body(body, sizeof body, ctx->user->name, &n, s) >= 0 &&
               api_send_mail(a, ctx->user->email, "SEPA-Lastschriftmandat erteilt", body) == 0;
   respond(res, 201, &n, sent, true);
 }
