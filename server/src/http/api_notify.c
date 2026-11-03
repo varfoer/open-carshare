@@ -75,17 +75,8 @@ int api_send_reminders(app_t *a, int64_t now) {
   return sent;
 }
 
-int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *invs, size_t n,
-                        size_t sent_now, const int64_t *failed, size_t n_failed) {
-  notify_run_t r = {.run_id = run->id, .period = run->period, .n_invoices = n, .n_sent_now = sent_now,
-                    .failed = failed, .n_failed = n_failed, .collection_date = run->collection_date,
-                    .base_url = a->cfg.base_url};
-  for (size_t i = 0; i < n; i++) {
-    r.n_mailed_total += invs[i].mailed_at != 0;
-    r.total_cents += invs[i].total_cents;
-  }
-  char subject[256], body[8192];
-  if (notify_run_mail(&r, subject, sizeof subject, body, sizeof body) != 0) return -1;
+/* Mails every active admin. 1 if at least one sent, 0 no admin, -1 all failed. */
+static int mail_admins(app_t *a, const char *subject, const char *body) {
   int admins = 0, ok = 0;
   for (size_t i = 0; i < a->db.n_users; i++) {
     const user_t *u = &a->db.users[i];
@@ -97,4 +88,28 @@ int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *inv
   }
   if (!admins) return 0;
   return ok ? 1 : -1;
+}
+
+int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *invs, size_t n,
+                        size_t sent_now, const int64_t *failed, size_t n_failed) {
+  notify_run_t r = {.run_id = run->id, .period = run->period, .n_invoices = n, .n_sent_now = sent_now,
+                    .failed = failed, .n_failed = n_failed, .collection_date = run->collection_date,
+                    .base_url = a->cfg.base_url};
+  for (size_t i = 0; i < n; i++) {
+    r.n_mailed_total += invs[i].mailed_at != 0;
+    r.total_cents += invs[i].total_cents;
+  }
+  char subject[256], body[8192];
+  if (notify_run_mail(&r, subject, sizeof subject, body, sizeof body) != 0) return -1;
+  return mail_admins(a, subject, body);
+}
+
+int api_notify_returned(app_t *a, const booking_t *b) {
+  const car_t *c = db_car(&a->db, b->car_id);
+  char t[17], subject[256], body[512];
+  notify_local_time(b->actual_end, t);
+  int sn = snprintf(subject, sizeof subject, "Fahrt beendet: %s", c ? c->name : "?");
+  int bn = snprintf(body, sizeof body, "Zur\xC3\xBC" "ckgegeben: %s\n\n%s/#/admin/buchungen\n", t, a->cfg.base_url);
+  if (sn < 0 || (size_t)sn >= sizeof subject || bn < 0 || (size_t)bn >= sizeof body) return -1;
+  return mail_admins(a, subject, body);
 }

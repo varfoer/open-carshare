@@ -280,6 +280,7 @@ void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_notify_returned(a, &b);   /* result ignored: a failed mail never blocks the return */
   api_json(res, 200, api_booking_json(a, &b));
 }
 

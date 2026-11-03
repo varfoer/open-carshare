@@ -450,6 +450,47 @@ void test_reminders_stop_after_first_mail_failure(void) {
   TEST_ASSERT_TRUE(db_booking(&a->db, r1)->start_reminded);
 }
 
+/* ---- trip finished mail to admins ---- */
+
+static void return_trip(int64_t id, int64_t now) {
+  char p[64];
+  snprintf(p, sizeof p, "/api/bookings/%lld/return", (long long)id);
+  call_free("POST", p, NULL, tok1, 200, now);
+}
+
+void test_return_mails_active_admins(void) {
+  int64_t adm2 = th_add_user(a, "adm2@x.de", NULL, ROLE_ADMIN);
+  user_t off = *db_user(&a->db, adm2);
+  off.active = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &off));
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  int before = th_mail_count();
+  return_trip(id, S + 90 * M);   /* 11:30 UTC = 13:30 CEST */
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("adm@x.de", th_last_mail_to());
+  TEST_ASSERT_EQUAL_STRING("Fahrt beendet: Golf", th_last_mail_subject());
+  TEST_ASSERT_EQUAL_STRING("Zur\xC3\xBC" "ckgegeben: 29.03.2026 13:30\n\n"
+                           "https://carshare.test/#/admin/buchungen\n",
+                           th_last_mail_body());
+}
+
+void test_return_mail_failure_keeps_200(void) {
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  th_mail_fail(1);
+  return_trip(id, S + H);
+  TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
+}
+
+void test_admin_close_trip_no_return_mail(void) {
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  int before = th_mail_count();
+  char x[80];
+  snprintf(x, sizeof x, ",\"actual_end\":%lld", (long long)(S + H));
+  admin_put(id, 0, 0, x, S + 2 * H);
+  TEST_ASSERT_EQUAL_INT(BK_DONE, db_booking(&a->db, id)->state);
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_post_mails_user_created);
@@ -479,5 +520,8 @@ int main(void) {
   RUN_TEST(test_admin_reassign_mails_both_and_clears_flags);
   RUN_TEST(test_admin_reassign_new_user_gets_created);
   RUN_TEST(test_reminders_stop_after_first_mail_failure);
+  RUN_TEST(test_return_mails_active_admins);
+  RUN_TEST(test_return_mail_failure_keeps_200);
+  RUN_TEST(test_admin_close_trip_no_return_mail);
   return UNITY_END();
 }
