@@ -93,7 +93,7 @@ static int create_admin(app_t *a, const char *email_in, const char *name) {
 }
 
 static int usage(void) {
-  fprintf(stderr, "usage: ocs-server -c <conf> [create-admin <email> <name>]\n");
+  fprintf(stderr, "usage: ocs-server -c <conf> [create-admin <email> <name> | check-data]\n");
   return 2;
 }
 
@@ -105,9 +105,10 @@ int main(int argc, char **argv) {
     else return usage();
   }
   if (!conf) return usage();
-  int admin = 0;
+  int admin = 0, check = 0;
   if (i < argc) {
     if (strcmp(argv[i], "create-admin") == 0 && argc - i == 3) admin = 1;
+    else if (strcmp(argv[i], "check-data") == 0 && argc - i == 1) check = 1;
     else return usage();
   }
 
@@ -128,7 +129,12 @@ int main(int argc, char **argv) {
   a->mail_ctx = a;
 
   int rc;
-  if (admin) {
+  if (check) {
+    /* Restore check: the load above validated every file; nothing is written. */
+    printf("users %zu, bookings %zu, invoices %zu, mandates %zu\n", a->db.n_users, a->db.n_bookings,
+           a->db.n_invoices, a->db.n_mandates);
+    rc = 0;
+  } else if (admin) {
     rc = create_admin(a, argv[i + 1], argv[i + 2]);
   } else {
     rc = server_run(a) == 0 ? 0 : 1;

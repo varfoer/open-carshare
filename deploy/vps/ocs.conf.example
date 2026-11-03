@@ -29,3 +29,17 @@ mail_from = open-carshare <ocs@example.org>
 # 0.0.0.0 and must be open to the internet (see deploy/vps/README.md).
 # Integer 1..65535. Absent = tracker listener disabled.
 # tracker_port = 5027
+
+# Nightly encrypted backup (deploy/vps/ocs-backup.sh, see README "Backup").
+# The server only validates these keys; the backup script reads them.
+# backup_recipient: age public key of the admin ("age1..."), from
+#   `age-keygen -o ocs-backup.key` on the admin's own machine. The private key
+#   never goes onto this server.
+# backup_recipient = age1...
+# backup_mail_to: where the encrypted backup is mailed.
+# backup_mail_to = admin@example.org
+# backup_dir: encrypted copies kept for 30 days. Default: /var/backups/ocs
+# backup_dir = /var/backups/ocs
+# backup_max_mail_bytes: larger encrypted files are not attached (kept locally
+#   only). Integer 1..100000000. Default: 20000000
+# backup_max_mail_bytes = 20000000

@@ -1,5 +1,7 @@
 #include "config.h"
 
+#include "core/email.h"
+
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -35,6 +37,28 @@ static int set_port(int *dst, const char *v) {
   return 0;
 }
 
+/* age X25519 recipient: "age1" followed by lowercase bech32 characters only. */
+static int set_age_recipient(char *dst, size_t cap, const char *v) {
+  if (strncmp(v, "age1", 4) != 0 || !v[4]) return -1;
+  for (const char *p = v; *p; p++)
+    if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9'))) return -1;
+  return set(dst, cap, v);
+}
+
+/* Decimal 1..100000000, digits only. */
+static int set_mail_bytes(int64_t *dst, const char *v) {
+  size_t n = strlen(v);
+  if (n == 0 || n > 9) return -1;
+  int64_t x = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (v[i] < '0' || v[i] > '9') return -1;
+    x = x * 10 + (v[i] - '0');
+  }
+  if (x < 1 || x > 100000000) return -1;
+  *dst = x;
+  return 0;
+}
+
 int config_load(const char *path, config_t *cfg) {
   FILE *f = fopen(path, "r");
   if (!f) return -1;
@@ -58,6 +82,11 @@ int config_load(const char *path, config_t *cfg) {
     else if (strcmp(k, "smtp_pass") == 0) rc = set(cfg->smtp_pass, sizeof cfg->smtp_pass, v);
     else if (strcmp(k, "mail_from") == 0) rc = set(cfg->mail_from, sizeof cfg->mail_from, v);
     else if (strcmp(k, "tracker_port") == 0) rc = set_port(&cfg->tracker_port, v);
+    else if (strcmp(k, "backup_recipient") == 0)
+      rc = set_age_recipient(cfg->backup_recipient, sizeof cfg->backup_recipient, v);
+    else if (strcmp(k, "backup_mail_to") == 0) rc = email_normalize(v, cfg->backup_mail_to);
+    else if (strcmp(k, "backup_dir") == 0) rc = set(cfg->backup_dir, sizeof cfg->backup_dir, v);
+    else if (strcmp(k, "backup_max_mail_bytes") == 0) rc = set_mail_bytes(&cfg->backup_max_mail_bytes, v);
     else rc = -1;
   }
   if (ferror(f)) rc = -1;
@@ -65,5 +94,7 @@ int config_load(const char *path, config_t *cfg) {
   if (rc != 0) return -1;
   if (!cfg->data_dir[0] || !cfg->web_dir[0] || !cfg->base_url[0]) return -1;
   if (!cfg->listen[0]) snprintf(cfg->listen, sizeof cfg->listen, "http://127.0.0.1:8080");
+  if (!cfg->backup_dir[0]) snprintf(cfg->backup_dir, sizeof cfg->backup_dir, "/var/backups/ocs");
+  if (!cfg->backup_max_mail_bytes) cfg->backup_max_mail_bytes = 20000000;
   return 0;
 }

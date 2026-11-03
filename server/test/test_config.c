@@ -133,6 +133,61 @@ void test_tracker_port_invalid(void) {
   }
 }
 
+#define BASE_CONF "data_dir=d\nweb_dir=w\nbase_url=b\n"
+#define AGE_KEY "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+
+void test_backup_keys_parsed(void) {
+  write_conf(BASE_CONF "backup_recipient = " AGE_KEY "\nbackup_mail_to = Admin@X.de\n"
+             "backup_dir = /srv/bk\nbackup_max_mail_bytes = 5000000\n");
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_STRING(AGE_KEY, c.backup_recipient);
+  TEST_ASSERT_EQUAL_STRING("admin@x.de", c.backup_mail_to);
+  TEST_ASSERT_EQUAL_STRING("/srv/bk", c.backup_dir);
+  TEST_ASSERT_EQUAL_INT64(5000000, c.backup_max_mail_bytes);
+}
+
+void test_backup_defaults(void) {
+  write_conf(BASE_CONF);
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_STRING("", c.backup_recipient);
+  TEST_ASSERT_EQUAL_STRING("", c.backup_mail_to);
+  TEST_ASSERT_EQUAL_STRING("/var/backups/ocs", c.backup_dir);
+  TEST_ASSERT_EQUAL_INT64(20000000, c.backup_max_mail_bytes);
+}
+
+static int load_text(const char *text) {
+  write_conf(text);
+  config_t c;
+  int rc = config_load(path, &c);
+  remove(path);
+  return rc;
+}
+
+void test_backup_recipient_invalid(void) {
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_recipient = ssh-ed25519 AAAAC3NzaC1lZDI1NTE5\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_recipient = age1ABC\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_recipient = age1abc;rm\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_recipient = age1\n"));
+}
+
+void test_backup_mail_to_invalid(void) {
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_mail_to = nobody\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_mail_to = a b@x.de\n"));
+}
+
+void test_backup_max_bytes_out_of_range(void) {
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_max_mail_bytes = 0\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_max_mail_bytes = 100000001\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_max_mail_bytes = 12x\n"));
+  TEST_ASSERT_EQUAL_INT(-1, load_text(BASE_CONF "backup_max_mail_bytes = -5\n"));
+  TEST_ASSERT_EQUAL_INT(0, load_text(BASE_CONF "backup_max_mail_bytes = 100000000\n"));
+  TEST_ASSERT_EQUAL_INT(0, load_text(BASE_CONF "backup_max_mail_bytes = 1\n"));
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_config_parses_values_and_comments);
@@ -144,5 +199,10 @@ int main(void) {
   RUN_TEST(test_tracker_port_parsed);
   RUN_TEST(test_tracker_port_absent_is_zero);
   RUN_TEST(test_tracker_port_invalid);
+  RUN_TEST(test_backup_keys_parsed);
+  RUN_TEST(test_backup_defaults);
+  RUN_TEST(test_backup_recipient_invalid);
+  RUN_TEST(test_backup_mail_to_invalid);
+  RUN_TEST(test_backup_max_bytes_out_of_range);
   return UNITY_END();
 }

@@ -9,6 +9,9 @@ typedef struct {
   char listen[64], data_dir[256], web_dir[256], base_url[128];
   char smtp_url[128], smtp_user[64], smtp_pass[128], mail_from[128];
   int tracker_port; /* 0: tracker listener disabled */
+  /* Read by deploy/vps/ocs-backup.sh; the server only validates them. */
+  char backup_recipient[128], backup_mail_to[128], backup_dir[256];
+  int64_t backup_max_mail_bytes;   /* default 20000000 */
 } config_t;
 
 /* 0 ok, -1 fail. Production wires this to mail_build + platform_mail_send. */
