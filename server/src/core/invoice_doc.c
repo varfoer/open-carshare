@@ -143,6 +143,26 @@ static void line_note(const invoice_line_t *l, char *out, size_t cap) {
   }
 }
 
+/* Footer: split at '\n' (blank segments stay as blank lines), each wrapped to the page width. */
+static int wrap_footer(const char *footer, char lines[][LINE_CAP], int *n) {
+  for (const char *s = footer; *s;) {
+    const char *e = strchr(s, '\n');
+    size_t sl = e ? (size_t)(e - s) : strlen(s);
+    char seg[sizeof ((settings_t *)0)->invoice_footer];
+    if (sl >= sizeof seg) return -1;
+    memcpy(seg, s, sl); seg[sl] = 0;
+    if (wrap(0, 8, RIGHT - LEFT, seg, lines, n) < 0) return -1;
+    s += sl + (e ? 1 : 0);
+  }
+  return 0;
+}
+
+bool invoice_footer_fits(const char *footer) {
+  char fl[MAX_LINES][LINE_CAP];
+  int n = 0;
+  return wrap_footer(footer, fl, &n) == 0;
+}
+
 int invoice_pdf(const invoice_doc_t *d, char **out, size_t *len) {
   const invoice_t *inv = d->inv;
   char pre[600], label[40], buf[400], a[64], b[64];
@@ -150,15 +170,7 @@ int invoice_pdf(const invoice_doc_t *d, char **out, size_t *len) {
   int npl = 0, nfl = 0;
   if (prenotification(d, pre, sizeof pre) < 0) return -1;
   if (wrap(0, 10, RIGHT - LEFT, pre, pl, &npl) < 0) return -1;
-  /* Footer: split at '\n' (blank segments stay as blank lines), each wrapped to the page width. */
-  for (const char *s = d->s->invoice_footer; *s;) {
-    const char *e = strchr(s, '\n');
-    size_t sl = e ? (size_t)(e - s) : strlen(s);
-    char seg[sizeof d->s->invoice_footer];
-    memcpy(seg, s, sl); seg[sl] = 0;
-    if (wrap(0, 8, RIGHT - LEFT, seg, fl, &nfl) < 0) return -1;
-    s += sl + (e ? 1 : 0);
-  }
+  if (wrap_footer(d->s->invoice_footer, fl, &nfl) < 0) return -1;
   int footer_top = 60 + 10 * (nfl > 0 ? nfl - 1 : 0);
   int limit = footer_top + 20 > 120 ? footer_top + 20 : 120;
 

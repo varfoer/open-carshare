@@ -137,8 +137,9 @@ when it is fixed.
 - [any] PDF width tables come from the gsfonts AFMs and differ from Adobe
   Core14 for about 10 rare glyphs: regenerate from the urw-base35 NimbusSans
   AFMs.
-- [any] Send step 2 is two db writes (`db_put_invoices`, `db_put_run`), and a
-  failed final `db_put_invoices` after the mails went out leads to
-  re-mailing on retry.
+- [any] One mandate revoked between finalize and send blocks sending the
+  whole run (no per-user exclusion).
+- [any] `billing_line` writes `end = 0` for a started booking with
+  `actual_end == 0` (bill time falls back to `booked_end`).
 - [any] Admin cannot preview invoice PDFs before send (PDFs are written at
   the first send).

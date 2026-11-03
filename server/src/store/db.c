@@ -357,12 +357,12 @@ DEFINE_PUT_ENTITY(db_put_mandate, mandate_t, mandates, n_mandates, cap_mandates,
 DEFINE_PUT_ENTITY(db_put_run, billing_run_t, runs, n_runs, cap_runs,
                   "billing_runs.jsonl", billing_run_to_json)
 
-/* Removes one run; RAM restored if persisting fails. */
+/* Removes one draft run (-1 for a FINAL run); RAM restored if persisting fails. */
 int db_delete_run(db_t *db, int64_t id) {
   size_t n = db->n_runs, at = n;
   for (size_t i = 0; i < n; i++)
     if (db->runs[i].id == id) at = i;
-  if (at == n) return -1;
+  if (at == n || db->runs[at].state == RUN_FINAL) return -1;
   billing_run_t *copy = malloc(n * sizeof *copy);
   if (!copy) return -1;
   memcpy(copy, db->runs, n * sizeof *copy);
@@ -417,9 +417,17 @@ int db_put_invoices(db_t *db, const invoice_t *inv, size_t n) {
 
 int db_finalize_run(db_t *db, const billing_run_t *run, const invoice_t *inv, size_t n_inv,
                     const invoice_line_t *lines, size_t n_lines) {
-  if (!db_run(db, run->id)) return -1;
-  for (size_t i = 0; i < n_lines; i++)
-    if (!db_booking(db, lines[i].booking_id)) return -1;
+  if (!db_run(db, run->id) || run->state != RUN_FINAL) return -1;
+  for (size_t i = 0; i < n_lines; i++) {
+    const booking_t *bk = db_booking(db, lines[i].booking_id);
+    if (!bk || bk->invoice_id != 0) return -1;
+    bool known = false;
+    for (size_t j = 0; j < n_inv; j++) known = known || inv[j].number == lines[i].invoice_number;
+    if (!known) return -1;
+  }
+  for (size_t i = 0; i < n_inv; i++)
+    for (size_t j = i + 1; j < n_inv; j++)
+      if (inv[i].number == inv[j].number) return -1;
   for (size_t i = 0; i < n_inv; i++)
     if (db_invoice(db, inv[i].number)) return -1;
   snap_t s_lines, s_inv, s_book, s_runs;

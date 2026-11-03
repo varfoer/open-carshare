@@ -8,6 +8,7 @@
 #include "core/booking_rules.h"
 #include "core/codec.h"
 #include "core/email.h"
+#include "core/invoice_doc.h"
 #include "core/sepa.h"
 #include "http/api_internal.h"
 
@@ -456,6 +457,7 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   trim_copy(s.assoc_zip, zip);
   trim_copy(s.assoc_city, city);
   trim_copy(s.invoice_footer, footer);
+  if (!invoice_footer_fits(s.invoice_footer)) { api_invalid(res); return; }
   s.sepa_lead_days = (int)lead;
   s.start_tolerance_min = (int)tol;
   s.cancel_deadline_min = (int)dl;

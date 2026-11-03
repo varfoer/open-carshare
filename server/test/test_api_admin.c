@@ -695,6 +695,17 @@ void test_settings_roundtrip_and_negative_400(void) {
 }
 
 
+void test_settings_footer_too_long_400(void) {
+  char body[1024] = "{\"start_tolerance_min\":1,\"cancel_deadline_min\":1,\"cancel_fee_cents\":0,"
+                    "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","
+                    "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"sepa_lead_days\":5,"
+                    "\"invoice_footer\":\"a";
+  for (int i = 0; i < 30; i++) strcat(body, "\\nb");
+  strcat(body, "\"}");
+  adm_free("PUT", "/api/admin/settings", body, 400, "invalid");
+  TEST_ASSERT_EQUAL_STRING("", a->db.settings.invoice_footer);
+}
+
 void test_settings_trims_assoc_strings(void) {
   TEST_ASSERT_EQUAL_INT(0, th_set_creditor(a));
   cJSON *j = call("PUT", "/api/admin/settings",
@@ -973,6 +984,7 @@ int main(void) {
   RUN_TEST(test_admin_cancel_booking_fee_zero);
   RUN_TEST(test_admin_bookings_list_filters);
   RUN_TEST(test_settings_roundtrip_and_negative_400);
+  RUN_TEST(test_settings_footer_too_long_400);
   RUN_TEST(test_settings_creditor_roundtrip);
   RUN_TEST(test_settings_trims_assoc_strings);
   RUN_TEST(test_settings_creditor_invalid_400);

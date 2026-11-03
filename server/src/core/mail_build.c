@@ -1,5 +1,6 @@
 #include "core/mail_build.h"
 
+#include <stdbool.h>
 #include <string.h>
 
 typedef struct {
@@ -156,6 +157,14 @@ size_t mail_size_bound(size_t body_len, size_t att_len) {
   return 4096 + 2 * body_len + att_len / 3 * 4 + 4 + (att_len / 57 + 1) * 2 + 1;
 }
 
+/* True if some line of body starts with the multipart delimiter. */
+static bool body_has_boundary_line(const char *body) {
+  static const char delim[] = "--" BOUNDARY;
+  for (const char *p = body; p; p = strchr(p, '\n'), p = p ? p + 1 : NULL)
+    if (strncmp(p, delim, sizeof delim - 1) == 0) return true;
+  return false;
+}
+
 int mail_build_att(char *buf, size_t n, const char *from, const char *to,
                    const char *subject, const char *body, int64_t date,
                    const mail_att_t *att) {
@@ -164,6 +173,7 @@ int mail_build_att(char *buf, size_t n, const char *from, const char *to,
   if (att) {
     if (!header_token_ok(att->filename) || !header_token_ok(att->content_type)) return -1;
     if (!att->data && att->len > 0) return -1;
+    if (body_has_boundary_line(body)) return -1;
   }
   out_t o = {buf, n, 0, 0};
   put_date(&o, date);

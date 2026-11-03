@@ -149,7 +149,8 @@ String keys `assoc_name`, `assoc_street`, `assoc_zip`, `assoc_city`,
 settings PUT requires all keys), start_tolerance_min (15), cancel_deadline_min (0), cancel_fee_cents (0),
 `sepa_lead_days` (integer 5..30, default 5: days between the send and the
 collection; the minimum is the 5-day pre-notification promised in the
-mandate text), `invoice_footer` (free text, printed on the invoice PDF),
+mandate text), `invoice_footer` (free text, printed on the invoice PDF; it must fit the
+PDF footer, at most 24 lines, else the settings PUT answers 400 `invalid`),
 SMTP config.
 
 ### odometer_reading
@@ -352,7 +353,8 @@ period must be greater than the period of every existing run (409
    collection date, no XML yet.
 4. **Send** (`POST …/send`, only for a `final` run, else 409 `not_final`
    „Der Abrechnungslauf ist noch nicht abgeschlossen.“). The first send
-   issues everything: it refuses with 409 `blocked` while a user with total >
+   issues everything: it refuses with 409 `blocked` „Versand nicht möglich.“
+   while a user with total >
    0 has no current mandate (the mandate current at send is used and stored
    as `invoice.mandate_id`), then sets the collection date, the invoice date
    (`issued_at`), writes all invoice PDFs and the SEPA XML, and records
@@ -362,10 +364,17 @@ period must be greater than the period of every existing run (409
    mail is the SEPA pre-notification (amount, collection date, mandate ref,
    creditor ID), so the date is fixed here, not at finalize. Then every
    invoice with `mailed_at == 0` is mailed (PDF attached; the user is
-   addressed with „du“) and `mailed_at` stored. The answer is
+   addressed with „du“) and `mailed_at` is persisted right after each
+   successful mail (a failed persist stops the loop with 500, so no user is
+   mailed twice). The answer is
    `{"sent": n, "run": …, "failed": [invoice numbers]}`. Send is
    retryable: a repeated call mails only the unmailed invoices; collection
-   date, PDFs and XML of the first send stay.
+   date, PDFs and XML of the first send stay. A retry with at least one
+   unmailed invoice with total > 0 is refused with 409 `prenotify_late`
+   „Der Einzugstermin ist zu nah, die Vorabankündigung wäre nicht mehr
+   fristgerecht.“ (nothing is mailed) when the local date of now +
+   5 days (`SEPA_PRENOTIFY_MIN_DAYS`) is later than the stored collection
+   date.
 5. Admin downloads the SEPA XML (`GET …/sepa.xml`, „SEPA-XML herunterladen“,
    404 while it does not exist or if the run has no entry with total > 0)
    and imports it into Hibiscus. Invoice PDFs are downloadable per invoice
@@ -518,7 +527,8 @@ admin:
   POST /api/admin/billing?period=YYYY-MM        (new draft)
   GET  /api/admin/billing/{id}                  (detail; draft: live, with blockers)
   DELETE /api/admin/billing/{id}                (draft only)
-  POST /api/admin/billing/{id}/finalize | /send
+  POST /api/admin/billing/{id}/finalize | /send  (409 blocked: finalize „Abschluss nicht möglich.“,
+                                                  send „Versand nicht möglich.“; send also 409 prenotify_late)
   GET  /api/admin/billing/{id}/sepa.xml         (application/xml)
   GET  /api/admin/invoices/{number}/pdf         (application/pdf, after first send)
 ```

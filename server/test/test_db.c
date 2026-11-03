@@ -748,6 +748,42 @@ void test_load_drops_invoices_of_missing_run(void) {
   db_free(&db);
 }
 
+void test_finalize_run_guards_and_delete_final(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  booking_t b1 = mkbooking(), b2 = mkbooking();
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b1));
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b2));
+  billing_run_t run = mkrun_db(RUN_DRAFT);
+  TEST_ASSERT_EQUAL_INT(0, db_put_run(&db, &run));
+  invoice_t inv[2] = {mkinv(1, 1, run.id), mkinv(2, 2, run.id)};
+  invoice_line_t ln[2] = {mkinvline(1, b1.id), mkinvline(2, b2.id)};
+  billing_run_t fin = run;
+  fin.state = RUN_FINAL;
+  /* run not RUN_FINAL */
+  TEST_ASSERT_EQUAL_INT(-1, db_finalize_run(&db, &run, inv, 2, ln, 2));
+  /* line number not in inv[] */
+  invoice_line_t bad[2] = {mkinvline(1, b1.id), mkinvline(9, b2.id)};
+  TEST_ASSERT_EQUAL_INT(-1, db_finalize_run(&db, &fin, inv, 2, bad, 2));
+  /* duplicate invoice numbers */
+  invoice_t dup[2] = {mkinv(1, 1, run.id), mkinv(1, 2, run.id)};
+  TEST_ASSERT_EQUAL_INT(-1, db_finalize_run(&db, &fin, dup, 2, ln, 2));
+  /* booking already invoiced */
+  b2.invoice_id = 7;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b2));
+  TEST_ASSERT_EQUAL_INT(-1, db_finalize_run(&db, &fin, inv, 2, ln, 2));
+  TEST_ASSERT_EQUAL_size_t(0, db.n_invoices);
+  TEST_ASSERT_EQUAL_size_t(0, db.n_lines);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&db, b1.id)->invoice_id);
+  TEST_ASSERT_EQUAL_INT(RUN_DRAFT, db_run(&db, run.id)->state);
+  b2.invoice_id = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&db, &b2));
+  TEST_ASSERT_EQUAL_INT(0, db_finalize_run(&db, &fin, inv, 2, ln, 2));
+  TEST_ASSERT_EQUAL_INT(-1, db_delete_run(&db, run.id));
+  TEST_ASSERT_NOT_NULL(db_run(&db, run.id));
+  db_free(&db);
+}
+
 void test_finalize_run_rolls_back_on_write_failure(void) {
   db_t db;
   TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
@@ -851,6 +887,7 @@ int main(void) {
   RUN_TEST(test_finalize_run_persists_and_locks);
   RUN_TEST(test_load_drops_invoices_of_draft_run);
   RUN_TEST(test_load_drops_invoices_of_missing_run);
+  RUN_TEST(test_finalize_run_guards_and_delete_final);
   RUN_TEST(test_finalize_run_rolls_back_on_write_failure);
   RUN_TEST(test_next_invoice_number);
   RUN_TEST(test_load_creates_invoice_and_billing_dirs);

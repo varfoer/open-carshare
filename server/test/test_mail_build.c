@@ -121,6 +121,14 @@ void test_att_filename_non_ascii_rejected(void) {
   TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "x", 0, &att));
 }
 
+void test_att_body_boundary_line_rejected(void) {
+  char b[4096];
+  mail_att_t att = {"R-1.pdf", "application/pdf", "x", 1};
+  TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "a\n--=_ocs_part_0\nb", 0, &att));
+  TEST_ASSERT_EQUAL_INT(-1, mail_build_att(b, sizeof b, FROM, TO, "s", "--=_ocs_part_0--\n", 0, &att));
+  TEST_ASSERT_TRUE(mail_build_att(b, sizeof b, FROM, TO, "s", "a --=_ocs_part_0 b\n", 0, &att) > 0);
+}
+
 void test_size_bound_suffices(void) {
   size_t alen = 1024 * 1024, blen = 5000;
   unsigned char *d = malloc(alen);
@@ -155,6 +163,7 @@ int main(void) {
   RUN_TEST(test_att_null_same_as_plain);
   RUN_TEST(test_att_multipart);
   RUN_TEST(test_att_filename_non_ascii_rejected);
+  RUN_TEST(test_att_body_boundary_line_rejected);
   RUN_TEST(test_size_bound_suffices);
   return UNITY_END();
 }

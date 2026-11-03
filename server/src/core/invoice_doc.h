@@ -1,6 +1,7 @@
 #ifndef OCS_CORE_INVOICE_DOC_H
 #define OCS_CORE_INVOICE_DOC_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include "core/model.h"
@@ -14,6 +15,8 @@ typedef struct {
 /* A4 invoice with line table, total, pre-notification and footer. 0 ok (malloc'd *out), -1 on
  * error (allocation, missing mandate data for total > 0, text that does not fit). */
 int invoice_pdf(const invoice_doc_t *d, char **out, size_t *len);
+/* True if the footer wraps into the PDF footer area (same wrap logic as invoice_pdf). */
+bool invoice_footer_fits(const char *footer);
 /* Mail body (pre-notification), length or -1 (does not fit, or mandate data missing for total > 0). */
 int invoice_mail_body(const invoice_doc_t *d, const char *user_first_line_name, char *out, size_t cap);
 void invoice_subject(const invoice_t *inv, char *out, size_t cap);   /* "Rechnung 17 – Oktober 2026" */
