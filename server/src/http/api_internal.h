@@ -93,6 +93,8 @@ void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
 void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_invite(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+/* GDPR export of one user's personal records (spec §12/§13); full IBANs never included. */
+void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_car_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_car_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
@@ -136,10 +138,21 @@ void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
  * sets the user inactive and deletes the user's sessions, in this order.
  * 0 ok, -1 storage error (steps done so far stay), -2 no current mandate. */
 int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
+/* Cancels every RESERVED booking of user_id: cancel_fee_cents 0, state CANCELLED,
+ * cancelled_at/modified_at now, modified_by actor_id. No mails. Count or -1 on storage error. */
+int api_cancel_reserved(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
 void h_me_mandate_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_mandates_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 /* api_auth.c: sets the expiring ocs_session cookie (Max-Age=0) on res. */
 void api_clear_session_cookie(api_res_t *res);
+
+/* api_notify.c. Booking PUT, before the put: a changed booked_start re-arms the start reminder,
+ * a changed booked_end the late reminder, a changed user_id both. */
+void api_booking_changed(const booking_t *old, booking_t *nb);
+/* Booking PUT, after the put. user_id changed: NT_CANCELLED (old row) to the old user and
+ * NT_CREATED to the new one. Else NT_MODIFIED if booked_start, booked_end, car_id or club_trip
+ * differ; nothing otherwise. Results ignored. */
+void api_notify_booking_update(app_t *a, const booking_t *old, const booking_t *nb, int64_t actor_id);
 
 #endif

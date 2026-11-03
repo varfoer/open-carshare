@@ -4,7 +4,10 @@
 #include "app.h"
 
 /* key = value, '#' comments, blank lines. Required: data_dir, web_dir, base_url.
- * listen defaults to http://127.0.0.1:8080. Unknown key, over-long value,
+ * listen defaults to http://127.0.0.1:8080. Optional backup_* keys (used by ocs-backup.sh):
+ * backup_recipient "age1" + [a-z0-9], backup_mail_to a valid address (normalized),
+ * backup_dir (default /var/backups/ocs), backup_max_mail_bytes 1..100000000 (default 20000000).
+ * Unknown key, over-long value,
  * malformed line, unreadable file or missing required key -> -1. */
 int config_load(const char *path, config_t *cfg);
 

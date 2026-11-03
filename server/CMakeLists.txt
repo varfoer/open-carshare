@@ -64,6 +64,8 @@ ocs_add_test(test_api_price)
 ocs_add_test(test_sepa)
 ocs_add_test(test_api_mandate)
 ocs_add_test(test_api_billing)
+ocs_add_test(test_notify)
+ocs_add_test(test_api_notify)
 
 if(OCS_FUZZ)
   target_compile_options(ocs_core PRIVATE -fsanitize=fuzzer-no-link)
@@ -91,3 +93,7 @@ add_test(NAME pain008_xsd COMMAND sh -c
   [=[command -v xmllint >/dev/null && [ -f "$1" ] || exit 77; exec xmllint --noout --schema "$1" "${TMPDIR:-/tmp}/ocs-pain008-test.xml"]=]
   sh ${PAIN008_XSD})
 set_tests_properties(pain008_xsd PROPERTIES SKIP_RETURN_CODE 77 DEPENDS test_pain008)
+
+# Encrypted backup by mail and restore (deploy/vps); skipped (77) without age/age-keygen.
+add_test(NAME backup_roundtrip COMMAND bash ${CMAKE_SOURCE_DIR}/deploy/vps/test/backup_roundtrip.sh $<TARGET_FILE:ocs-server>)
+set_tests_properties(backup_roundtrip PROPERTIES SKIP_RETURN_CODE 77)

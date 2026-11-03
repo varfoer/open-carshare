@@ -1,0 +1,16 @@
+[Unit]
+Description=open-carshare encrypted backup by mail
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ocs
+Group=ocs
+ExecStart=/opt/ocs/ocs-backup.sh -c /etc/ocs/ocs.conf
+ProtectSystem=strict
+ReadWritePaths=/var/backups/ocs
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectHome=yes
+UMask=0077

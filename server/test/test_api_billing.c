@@ -411,7 +411,7 @@ void test_settings_lead_days_range(void) {
 #define SETTINGS(lead, footer)                                                                    \
   "{\"start_tolerance_min\":15,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"            \
   "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","         \
-  "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\"" lead footer "}"
+  "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"reminder_before_min\":60" lead footer "}"
   call_free("PUT", "/api/admin/settings", SETTINGS(",\"sepa_lead_days\":4", ",\"invoice_footer\":\"\""), 400, "invalid");
   call_free("PUT", "/api/admin/settings", SETTINGS(",\"sepa_lead_days\":31", ",\"invoice_footer\":\"\""), 400, "invalid");
   call_free("PUT", "/api/admin/settings", SETTINGS("", ",\"invoice_footer\":\"\""), 400, "invalid");
@@ -421,7 +421,7 @@ void test_settings_lead_days_range(void) {
   big[512] = 0;
   snprintf(body, sizeof body, "{\"start_tolerance_min\":15,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
            "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","
-           "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"sepa_lead_days\":5,"
+           "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"reminder_before_min\":60,\"sepa_lead_days\":5,"
            "\"invoice_footer\":\"%s\"}", big);
   call_free("PUT", "/api/admin/settings", body, 400, "invalid");
   TEST_ASSERT_EQUAL_INT(5, a->db.settings.sepa_lead_days);
@@ -478,6 +478,7 @@ void test_send_draft_409(void) {
 void test_send_mails_with_pdf(void) {
   int64_t id = finalized_april();
   int before = th_mail_count();
+  th_mail_fail_to("admin@x.de");   /* run-done mail fails: the last recorded mail stays Zora's invoice */
   cJSON *j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
   TEST_ASSERT_EQUAL_INT64(2, num(j, "sent"));
   TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(j, "failed")));
@@ -507,6 +508,7 @@ void test_send_zero_invoice_no_prenotification(void) {
   b.km_start = b.km_end = 0;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   int64_t id = finalized_april();
+  th_mail_fail_to("admin@x.de");   /* keep the last invoice mail inspectable */
   call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("Rechnung-3.pdf", th_last_mail_att_name());
   TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Es wird kein Betrag eingezogen."));
@@ -573,7 +575,7 @@ void test_send_retry_mails_only_unmailed(void) {
   TEST_ASSERT_EQUAL_STRING("2026-06-15", obj(obj(j, "run"), "collection_date")->valuestring);
   TEST_ASSERT_EQUAL_INT64(N, num(obj(j, "run"), "sent_at"));
   cJSON_Delete(j);
-  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(before + 2 + 1, th_mail_count());   /* + run-done mail to the admin */
   TEST_ASSERT_EQUAL_INT64(N + 3600, db_invoice(&a->db, 1)->mailed_at);
   TEST_ASSERT_EQUAL_INT64(N, db_invoice(&a->db, 1)->issued_at);
   char *x2 = xml_of(id);
@@ -584,7 +586,7 @@ void test_send_retry_mails_only_unmailed(void) {
   j = call("POST", rpath(id, "/send"), NULL, 200, NULL);
   TEST_ASSERT_EQUAL_INT64(0, num(j, "sent"));
   cJSON_Delete(j);
-  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(before + 1, th_mail_count());   /* no invoice mail, only the run-done report */
 }
 
 void test_send_retry_too_late_409(void) {
@@ -608,7 +610,7 @@ void test_send_retry_too_late_409(void) {
   r = th_req(a, "POST", rpath(id, "/send"), NULL, tadm, N + 3600);
   TEST_ASSERT_EQUAL_INT(200, r.status);
   api_res_free(&r);
-  TEST_ASSERT_EQUAL_INT(before + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(before + 2 + 1, th_mail_count());   /* + run-done mail to the admin */
 }
 
 /* Revokes the user's active mandate and (replace) adds a new one with OTHER_IBAN. */
@@ -676,6 +678,59 @@ void test_send_empty_holder_500_and_retry(void) {
   TEST_ASSERT_EQUAL_INT64(N, a->db.runs[0].sent_at);
 }
 
+static int64_t add_admin(const char *email, bool active) {
+  int64_t id = th_add_user(a, email, NULL, ROLE_ADMIN);
+  TEST_ASSERT_TRUE(id > 0);
+  user_t u = *db_user(&a->db, id);
+  u.active = active;
+  TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
+  return id;
+}
+
+void test_send_mails_admins_run_done(void) {
+  add_admin("admin2@x.de", true);
+  add_admin("admin3@x.de", false);
+  int64_t id = finalized_april();
+  int before = th_mail_count();
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(before + 2 + 2, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("Abrechnung April 2026 versendet", th_last_mail_subject());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Rechnungen versendet: 2 von 2\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Bei diesem Versand: 2\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Fehlgeschlagen: keine\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Einzugstermin: 15.06.2026\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "/#/admin/abrechnung"));
+  TEST_ASSERT_NULL(strstr(th_last_mail_body(), FULL_IBAN));
+  TEST_ASSERT_NOT_EQUAL(0, strcmp("admin3@x.de", th_last_mail_to()));
+}
+
+void test_send_failed_listed_in_run_mail(void) {
+  int64_t id = finalized_april();
+  th_mail_fail_to("zora@x.de");   /* Zora's invoice is number 2 */
+  int before = th_mail_count();
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(before + 1 + 1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("admin@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Rechnungen versendet: 1 von 2\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Fehlgeschlagen: 2\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Bitte den Versand f\xC3\xBCr die fehlgeschlagenen Rechnungen wiederholen."));
+  /* the retry reaches the mail loop again and reports again, with nothing failed */
+  th_mail_fail_to(NULL);
+  before = th_mail_count();
+  call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(before + 1 + 1, th_mail_count());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Rechnungen versendet: 2 von 2\n"));
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "Bei diesem Versand: 1\n"));
+}
+
+void test_send_refused_no_run_mail(void) {
+  add_april();
+  int64_t id = create_run("2026-04");
+  int before = th_mail_count();
+  call_free("POST", rpath(id, "/send"), NULL, 409, "not_final");
+  TEST_ASSERT_EQUAL_INT(before, th_mail_count());
+}
+
 void test_sepa_xml_download(void) {
   int64_t id = finalized_april();
   call_free("GET", rpath(id, "/sepa.xml"), NULL, 404, "not_found");
@@ -710,6 +765,7 @@ void test_api_responses_never_full_iban(void) {
   int64_t id = finalized_april();
   call_free("GET", "/api/admin/billing", NULL, 200, NULL);
   cJSON_Delete(detail(id));
+  th_mail_fail_to("admin@x.de");   /* the last recorded mail is an invoice mail */
   call_free("POST", rpath(id, "/send"), NULL, 200, NULL);
   cJSON_Delete(detail(id));
   TEST_ASSERT_NULL(strstr(th_last_mail_body(), FULL_IBAN));
@@ -748,6 +804,9 @@ int main(void) {
   RUN_TEST(test_send_uses_mandate_current_at_send);
   RUN_TEST(test_send_blocked_mandate_revoked_after_finalize);
   RUN_TEST(test_send_empty_holder_500_and_retry);
+  RUN_TEST(test_send_mails_admins_run_done);
+  RUN_TEST(test_send_failed_listed_in_run_mail);
+  RUN_TEST(test_send_refused_no_run_mail);
   RUN_TEST(test_sepa_xml_download);
   RUN_TEST(test_invoice_pdf_download);
   RUN_TEST(test_api_responses_never_full_iban);

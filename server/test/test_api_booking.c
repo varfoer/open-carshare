@@ -41,7 +41,10 @@ void setUp(void) {
   car1 = add_car("Golf", true);
   car2 = add_car("Polo", true);
   car_off = add_car("Alt", false);
-  settings_t s = {15, 60, 500};
+  settings_t s = a->db.settings; /* keeps codec defaults */
+  s.start_tolerance_min = 15;
+  s.cancel_deadline_min = 60;
+  s.cancel_fee_cents = 500;
   TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
 }
 

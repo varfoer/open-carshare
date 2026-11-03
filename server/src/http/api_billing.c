@@ -668,6 +668,8 @@ void h_admin_billing_send(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
       failed[nf++] = invs[i].number;
     }
   }
+  /* Result ignored: a failed report never changes the send response. */
+  api_notify_run_sent(a, &run, invs, n, sent, failed, nf);
   cJSON *o = cJSON_CreateObject();
   cJSON *r = billing_run_to_json(&run), *f = id_array(failed, nf);
   if (!o || !r || !f || !jnum(o, "sent", (int64_t)sent) || !cJSON_AddItemToObject(o, "run", r)) {

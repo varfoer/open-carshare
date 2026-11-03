@@ -76,7 +76,25 @@ export async function render(root) {
       email.node, name.node, street.node, zip.node, city.node, role.node,
       ...(u ? [active.node] : []), club.node, lic.node, fErr.node,
       primaryButton(u ? 'Speichern' : 'Anlegen und einladen'), cancel);
-    if (u) form.append(mandateSection(u));
+    if (u) {
+      const exp = el('button', { type: 'button', text: 'Daten exportieren', className: 'btn' });
+      exp.addEventListener('click', async () => {
+        fErr.hide();
+        exp.disabled = true;
+        try {
+          const data = await api('GET', `/api/admin/users/${u.id}/export`);
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = el('a', { href: url, download: `ocs-export-${u.id}.json` });
+          document.body.append(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        } catch (x) { fErr.show(x.message); }
+        exp.disabled = false;
+      });
+      form.append(exp, mandateSection(u));
+    }
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
       fErr.hide(); err.hide(); ok.hide();
@@ -93,6 +111,8 @@ export async function render(root) {
       try {
         if (u) {
           body.active = active.input.checked;
+          if (u.active && !body.active &&
+              !window.confirm('Konto deaktivieren? Offene Reservierungen werden kostenlos storniert.')) return;
           await api('PUT', `/api/admin/users/${u.id}`, body);
           await reload('Gespeichert.');
         } else {

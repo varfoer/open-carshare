@@ -25,7 +25,7 @@ void money_de(int64_t cents, char *out, size_t cap) {
 }
 
 /* "2026-10" -> "Oktober 2026"; anything unparsable is returned as is. */
-static void period_label(const char *period, char *out, size_t cap) {
+void period_label(const char *period, char *out, size_t cap) {
   static const char *const months[12] = {"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
                                          "August", "September", "Oktober", "November", "Dezember"};
   int y, m;
