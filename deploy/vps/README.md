@@ -110,22 +110,91 @@ Only if `tracker_port` is set in `ocs.conf` (section 10), also open it:
 sudo ufw allow 5027/tcp
 ```
 
-## 9. Interim backup
+## 9. Backup
 
-Until mail backups arrive in a later phase, nightly tar via cron. The
-archives contain password hashes, so keep them root-only:
+Nightly at 03:15 `ocs-backup.sh` encrypts `data/` with
+[age](https://age-encryption.org) and mails it to the admin (spec section 12).
+Only `.age` files are written and mailed; the plaintext never touches the disk.
 
 ```sh
-sudo install -d -m 0700 -o root -g root /var/backups/ocs
-sudo crontab -e
+sudo apt install age
 ```
 
-```cron
-0 3 * * * umask 077; tar -czf /var/backups/ocs/ocs-$(date +\%F).tar.gz -C /var/lib ocs && find /var/backups/ocs -name 'ocs-*.tar.gz' -mtime +30 -delete
+On **your own machine** (not the VPS), create the key pair and keep the
+private key offline (password manager, USB stick). Without it no backup can be
+restored:
+
+```sh
+age-keygen -o ocs-backup.key     # prints "Public key: age1..."
 ```
 
-Copy the archives off the VPS over a secure channel. Never send these
-archives by mail unencrypted (spec section 12).
+Put the public `age1...` line into `/etc/ocs/ocs.conf` together with the
+recipient address (see `ocs.conf.example`):
+
+```
+backup_recipient = age1...
+backup_mail_to = admin@example.org
+# backup_dir = /var/backups/ocs
+# backup_max_mail_bytes = 20000000
+```
+
+Install scripts, directory and units:
+
+```sh
+sudo install -m 0755 deploy/vps/ocs-backup.sh deploy/vps/ocs-restore.sh /opt/ocs/
+sudo install -d -o ocs -g ocs -m 0700 /var/backups/ocs
+sudo install -m 0644 deploy/vps/ocs-backup.service deploy/vps/ocs-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ocs-backup.timer
+```
+
+Test run, then check that the mail with the `.age` attachment arrived:
+
+```sh
+sudo systemctl start ocs-backup.service
+journalctl -u ocs-backup.service -n 20
+```
+
+Photos are backed up on Sundays (`ocs-photos-*.tar.age`). Mail providers
+often cap messages at 20–25 MB: a file over `backup_max_mail_bytes` is not
+attached and stays only in `/var/backups/ocs` (30 days); copy it off the VPS by
+other means (e.g. `scp`), it is encrypted.
+
+If you used the interim backup cron of earlier versions: remove the line
+from `sudo crontab -e` and delete the old unencrypted archives
+(`sudo rm /var/backups/ocs/ocs-*.tar.gz`) before the `install -d` above, which
+hands the directory to `ocs`.
+
+### Restore
+
+On the machine that holds `ocs-backup.key`, or on the VPS after copying the
+key there temporarily:
+
+```sh
+sudo systemctl stop ocs-server
+sudo /opt/ocs/ocs-restore.sh ocs-data-YYYY-MM-DD.tar.gz.age ocs-backup.key /var/lib/ocs.restored
+# photos, if needed:
+sudo /opt/ocs/ocs-restore.sh ocs-photos-YYYY-MM-DD.tar.age ocs-backup.key /var/lib/ocs.restored/photos
+```
+
+`ocs-restore.sh` refuses a target directory that is not empty. Check the
+restored data with a copy of the config whose `data_dir` points at it:
+
+```sh
+sudo sh -c "umask 077; sed 's|^data_dir.*|data_dir = /var/lib/ocs.restored|' /etc/ocs/ocs.conf > /root/restore.conf"
+sudo /opt/ocs/ocs-server -c /root/restore.conf check-data   # prints table counts, exit 0
+sudo rm /root/restore.conf
+```
+
+Then swap the directories and start again:
+
+```sh
+sudo mv /var/lib/ocs /var/lib/ocs.old && sudo mv /var/lib/ocs.restored /var/lib/ocs
+sudo chown -R ocs:ocs /var/lib/ocs
+sudo systemctl start ocs-server
+```
+
+Delete the key from the VPS again if you copied it there.
 
 ## 10. Teltonika tracker
 

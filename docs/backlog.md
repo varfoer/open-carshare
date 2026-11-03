@@ -23,8 +23,6 @@ when it is fixed.
   readings cap per car per day, one live connection per IMEI (close older
   on handshake), plausibility check at resolve (km/h), TLS or source-IP
   pinning once firmware is verified.
-- [P7] Interim tar backup cron in `deploy/vps/README.md` is replaced by the
-  encrypted mail backup.
 
 ## Server
 

@@ -105,7 +105,8 @@ id, car_id, user_id, booked_start, booked_end, state
 km_start, km_end, km_source (`telematics`|`manual`), km_pending,
 cancelled_at, club_trip (default false), invoice_id (0 = not invoiced, else
 the number of the invoice that billed it), created_at, modified_at,
-modified_by.
+modified_by, start_reminded, late_reminded (reminder mail sent; default
+false, §10).
 
 ### damage_report
 id, booking_id, user_id, phase (`start`|`end`), text (required, < 1024 bytes),
@@ -151,7 +152,8 @@ settings PUT requires all keys), start_tolerance_min (15), cancel_deadline_min (
 collection; the minimum is the 5-day pre-notification promised in the
 mandate text), `invoice_footer` (free text, printed on the invoice PDF; it must fit the
 PDF footer, at most 24 lines, else the settings PUT answers 400 `invalid`),
-SMTP config.
+`reminder_before_min` (integer 0..1440, default 60, 0 = no start reminder;
+required in the settings PUT), SMTP config.
 
 ### odometer_reading
 car_id, ts (device GNSS time, epoch seconds), odometer_m (tracker total
@@ -479,6 +481,41 @@ Booking created / modified / cancelled, reminder before start (configurable,
 default 1 h), late return reminder, invoice. Admin: billing run done,
 km still pending 24 h after return (daily, §8).
 
+Mails address the user with „du“; times are Europe/Berlin, `04.11.2026 14:30`.
+A failed mail never changes the HTTP response of the request that triggered
+it (the mailer logs it).
+
+- **Recipient** of every booking and reminder mail is the booking's user, not
+  the actor: an admin creating, editing or cancelling a member's booking mails
+  the member (the text then says the Vereinsverwaltung made the change).
+  Inactive users get no booking or reminder mail.
+- **Created** (`Buchung <id> bestätigt`): user `POST /api/bookings` and admin
+  `POST /api/admin/bookings`.
+- **Modified** (`Buchung <id> geändert`): user or admin `PUT` that changes
+  `booked_start`, `booked_end`, `car_id` or `club_trip`. Admin edits of only
+  actual times or km send nothing.
+- **Cancelled** (`Buchung <id> storniert`, with the cancel fee if > 0): user
+  or admin `DELETE`. Start, return, expiry and the cancellations caused by
+  mandate revocation or deactivation send nothing.
+- **Start reminder** (`Erinnerung: Fahrt ab HH:MM`): once for a `reserved`
+  booking when `booked_start - reminder_before_min <= now < booked_start`,
+  unless the booking was created inside that window. Off when
+  `reminder_before_min` is 0.
+- **Late-return reminder** (`Rückgabe überfällig: <car>`): once for an
+  `active` booking when `now >= booked_end`. It names the late fee only when
+  the tariff at `booked_start` has `late_fee_cents_per_started_h > 0` and the
+  booking is not a club trip.
+- **Once only:** `start_reminded` / `late_reminded` are set only after a
+  successful send, so a failed send is retried on the next 5-min tick while
+  the condition holds. A change of `booked_start` clears `start_reminded`, a
+  change of `booked_end` clears `late_reminded`. The reminders run in the
+  5-min expiry job, after expiry.
+- **Billing run done** (`Abrechnung <Monat Jahr> versendet`, to every active
+  admin): after each send call that reached the mail loop, retries included;
+  not when the send was refused. Content: run id, period, invoices mailed so
+  far / total, mailed by this call, failed invoice numbers, run total,
+  collection date, link to `#/admin/abrechnung`.
+
 ## 11. Security
 
 - Argon2id password hashing, session token (random 256 bit) in `HttpOnly`,
@@ -496,12 +533,38 @@ km still pending 24 h after return (daily, §8).
 
 - `data/` on disk: one JSON-lines file per table, rewritten via
   write-temp + `rename()`. All data loaded into RAM at start.
-- Nightly backup: tarball of `data/` (without photos), kept 30 days on the
-  host, and mailed to the admin **encrypted** (age, admin's public key in
-  config). The backup contains IBANs and password hashes and must never
-  travel by mail unencrypted. Photos are backed up weekly the same way if
-  under the mail size limit.
-- GDPR: user data export (admin), deactivation; invoices retained 10 years.
+- Nightly backup: `deploy/vps/ocs-backup.sh` (bash, systemd timer 03:15, no
+  crypto in C). `ocs-data-YYYY-MM-DD.tar.gz.age` = `data/` without `photos/`
+  and `*.tmp`, encrypted with age to `backup_recipient` (the admin's public
+  key; the private key never goes onto the server); on Sundays (or with
+  `--photos`) also `ocs-photos-YYYY-MM-DD.tar.age`. tar is piped into age:
+  the plaintext never touches the disk and never travels by mail (the backup
+  contains IBANs and password hashes). Both are kept in `backup_dir` (mode
+  0600) for 30 days and mailed to `backup_mail_to` via the configured SMTP
+  relay; a file over `backup_max_mail_bytes` (default 20 MB) is not
+  attached, the mail says so. GNU tar exit 1 ("file changed as we read it")
+  counts as success.
+- Config keys `backup_recipient` (`age1…`), `backup_mail_to`, `backup_dir`
+  (default `/var/backups/ocs`), `backup_max_mail_bytes` (1..100000000) live in
+  `ocs.conf`; the server validates them and does not use them otherwise.
+- Restore: `ocs-restore.sh <archive.age> <identity> <target>` into an empty
+  directory (refuses a non-empty one), then `ocs-server -c <conf> check-data`
+  loads the data dir and prints table counts (exit 0 ok, 1 load failure);
+  it never writes a table.
+- GDPR export: `GET /api/admin/users/{id}/export` returns `exported_at`,
+  `user` (public, no `pw_hash`), `bookings`, `damage_reports` (each with
+  `photos`: API paths `/api/damage/{id}/photos/{k}`), `mandates` (masked
+  IBAN only, `iban_masked`), `invoices` (each with its `lines`). Sessions,
+  tokens and odometer readings are not exported. Full IBANs never leave the
+  server, the export included. The web saves it as `ocs-export-<id>.json`.
+- Deactivation (admin user PUT with `active:false`) deletes the sessions and
+  cancels every `reserved` booking of the user with cancel fee 0, like a
+  mandate revocation (a deactivated user cannot start it, and expired it
+  would be billed as unused time). An `active` booking stays and is billed.
+- Invoice retention is a guarantee, not a job: nothing deletes invoices,
+  invoice lines, invoice PDFs, mandates or invoiced bookings; deactivated
+  users keep their records for the 10-year retention. There is no automatic
+  purge after that period.
 
 ## 13. API (JSON)
 
@@ -520,6 +583,7 @@ GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
 GET  /api/bookings/{id}/pin
 admin:
   GET  /api/admin/users/{id}/mandates
+  GET  /api/admin/users/{id}/export      (GDPR export, §12)
   POST /api/admin/users/{id}/mandate/revoke
   (GET /api/admin/users includes a "mandate" summary per user)
   /api/admin/users, /cars, /keysafes, /tariffs, /bookings, /settings
@@ -625,6 +689,7 @@ Done when: a month can be billed end-to-end and the XML imports into
 Hibiscus.
 
 ### Phase 7: Notifications and operations
+Plan: `docs/superpowers/plans/2026-11-03-phase7-notifications-ops.md`.
 Depends on: Phase 2 (reminders reference start/return); can run before
 Phase 6 except the "billing run done" mail.
 - Booking mails: created, modified, cancelled; reminder before start
