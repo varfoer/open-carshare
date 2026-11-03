@@ -14,6 +14,7 @@
 
 /* Largest value the codec writes exactly (see MAX_WRITE_INT in core/codec.c). */
 #define FEE_MAX ((int64_t)999999999999999)
+#define REMINDER_MAX_MIN 1440
 
 /* ---- helpers ---- */
 
@@ -389,6 +390,7 @@ static void settings_response(api_res_t *res, const settings_t *s) {
       !cJSON_AddStringToObject(o, "creditor_iban", s->creditor_iban) ||
       !cJSON_AddStringToObject(o, "creditor_bic", s->creditor_bic) ||
       !cJSON_AddNumberToObject(o, "sepa_lead_days", s->sepa_lead_days) ||
+      !cJSON_AddNumberToObject(o, "reminder_before_min", s->reminder_before_min) ||
       !cJSON_AddStringToObject(o, "invoice_footer", s->invoice_footer)) {
     cJSON_Delete(o);
     api_json(res, 500, NULL);
@@ -431,9 +433,10 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   const char *iban = api_get_str(ctx->body, "creditor_iban", 256);
   const char *bic = api_get_str(ctx->body, "creditor_bic", 256);
   const char *footer = api_get_str(ctx->body, "invoice_footer", sizeof s.invoice_footer);
-  int64_t lead;
+  int64_t lead, rem;
   if (!name || !street || !zip || !city || !cid || !iban || !bic || !footer ||
-      !api_get_int(ctx->body, "sepa_lead_days", &lead) || lead < SEPA_PRENOTIFY_MIN_DAYS || lead > 30) {
+      !api_get_int(ctx->body, "sepa_lead_days", &lead) || lead < SEPA_PRENOTIFY_MIN_DAYS || lead > 30 ||
+      !api_get_int(ctx->body, "reminder_before_min", &rem) || rem < 0 || rem > REMINDER_MAX_MIN) {
     api_invalid(res);
     return;
   }
@@ -459,6 +462,7 @@ void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   trim_copy(s.invoice_footer, footer);
   if (!invoice_footer_fits(s.invoice_footer)) { api_invalid(res); return; }
   s.sepa_lead_days = (int)lead;
+  s.reminder_before_min = (int)rem;
   s.start_tolerance_min = (int)tol;
   s.cancel_deadline_min = (int)dl;
   s.cancel_fee_cents = fee;

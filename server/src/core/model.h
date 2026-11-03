@@ -27,6 +27,7 @@ typedef struct {
   int64_t actual_start, actual_end, km_start, km_end; /* actual_*: 0 = unset */
   km_source_t km_source; bool km_pending;
   int64_t invoice_id;  /* 0 = not invoiced */
+  bool start_reminded, late_reminded;  /* reminder mail sent; default false */
 } booking_t;
 typedef struct {
   int64_t invoice_number, booking_id;
@@ -60,6 +61,7 @@ typedef struct {
   char assoc_name[96], assoc_street[96], assoc_zip[16], assoc_city[64];
   char creditor_id[36], creditor_iban[35], creditor_bic[12];
   int sepa_lead_days;                  /* default 5 */
+  int reminder_before_min;             /* 0..1440, default 60, 0 = off */
   char invoice_footer[512];
 } settings_t;
 typedef enum { MANDATE_ACTIVE = 0, MANDATE_REPLACED, MANDATE_REVOKED } mandate_status_t;

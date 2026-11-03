@@ -411,7 +411,7 @@ void test_settings_lead_days_range(void) {
 #define SETTINGS(lead, footer)                                                                    \
   "{\"start_tolerance_min\":15,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"            \
   "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","         \
-  "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\"" lead footer "}"
+  "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"reminder_before_min\":60" lead footer "}"
   call_free("PUT", "/api/admin/settings", SETTINGS(",\"sepa_lead_days\":4", ",\"invoice_footer\":\"\""), 400, "invalid");
   call_free("PUT", "/api/admin/settings", SETTINGS(",\"sepa_lead_days\":31", ",\"invoice_footer\":\"\""), 400, "invalid");
   call_free("PUT", "/api/admin/settings", SETTINGS("", ",\"invoice_footer\":\"\""), 400, "invalid");
@@ -421,7 +421,7 @@ void test_settings_lead_days_range(void) {
   big[512] = 0;
   snprintf(body, sizeof body, "{\"start_tolerance_min\":15,\"cancel_deadline_min\":60,\"cancel_fee_cents\":500,"
            "\"assoc_name\":\"\",\"assoc_street\":\"\",\"assoc_zip\":\"\",\"assoc_city\":\"\","
-           "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"sepa_lead_days\":5,"
+           "\"creditor_id\":\"\",\"creditor_iban\":\"\",\"creditor_bic\":\"\",\"reminder_before_min\":60,\"sepa_lead_days\":5,"
            "\"invoice_footer\":\"%s\"}", big);
   call_free("PUT", "/api/admin/settings", body, 400, "invalid");
   TEST_ASSERT_EQUAL_INT(5, a->db.settings.sepa_lead_days);

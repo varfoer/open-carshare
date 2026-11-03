@@ -31,13 +31,15 @@ int car_from_json(const cJSON *j, car_t *out);
 /* invoice_id is optional on load (absent -> 0).
  * km_source "geotab" (Phase 2 data) loads as KM_TELEMATICS; it is never written.
  * Trip keys (actual_start, actual_end, km_start, km_end, km_source, km_pending) are
- * optional on load (Phase 1 lines); absent -> 0 / KM_NONE / false. */
+ * optional on load (Phase 1 lines); absent -> 0 / KM_NONE / false.
+ * start_reminded, late_reminded are optional on load (absent -> false). */
 int booking_from_json(const cJSON *j, booking_t *out);
 int damage_report_from_json(const cJSON *j, damage_report_t *out); /* all keys required */
 int odometer_reading_from_json(const cJSON *j, odometer_reading_t *out); /* all keys required */
 int session_from_json(const cJSON *j, session_t *out);
 int token_from_json(const cJSON *j, token_t *out);
-/* Missing keys get defaults: start_tolerance_min 15, sepa_lead_days 5, others 0 / "". */
+/* Missing keys get defaults: start_tolerance_min 15, sepa_lead_days 5, reminder_before_min 60,
+ * others 0 / "". */
 int settings_from_json(const cJSON *j, settings_t *out);
 /* All keys required; -1 also if iban is not iban_valid or bic is neither "" nor bic_valid. */
 int mandate_from_json(const cJSON *j, mandate_t *out);

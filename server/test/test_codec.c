@@ -721,6 +721,41 @@ static void test_settings_billing_defaults_and_roundtrip(void) {
     cJSON_Delete(j);
 }
 
+static void test_booking_reminded_roundtrip(void) {
+    booking_t b = {.id = 7, .state = BK_RESERVED, .start_reminded = true, .late_reminded = true}, r;
+    cJSON *j = booking_to_json(&b);
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(j, "start_reminded")));
+    TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItem(j, "late_reminded")));
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_TRUE(r.start_reminded);
+    TEST_ASSERT_TRUE(r.late_reminded);
+    cJSON_Delete(j);
+}
+
+static void test_booking_reminded_default_false(void) {
+    booking_t b = {.id = 7, .state = BK_RESERVED, .start_reminded = true, .late_reminded = true}, r;
+    cJSON *j = booking_to_json(&b);
+    cJSON_DeleteItemFromObject(j, "start_reminded");
+    cJSON_DeleteItemFromObject(j, "late_reminded");
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_FALSE(r.start_reminded);
+    TEST_ASSERT_FALSE(r.late_reminded);
+    cJSON_Delete(j);
+}
+
+static void test_settings_reminder_default_60(void) {
+    cJSON *j = cJSON_Parse("{}");
+    settings_t s, r;
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &s));
+    TEST_ASSERT_EQUAL_INT(60, s.reminder_before_min);
+    cJSON_Delete(j);
+    s.reminder_before_min = 0;
+    j = settings_to_json(&s);
+    TEST_ASSERT_EQUAL_INT(0, settings_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT(0, r.reminder_before_min);
+    cJSON_Delete(j);
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_booking_roundtrip);
@@ -771,5 +806,8 @@ int main(void) {
     RUN_TEST(test_invoice_line_requires_all_keys);
     RUN_TEST(test_booking_invoice_id_roundtrip_and_default);
     RUN_TEST(test_settings_billing_defaults_and_roundtrip);
+    RUN_TEST(test_booking_reminded_roundtrip);
+    RUN_TEST(test_booking_reminded_default_false);
+    RUN_TEST(test_settings_reminder_default_60);
     return UNITY_END();
 }
