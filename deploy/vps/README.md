@@ -215,9 +215,13 @@ after 90 days.
 Settings in the Teltonika Configurator. Option names differ between
 firmware versions: check names in your firmware's Configurator.
 
-- GPRS: APN of the SIM (1NCE: `iot.1nce.net`). Server domain = the VPS host
+- GPRS: APN of the SIM, no APN user or password (melita.io via m2m Germany:
+  `iot.melita.io`; 1NCE: `iot.1nce.net`). Server domain = the VPS host
   name, port `5027` (the `tracker_port`), protocol TCP. Check names in your
   firmware's Configurator.
+- Roaming: melita.io SIMs roam on the German networks, so data roaming must
+  be allowed (operator list empty or containing the German networks). Check
+  names in your firmware's Configurator.
 - System / data protocol: Codec 8 Extended. Check names in your firmware's
   Configurator.
 - Data acquisition: on moving every 300 s, on stop every 3600 s; records on
