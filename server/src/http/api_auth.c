@@ -161,18 +161,13 @@ void h_me_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *r
 void h_me_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   (void)req;
   user_t c = *ctx->user;
+  /* Only the name is self-service; the postal address is admin-only (§4). */
   const char *name = api_get_str(ctx->body, "name", sizeof c.name);
-  const char *street = api_get_str(ctx->body, "street", sizeof c.street);
-  const char *zip = api_get_str(ctx->body, "zip", sizeof c.zip);
-  const char *city = api_get_str(ctx->body, "city", sizeof c.city);
-  if (!name || !street || !zip || !city) {
+  if (!name) {
     api_invalid(res);
     return;
   }
   snprintf(c.name, sizeof c.name, "%s", name);
-  snprintf(c.street, sizeof c.street, "%s", street);
-  snprintf(c.zip, sizeof c.zip, "%s", zip);
-  snprintf(c.city, sizeof c.city, "%s", city);
   if (db_put_user(&a->db, &c) != 0) {
     api_storage_error(res);
     return;

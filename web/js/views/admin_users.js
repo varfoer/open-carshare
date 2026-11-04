@@ -60,9 +60,9 @@ export async function render(root) {
   function showForm(u) {
     const email = textField('E-Mail', u ? u.email : '', { type: 'email', required: true });
     const name = textField('Name', u ? u.name : '', { required: true });
-    const street = textField('Straße', u ? u.street : '');
-    const zip = textField('PLZ', u ? u.zip : '');
-    const city = textField('Ort', u ? u.city : '');
+    const street = textField('Straße (optional)', u ? u.street : '');
+    const zip = textField('PLZ (optional)', u ? u.zip : '');
+    const city = textField('Ort (optional)', u ? u.city : '');
     const role = selectField('Rolle', [['user', 'Nutzer'], ['admin', 'Admin']], u ? u.role : 'user');
     const active = checkField('aktiv', u ? u.active : true);
     const origDate = u && u.license_checked_at ? dateStr(epochToBerlin(u.license_checked_at)) : '';

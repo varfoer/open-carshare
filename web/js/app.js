@@ -78,6 +78,7 @@ function updateChrome() {
     ['#/konto', 'Konto'],
   ];
   if (user.role === 'admin') items.push(['#/admin/nutzer', 'Admin']);
+  items.push(['/help.html', 'Hilfe']);
   for (const [href, label] of items) {
     const a = document.createElement('a');
     a.href = href;

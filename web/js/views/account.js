@@ -108,23 +108,17 @@ export async function render(root) {
 
   // Profile
   const name = textField('Name', user.name, { required: true, autocomplete: 'name' });
-  const street = textField('Straße', user.street, { autocomplete: 'street-address' });
-  const zip = textField('PLZ', user.zip, { autocomplete: 'postal-code' });
-  const city = textField('Ort', user.city, { autocomplete: 'address-level2' });
   const pErr = messageBox('error');
   const pOk = messageBox('success');
   const pForm = el('form', { className: 'card' },
     el('h1', { text: 'Konto' }),
     el('p', { className: 'hint', text: user.email }),
-    name.node, street.node, zip.node, city.node, pErr.node, pOk.node, primaryButton('Speichern'));
+    name.node, pErr.node, pOk.node, primaryButton('Speichern'));
   pForm.addEventListener('submit', async (ev) => {
     ev.preventDefault();
     pErr.hide(); pOk.hide();
     try {
-      await api('PUT', '/api/me', {
-        name: name.input.value.trim(), street: street.input.value.trim(),
-        zip: zip.input.value.trim(), city: city.input.value.trim(),
-      });
+      await api('PUT', '/api/me', { name: name.input.value.trim() });
       await refreshUser();
       pOk.show('Gespeichert.');
     } catch (x) { pErr.show(x.message); }
