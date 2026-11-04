@@ -53,8 +53,7 @@ static bool rd_group(rd_t *r, size_t vsz, tlt_record_t *rec) {
   if (count > (r->len - r->pos) / el) return false;
   for (uint64_t i = 0; i < count; i++) {
     uint64_t id, v;
-    rd_uint(r, 2, &id);
-    rd_uint(r, vsz, &v);
+    if (!rd_uint(r, 2, &id) || !rd_uint(r, vsz, &v)) return false;
     if (vsz == 4 && id == TLT_IO_TOTAL_ODOMETER) {
       rec->has_odometer = true;
       rec->odometer_m = (uint32_t)v;

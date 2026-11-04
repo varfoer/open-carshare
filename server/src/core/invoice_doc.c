@@ -103,6 +103,7 @@ static void hours(int64_t min, char *out, size_t cap) {
 
 static void local_hm(int64_t utc, char out[6]) {
   int64_t t = (utc + berlin_offset(utc)) % 86400;
+  if (t < 0) t += 86400; /* % keeps the sign; times before 1970 */
   snprintf(out, 6, "%02d:%02d", (int)(t / 3600), (int)(t % 3600 / 60));
 }
 
