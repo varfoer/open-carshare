@@ -25,6 +25,8 @@ Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port (§8)
   serialized, so booking conflict checks need no locks.
 - Static web client (vanilla HTML/JS/CSS, no build step) served by `ocs-server`.
 - PWA: `manifest.json` + service worker, installable from the browser.
+- Help: static `web/help.html` (contact, install steps, FAQ, manuals later),
+  public; linked from the login page and the menu. Edited in the repo.
 
 ### Dependencies
 
@@ -68,7 +70,9 @@ docs/
 ### user
 id, email (login), name, street, zip, city, pw_hash, role (`admin`|`user`),
 active, license_checked_at, may_club_trip (default false, set by admin only),
-created_at.
+created_at. The postal address (street, zip, city) is optional and set by
+the admin only; it is the invoice addressee (empty lines are left out).
+`PUT /api/me` changes only `name`. Email changes are admin-only.
 
 ### mandate
 id, user_id, holder (account holder, max 70 UTF-8 code points), iban, bic

@@ -242,24 +242,26 @@ void test_logout(void) {
 void test_me_put_updates_profile(void) {
   char tok[65];
   strcpy(tok, th_login_at(a, "anna@x.de", "correct horse", T));
-  req_expect("PUT", "/api/me", "{\"name\":\"Anna\",\"street\":\"Weg 1\",\"zip\":\"12345\"}", tok,
-             400, "invalid");
+  req_expect("PUT", "/api/me", "{\"street\":\"Weg 1\"}", tok, 400, "invalid");
   char longname[200];
   memset(longname, 'n', 120);
   longname[120] = 0;
   char body[400];
-  snprintf(body, sizeof body,
-           "{\"name\":\"%s\",\"street\":\"Weg 1\",\"zip\":\"12345\",\"city\":\"Ort\"}", longname);
+  snprintf(body, sizeof body, "{\"name\":\"%s\"}", longname);
   req_expect("PUT", "/api/me", body, tok, 400, "invalid");
+  user_t *u = db_user(&a->db, uid);
+  snprintf(u->city, sizeof u->city, "%s", "Altort");
+  /* Address, role and email are admin-only: ignored here. */
   api_res_t r = th_req(a, "PUT", "/api/me",
                        "{\"name\":\"Anna\",\"street\":\"Weg 1\",\"zip\":\"12345\",\"city\":\"Ort\","
                        "\"role\":\"admin\",\"email\":\"evil@x.de\"}",
                        tok, T);
   expect(&r, 200, NULL);
   api_res_free(&r);
-  user_t *u = db_user(&a->db, uid);
+  u = db_user(&a->db, uid);
   TEST_ASSERT_EQUAL_STRING("Anna", u->name);
-  TEST_ASSERT_EQUAL_STRING("Ort", u->city);
+  TEST_ASSERT_EQUAL_STRING("Altort", u->city);
+  TEST_ASSERT_EQUAL_STRING("", u->street);
   TEST_ASSERT_EQUAL_STRING("anna@x.de", u->email);
   TEST_ASSERT_EQUAL_INT(ROLE_USER, u->role);
 }

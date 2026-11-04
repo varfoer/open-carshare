@@ -185,8 +185,10 @@ int invoice_pdf(const invoice_doc_t *d, char **out, size_t *len) {
   y = 720;
   pdf_text(p, 0, 11, LEFT, y, inv->name); y -= 14;
   if (inv->street[0]) { pdf_text(p, 0, 11, LEFT, y, inv->street); y -= 14; }
-  snprintf(buf, sizeof buf, "%s %s", inv->zip, inv->city);
-  pdf_text(p, 0, 11, LEFT, y, buf);
+  if (inv->zip[0] || inv->city[0]) {
+    snprintf(buf, sizeof buf, "%s%s%s", inv->zip, inv->zip[0] && inv->city[0] ? " " : "", inv->city);
+    pdf_text(p, 0, 11, LEFT, y, buf);
+  }
 
   char date[11], iso[11];
   billing_local_date(inv->issued_at ? inv->issued_at : inv->created_at, iso);

@@ -1,9 +1,10 @@
 // Service worker: app shell cache-first with background update; /api/* is never cached.
 // Keep SHELL in sync with `git ls-files web` (minus web/test/); bump CACHE on every web change.
-const CACHE = 'ocs-v16';
+const CACHE = 'ocs-v18';
 const SHELL = [
   '/',
   '/index.html',
+  '/help.html',
   '/style.css',
   '/manifest.json',
   '/icon.svg',
@@ -54,7 +55,8 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   event.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const key = req.mode === 'navigate' ? '/' : req;
+    // App routes live in the hash, so '/' and '/index.html' are one shell; other pages (help.html) keep their own key.
+    const key = req.mode === 'navigate' ? (url.pathname === '/index.html' ? '/' : url.pathname) : req;
     const cached = await cache.match(key);
     const update = fetch(req).then((res) => {
       if (res.ok) cache.put(key, res.clone());

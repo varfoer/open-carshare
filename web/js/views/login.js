@@ -9,7 +9,7 @@ export function render(root) {
       <label>Passwort <input name="password" type="password" autocomplete="current-password" required></label>
       <p class="error" role="alert" hidden></p>
       <button class="primary" type="submit">Anmelden</button>
-      <p><a href="#/passwort">Passwort vergessen?</a></p>
+      <p><a href="#/passwort">Passwort vergessen?</a> · <a href="/help.html">Hilfe</a></p>
     </form>`;
   const form = root.querySelector('form');
   const err = root.querySelector('.error');
