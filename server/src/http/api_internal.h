@@ -105,6 +105,16 @@ void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
 void h_admin_settings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_settings_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
+/* api_tariff.c (all MIN_ADMIN) */
+/* tariff_to_json plus "versions": the tariff's versions, newest valid_from first. NULL on OOM. */
+cJSON *tariff_api_json(const db_t *db, const tariff_t *t);
+void h_admin_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_tariff_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_tariff_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_version_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_version_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
 /* api_billing.c (all MIN_ADMIN) */
 void h_admin_billing_list(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_billing_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
