@@ -333,6 +333,12 @@ void test_repair_clears_no_tariff_blocker(void) {
   call_free("PUT", p, "{\"valid_from\":1}", 200, NULL);
   cJSON *j = detail(rid);
   TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(obj(j, "blockers"), "no_tariff")));
+  cJSON *users = obj(j, "users");
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(users));
+  cJSON *u = cJSON_GetArrayItem(users, 0);
+  TEST_ASSERT_EQUAL_INT64(ub, num(u, "user_id"));
+  TEST_ASSERT_EQUAL_INT64(600, num(u, "total_cents")); /* 2 h day rate 300, no caps */
+  TEST_ASSERT_EQUAL_INT64(600, num(j, "total_cents"));
   cJSON_Delete(j);
 }
 

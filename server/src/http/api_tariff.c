@@ -139,7 +139,7 @@ void h_admin_version_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   }
   int rc = tariff_version_from_json(j, &v);
   cJSON_Delete(j);
-  if (rc != 0) { api_invalid(res); return; }
+  if (rc != 0 || !br_time_in_range(v.valid_from, req->now)) { api_invalid(res); return; }
   bool has_version = false;
   for (size_t i = 0; i < a->db.n_versions; i++) {
     if (a->db.versions[i].tariff_id != tid) continue;

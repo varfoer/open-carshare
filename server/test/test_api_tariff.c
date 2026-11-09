@@ -217,10 +217,18 @@ void test_delete_unassigned_removes_versions(void) {
 void test_delete_assigned_409(void) {
   int64_t s = post_tariff("Standard");
   post_version(s, T - DAY);
-  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, s, T + DAY) > 0);
+  int64_t asg = th_assign_tariff(a, u1, s, T + DAY);
+  TEST_ASSERT_TRUE(asg > 0);
   adm_err("DELETE", tp(s), NULL, 409, "tariff_in_use", "Dieser Tarif ist Nutzern zugeordnet.");
   TEST_ASSERT_NOT_NULL(db_tariff(&a->db, s));
   TEST_ASSERT_EQUAL_size_t(1, a->db.n_versions);
+  /* deleting that future assignment frees the tariff */
+  char up[64];
+  snprintf(up, sizeof up, "/api/admin/user-tariffs/%lld", (long long)asg);
+  adm_free("DELETE", up, NULL, 200, NULL);
+  adm_free("DELETE", tp(s), NULL, 200, NULL);
+  TEST_ASSERT_NULL(db_tariff(&a->db, s));
+  TEST_ASSERT_EQUAL_size_t(0, a->db.n_versions);
 }
 
 void test_first_version_may_be_backdated(void) {
@@ -268,6 +276,7 @@ void test_version_invalid_400(void) {
   adm_free("POST", vpath(s), tbody(T + DAY, 1440), 400, "invalid");
   adm_free("POST", vpath(s), "{\"valid_from\":1}", 400, "invalid");
   adm_free("POST", vpath(s), NULL, 400, "invalid");
+  adm_free("POST", vpath(s), tbody(-1, 360), 400, "invalid");
   TEST_ASSERT_EQUAL_size_t(0, a->db.n_versions);
 }
 

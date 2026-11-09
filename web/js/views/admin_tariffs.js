@@ -71,7 +71,10 @@ export async function render(root) {
       run('PUT', `/api/admin/tariffs/${t.id}`, { name: name.input.value.trim() });
     });
     const del = el('button', { type: 'button', className: 'danger', text: 'Löschen' });
-    del.addEventListener('click', () => run('DELETE', `/api/admin/tariffs/${t.id}`));
+    del.addEventListener('click', () => {
+      if (!window.confirm('Tarif löschen?')) return;
+      run('DELETE', `/api/admin/tariffs/${t.id}`);
+    });
 
     const versions = el('div');
     for (const v of t.versions) {

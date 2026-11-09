@@ -533,7 +533,6 @@ int db_finalize_run(db_t *db, const billing_run_t *run, const invoice_t *inv, si
   return rc == 0 ? 0 : -1;
 }
 
-/* Removes one tariff; RAM restored if persisting fails. */
 /* Removes the entity with this id (the first int64_t of every entity type) from arr and
  * persists file; RAM restored if persisting fails. -1 if unknown id or persist failed. */
 static int delete_one(db_t *db, void **arr, size_t *n, size_t esz, int64_t id, const char *file,
