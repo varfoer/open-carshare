@@ -14,8 +14,8 @@
 #define B0 (T - 11 * H)
 
 static app_t *a;
-static int64_t adm, u1, car1, car2, std;
-static char tadm[65], tu1[65];
+static int64_t adm, u1, ured, car1, car2, std, red;
+static char tadm[65], tu1[65], tured[65];
 
 static int64_t add_car(const char *name) {
   car_t c;
@@ -42,6 +42,18 @@ void setUp(void) {
   TEST_ASSERT_TRUE(std > 0);
   TEST_ASSERT_TRUE(th_add_version(a, std, T - 100 * DAY, 3000, 5000, 1500) > 0);
   TEST_ASSERT_TRUE(th_assign_tariff(a, u1, std, T - 100 * DAY) > 0);
+  /* "Reduziert": standard rates except 1,50 €/h by day, no caps */
+  red = th_add_tariff(a, "Reduziert");
+  TEST_ASSERT_TRUE(red > 0);
+  int64_t vid = th_add_version(a, red, T - 100 * DAY, 0, 0, 0);
+  TEST_ASSERT_TRUE(vid > 0);
+  tariff_version_t v = *db_version(&a->db, vid);
+  v.rate_day_cents_per_h = 150;
+  TEST_ASSERT_EQUAL_INT(0, db_put_version(&a->db, &v));
+  ured = th_add_user(a, "ute@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(ured > 0);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, ured, T, tured));
+  TEST_ASSERT_TRUE(th_assign_tariff(a, ured, red, T - 100 * DAY) > 0);
 }
 
 void tearDown(void) { th_free(a); }
@@ -220,6 +232,71 @@ void test_estimate_requires_login(void) {
   cJSON_Delete(call(est(B0, B0 + H, "&km=1"), NULL, 401, NULL));
 }
 
+void test_estimate_per_user(void) {
+  cJSON *j = call(est(B0, B0 + 4 * H, "&km=15"), tu1, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
+  TEST_ASSERT_EQUAL_INT64(1650, num(j, "total_cents"));
+  cJSON_Delete(j);
+  j = call(est(B0, B0 + 4 * H, "&km=15"), tured, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
+  TEST_ASSERT_EQUAL_INT64(1050, num(j, "total_cents")); /* 4 h x 1,50 EUR + 15 km x 0,30 EUR */
+  TEST_ASSERT_EQUAL_INT64(red, num(cJSON_GetObjectItemCaseSensitive(j, "tariff"), "tariff_id"));
+  cJSON_Delete(j);
+}
+
+void test_estimate_club_zero_any_tariff(void) {
+  cJSON *j = call(est(B0, B0 + 4 * H, "&km=15&club=1"), tured, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
+  TEST_ASSERT_EQUAL_INT64(0, num(j, "total_cents"));
+  cJSON_Delete(j);
+  char tu3[65];
+  int64_t u3 = th_add_user(a, "cara@x.de", NULL, ROLE_USER); /* no tariff assigned */
+  TEST_ASSERT_TRUE(u3 > 0);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, u3, T, tu3));
+  j = call(est(B0, B0 + 4 * H, "&km=15&club=1"), tu3, 200, NULL);
+  TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
+  TEST_ASSERT_EQUAL_INT64(0, num(j, "total_cents"));
+  cJSON_Delete(j);
+}
+
+static void check_tariff_keys(const cJSON *t) {
+  TEST_ASSERT_TRUE(cJSON_IsObject(t));
+  TEST_ASSERT_EQUAL_INT64(300, num(t, "rate_day_cents_per_h"));
+  TEST_ASSERT_EQUAL_INT64(std, num(t, "tariff_id"));
+  TEST_ASSERT_NULL(cJSON_GetObjectItemCaseSensitive(t, "name"));
+}
+
+void test_price_tariff_has_no_name(void) {
+  cJSON *j = call(est(B0, B0 + 4 * H, "&km=15"), tu1, 200, NULL);
+  check_tariff_keys(cJSON_GetObjectItemCaseSensitive(j, "tariff"));
+  cJSON_Delete(j);
+  put_done(car1, B0, B0 + 4 * H, 1000, 1040);
+  j = call("/api/bookings?scope=history", tu1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  const cJSON *p = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(j, 0), "price");
+  check_tariff_keys(cJSON_GetObjectItemCaseSensitive(p, "tariff"));
+  cJSON_Delete(j);
+}
+
+void test_switch_applies_from_valid_from(void) {
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, red, B0 + 2 * H) > 0);
+  int64_t before = put_done(car1, B0, B0 + H, 0, 0);
+  int64_t after = put_done(car2, B0 + 2 * H, B0 + 3 * H, 0, 0);
+  cJSON *j = call("/api/bookings?scope=history", tu1, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(j));
+  int seen = 0;
+  const cJSON *it;
+  cJSON_ArrayForEach(it, j) {
+    int64_t id = num(it, "id");
+    if (id == before) check_price(it, "ok", 300);
+    else if (id == after) check_price(it, "ok", 150);
+    else TEST_FAIL_MESSAGE("unexpected booking");
+    seen++;
+  }
+  TEST_ASSERT_EQUAL_INT(2, seen);
+  cJSON_Delete(j);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_history_has_price);
@@ -232,5 +309,9 @@ int main(void) {
   RUN_TEST(test_estimate_rejects_bad_input);
   RUN_TEST(test_booking_create_has_price);
   RUN_TEST(test_estimate_requires_login);
+  RUN_TEST(test_estimate_per_user);
+  RUN_TEST(test_estimate_club_zero_any_tariff);
+  RUN_TEST(test_price_tariff_has_no_name);
+  RUN_TEST(test_switch_applies_from_valid_from);
   return UNITY_END();
 }

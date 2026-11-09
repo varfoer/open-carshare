@@ -298,6 +298,44 @@ void test_finalize_blocked_no_tariff(void) {
   expect_blocker("no_tariff", bid);
 }
 
+void test_draft_prices_each_user_at_own_tariff(void) {
+  int64_t red = th_add_tariff(a, "Reduziert");
+  TEST_ASSERT_TRUE(red > 0);
+  int64_t vid = th_add_version(a, red, 1, 0, 0, 1500); /* no caps */
+  TEST_ASSERT_TRUE(vid > 0);
+  tariff_version_t v = *db_version(&a->db, vid);
+  v.rate_day_cents_per_h = 150;
+  TEST_ASSERT_EQUAL_INT(0, db_put_version(&a->db, &v));
+  TEST_ASSERT_TRUE(th_assign_tariff(a, ua, red, 2) > 0); /* std stays at 1 */
+  add_done(uz, car1, APR10, 2, 0);
+  add_done(ua, car1, APR12, 2, 0);
+  cJSON *j = detail(create_run("2026-04"));
+  cJSON *users = obj(j, "users");
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(users));
+  cJSON *u0 = cJSON_GetArrayItem(users, 0), *u1 = cJSON_GetArrayItem(users, 1);
+  TEST_ASSERT_EQUAL_INT64(ua, num(u0, "user_id"));
+  TEST_ASSERT_EQUAL_INT64(300, num(u0, "total_cents"));
+  TEST_ASSERT_EQUAL_INT64(uz, num(u1, "user_id"));
+  TEST_ASSERT_EQUAL_INT64(600, num(u1, "total_cents"));
+  TEST_ASSERT_EQUAL_INT64(900, num(j, "total_cents"));
+  cJSON_Delete(j);
+}
+
+void test_repair_clears_no_tariff_blocker(void) {
+  int64_t ub = th_add_user(a, "bo@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(ub > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, ub, std, APR10 + 24 * H) > 0); /* starts after the trip */
+  int64_t bid = add_done(ub, car1, APR10, 2, 0);
+  int64_t rid = create_run("2026-04");
+  expect_blocker("no_tariff", bid);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/user-tariffs/%lld", (long long)db_user_tariff_newest(&a->db, ub)->id);
+  call_free("PUT", p, "{\"valid_from\":1}", 200, NULL);
+  cJSON *j = detail(rid);
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(obj(obj(j, "blockers"), "no_tariff")));
+  cJSON_Delete(j);
+}
+
 void test_finalize_blocked_no_mandate(void) {
   int64_t ub = th_add_user_bare(a, "bare@x.de", NULL, ROLE_USER);
   TEST_ASSERT_TRUE(ub > 0);
@@ -778,6 +816,8 @@ int main(void) {
   RUN_TEST(test_draft_straggler_included);
   RUN_TEST(test_finalize_blocked_km_pending);
   RUN_TEST(test_finalize_blocked_no_tariff);
+  RUN_TEST(test_draft_prices_each_user_at_own_tariff);
+  RUN_TEST(test_repair_clears_no_tariff_blocker);
   RUN_TEST(test_finalize_blocked_no_mandate);
   RUN_TEST(test_finalize_no_creditor_409);
   RUN_TEST(test_finalize_gapless_numbers);

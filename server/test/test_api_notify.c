@@ -327,6 +327,24 @@ void test_late_reminder_fee_from_tariff(void) {
   TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "kostet jede angefangene Stunde 3,00 \xE2\x82\xAC"));
 }
 
+void test_late_reminder_fee_from_user_tariff(void) {
+  int64_t t1 = th_add_tariff(a, "Standard"), t2 = th_add_tariff(a, "Teuer");
+  TEST_ASSERT_TRUE(t1 > 0 && t2 > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, t1, 1, 0, 0, 300) > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, t2, 1, 0, 0, 900) > 0);
+  int64_t u2 = th_add_user(a, "bo@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(u2 > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, t1, 1) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u2, t2, 1) > 0);
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
+  booking_t b = *db_booking(&a->db, id);
+  b.user_id = u2;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
+  TEST_ASSERT_EQUAL_STRING("bo@x.de", th_last_mail_to());
+  TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "kostet jede angefangene Stunde 9,00 \xE2\x82\xAC"));
+}
+
 void test_late_reminder_after_extension_waits_for_new_end(void) {
   int64_t id = plant(BK_ACTIVE, S, S + 2 * H, T);
   TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
@@ -506,6 +524,7 @@ int main(void) {
   RUN_TEST(test_no_start_reminder_after_start);
   RUN_TEST(test_late_reminder_at_end);
   RUN_TEST(test_late_reminder_fee_from_tariff);
+  RUN_TEST(test_late_reminder_fee_from_user_tariff);
   RUN_TEST(test_late_reminder_after_extension_waits_for_new_end);
   RUN_TEST(test_reminder_retried_after_mail_failure_then_once);
   RUN_TEST(test_reminder_inactive_user_skipped);
