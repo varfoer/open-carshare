@@ -13,7 +13,7 @@ export function el(tag, props = {}, ...children) {
 export function adminNav(active) {
   const nav = el('nav', { className: 'subnav' });
   for (const [href, label] of [
-    ['#/admin/nutzer', 'Nutzer'], ['#/admin/autos', 'Autos'],
+    ['#/admin/nutzer', 'Nutzer'], ['#/admin/autos', 'Autos'], ['#/admin/tarife', 'Tarife'],
     ['#/admin/buchungen', 'Buchungen'], ['#/admin/abrechnung', 'Abrechnung'],
     ['#/admin/einstellungen', 'Einstellungen'],
   ]) {

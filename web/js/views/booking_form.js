@@ -119,7 +119,7 @@ export async function render(root, params) {
     const start = booking && s.date.disabled ? booking.booked_start : toEpoch(s);
     const end = toEpoch(e);
     if (end <= start) { estimate.hidden = true; return; }
-    const q = `car=${carId}&start=${start}&end=${end}&km=${Number(kmText)}${club.checked ? '&club=1' : ''}`;
+    const q = `start=${start}&end=${end}&km=${Number(kmText)}${club.checked ? '&club=1' : ''}`;
     try {
       const p = await api('GET', `/api/price-estimate?${q}`);
       if (my === seq) showEstimate(p);

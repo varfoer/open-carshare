@@ -11,6 +11,7 @@ const ROUTES = {
   '#/konto': 'account',
   '#/admin/nutzer': 'admin_users',
   '#/admin/autos': 'admin_cars',
+  '#/admin/tarife': 'admin_tariffs',
   '#/admin/buchungen': 'admin_bookings',
   '#/admin/abrechnung': 'admin_billing',
   '#/admin/einstellungen': 'admin_settings',
