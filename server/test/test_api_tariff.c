@@ -350,6 +350,268 @@ void test_tariff_routes_admin_only(void) {
   TEST_ASSERT_EQUAL_STRING("Standard", a->db.tariffs[0].name);
 }
 
+/* ---- user tariff assignments ---- */
+
+static int64_t std, red, first;
+
+/* std and red each with a version at T - 100*DAY; u1 assigned std at T - 50*DAY (first). */
+static void fx_assign(void) {
+  std = th_add_tariff(a, "Standard");
+  red = th_add_tariff(a, "Reduziert");
+  TEST_ASSERT_TRUE(std > 0 && red > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, std, T - 100 * DAY, 0, 0, 0) > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, red, T - 100 * DAY, 0, 0, 0) > 0);
+  first = th_assign_tariff(a, u1, std, T - 50 * DAY);
+  TEST_ASSERT_TRUE(first > 0);
+}
+
+static const char *utp(int64_t uid) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld/tariffs", (long long)uid);
+  return p;
+}
+
+static const char *ut(int64_t id) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/admin/user-tariffs/%lld", (long long)id);
+  return p;
+}
+
+static const char *abody(int64_t tid, int64_t valid_from) {
+  static char b[128];
+  snprintf(b, sizeof b, "{\"tariff_id\":%lld,\"valid_from\":%lld}", (long long)tid,
+           (long long)valid_from);
+  return b;
+}
+
+static const char *vfbody(int64_t valid_from) {
+  static char b[64];
+  snprintf(b, sizeof b, "{\"valid_from\":%lld}", (long long)valid_from);
+  return b;
+}
+
+static const char *tidbody(int64_t tid) {
+  static char b[64];
+  snprintf(b, sizeof b, "{\"tariff_id\":%lld}", (long long)tid);
+  return b;
+}
+
+/* POST users/u1/tariffs -> 201; returns id. */
+static int64_t post_assign(int64_t tid, int64_t valid_from) {
+  cJSON *j = call("POST", utp(u1), abody(tid, valid_from), tadm, 201, NULL);
+  int64_t id = num(j, "id");
+  TEST_ASSERT_EQUAL_INT64(u1, num(j, "user_id"));
+  TEST_ASSERT_EQUAL_INT64(tid, num(j, "tariff_id"));
+  TEST_ASSERT_EQUAL_INT64(valid_from, num(j, "valid_from"));
+  TEST_ASSERT_EQUAL_INT64(T, num(j, "created_at"));
+  TEST_ASSERT_EQUAL_INT64(adm, num(j, "created_by"));
+  cJSON_Delete(j);
+  return id;
+}
+
+/* Done booking of u1 starting at start, invoiced when invoice_id != 0; returns id. */
+static int64_t plant_booking(int64_t start, int64_t invoice_id) {
+  car_t c;
+  memset(&c, 0, sizeof c);
+  snprintf(c.name, sizeof c.name, "Golf");
+  snprintf(c.plate, sizeof c.plate, "X-1");
+  snprintf(c.location, sizeof c.location, "Hof");
+  c.active = true;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = c.id;
+  b.user_id = u1;
+  b.booked_start = start;
+  b.booked_end = start + 3600;
+  b.state = BK_DONE;
+  b.actual_start = start;
+  b.actual_end = start + 3600;
+  b.created_at = start - DAY;
+  b.invoice_id = invoice_id;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  return b.id;
+}
+
+static void set_invoice(int64_t bid, int64_t invoice_id) {
+  booking_t b = *db_booking(&a->db, bid);
+  b.invoice_id = invoice_id;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+}
+
+void test_switch_future_ok_and_listed(void) {
+  fx_assign();
+  int64_t id = post_assign(red, T + DAY);
+  TEST_ASSERT_TRUE(id > first);
+  cJSON *j = call("GET", utp(u1), NULL, tadm, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsArray(j));
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT64(T + DAY, num(cJSON_GetArrayItem(j, 0), "valid_from"));
+  TEST_ASSERT_EQUAL_INT64(id, num(cJSON_GetArrayItem(j, 0), "id"));
+  TEST_ASSERT_EQUAL_INT64(red, num(cJSON_GetArrayItem(j, 0), "tariff_id"));
+  TEST_ASSERT_EQUAL_INT64(T - 50 * DAY, num(cJSON_GetArrayItem(j, 1), "valid_from"));
+  TEST_ASSERT_EQUAL_INT64(first, num(cJSON_GetArrayItem(j, 1), "id"));
+  cJSON_Delete(j);
+  /* another user's list is empty */
+  j = call("GET", utp(adm), NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(j));
+  cJSON_Delete(j);
+  adm_free("GET", utp(999), NULL, 404, "not_found");
+}
+
+void test_switch_today_ok(void) {
+  fx_assign();
+  post_assign(red, T);
+  TEST_ASSERT_EQUAL_INT64(red, db_user_tariff_at(&a->db, u1, T)->tariff_id);
+}
+
+void test_switch_in_past_409(void) {
+  fx_assign();
+  adm_err("POST", utp(u1), abody(red, T - 1), 409, "assignment_in_past",
+          "Ein Tarifwechsel darf erst ab heute gelten.");
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+}
+
+void test_switch_duplicate_409(void) {
+  fx_assign();
+  adm_err("POST", utp(u1), abody(red, T - 50 * DAY), 409, "duplicate_valid_from",
+          "Für diesen Zeitpunkt gibt es schon eine Zuordnung.");
+  post_assign(red, T + DAY);
+  adm_free("POST", utp(u1), abody(std, T + DAY), 409, "duplicate_valid_from");
+  TEST_ASSERT_EQUAL_size_t(2, a->db.n_user_tariffs);
+}
+
+void test_switch_unknown_tariff_400(void) {
+  fx_assign();
+  adm_free("POST", utp(u1), abody(999, T + DAY), 400, "invalid");
+  adm_free("POST", utp(u1), tidbody(red), 400, "invalid");
+  adm_free("POST", utp(u1), "{\"tariff_id\":1,\"valid_from\":\"x\"}", 400, "invalid");
+  adm_free("POST", utp(u1), NULL, 400, "invalid");
+  adm_free("POST", utp(999), abody(red, T + DAY), 404, "not_found");
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+}
+
+void test_repair_backdates_newest(void) {
+  fx_assign();
+  TEST_ASSERT_NULL(db_user_tariff_at(&a->db, u1, T - 150 * DAY));
+  TEST_ASSERT_NULL(db_tariff_at(&a->db, u1, T - 90 * DAY));
+  cJSON *j = call("PUT", ut(first), vfbody(T - 200 * DAY), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(first, num(j, "id"));
+  TEST_ASSERT_EQUAL_INT64(T - 200 * DAY, num(j, "valid_from"));
+  TEST_ASSERT_EQUAL_INT64(std, num(j, "tariff_id"));
+  TEST_ASSERT_EQUAL_INT64(u1, num(j, "user_id"));
+  cJSON_Delete(j);
+  j = call("GET", utp(u1), NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  TEST_ASSERT_EQUAL_INT64(T - 200 * DAY, num(cJSON_GetArrayItem(j, 0), "valid_from"));
+  cJSON_Delete(j);
+  /* assignment from T-200d now covers T-150d; std's prices exist only from T-100d */
+  TEST_ASSERT_EQUAL_INT64(first, db_user_tariff_at(&a->db, u1, T - 150 * DAY)->id);
+  TEST_ASSERT_NULL(db_tariff_at(&a->db, u1, T - 150 * DAY));
+  TEST_ASSERT_NOT_NULL(db_tariff_at(&a->db, u1, T - 90 * DAY));
+}
+
+void test_repair_changes_tariff_only(void) {
+  fx_assign();
+  cJSON *j = call("PUT", ut(first), tidbody(red), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(red, num(j, "tariff_id"));
+  TEST_ASSERT_EQUAL_INT64(T - 50 * DAY, num(j, "valid_from"));
+  cJSON_Delete(j);
+  const user_tariff_t *u = db_user_tariff(&a->db, first);
+  TEST_ASSERT_EQUAL_INT64(red, u->tariff_id);
+  TEST_ASSERT_EQUAL_INT64(T - 50 * DAY, u->valid_from);
+}
+
+void test_repair_rejects_older(void) {
+  fx_assign();
+  post_assign(red, T + DAY);
+  adm_err("PUT", ut(first), tidbody(red), 409, "assignment_not_newest",
+          "Nur die neueste Tarifzuordnung kann geändert werden.");
+  /* not newest wins over an invalid body */
+  adm_free("PUT", ut(first), "{}", 409, "assignment_not_newest");
+  TEST_ASSERT_EQUAL_INT64(std, db_user_tariff(&a->db, first)->tariff_id);
+  adm_free("PUT", ut(999), tidbody(red), 404, "not_found");
+}
+
+void test_repair_valid_from_vs_previous(void) {
+  fx_assign();
+  int64_t nw = post_assign(red, T + DAY);
+  adm_err("PUT", ut(nw), vfbody(T - 50 * DAY), 409, "duplicate_valid_from",
+          "Für diesen Zeitpunkt gibt es schon eine Zuordnung.");
+  adm_free("PUT", ut(nw), vfbody(T - 60 * DAY), 400, "invalid");
+  TEST_ASSERT_EQUAL_INT64(T + DAY, db_user_tariff(&a->db, nw)->valid_from);
+  cJSON *j = call("PUT", ut(nw), vfbody(T - 49 * DAY), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(T - 49 * DAY, num(j, "valid_from"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT64(T - 49 * DAY, db_user_tariff(&a->db, nw)->valid_from);
+}
+
+void test_repair_empty_body_400(void) {
+  fx_assign();
+  adm_free("PUT", ut(first), "{}", 400, "invalid");
+  adm_free("PUT", ut(first), NULL, 400, "invalid");
+  adm_free("PUT", ut(first), tidbody(999), 400, "invalid");
+  adm_free("PUT", ut(first), "{\"valid_from\":\"x\"}", 400, "invalid");
+  const user_tariff_t *u = db_user_tariff(&a->db, first);
+  TEST_ASSERT_EQUAL_INT64(std, u->tariff_id);
+  TEST_ASSERT_EQUAL_INT64(T - 50 * DAY, u->valid_from);
+}
+
+void test_repair_billed_409(void) {
+  fx_assign();
+  int64_t bid = plant_booking(T - 10 * DAY, 1);
+  adm_err("PUT", ut(first), vfbody(T - 20 * DAY), 409, "assignment_billed",
+          "Es gibt schon abgerechnete Fahrten in diesem Zeitraum.");
+  /* tariff only: valid_from stays T-50d <= T-10d (Review Focus 2) */
+  adm_err("PUT", ut(first), tidbody(red), 409, "assignment_billed",
+          "Es gibt schon abgerechnete Fahrten in diesem Zeitraum.");
+  /* moving past the billed booking is caught by the old valid_from */
+  adm_free("PUT", ut(first), vfbody(T + DAY), 409, "assignment_billed");
+  const user_tariff_t *u = db_user_tariff(&a->db, first);
+  TEST_ASSERT_EQUAL_INT64(std, u->tariff_id);
+  TEST_ASSERT_EQUAL_INT64(T - 50 * DAY, u->valid_from);
+  set_invoice(bid, 0);
+  cJSON *j = call("PUT", ut(first), tidbody(red), tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(red, num(j, "tariff_id"));
+  cJSON_Delete(j);
+}
+
+void test_delete_newest_and_only(void) {
+  fx_assign();
+  TEST_ASSERT_NOT_NULL(db_tariff_at(&a->db, u1, T));
+  cJSON *j = call("DELETE", ut(first), NULL, tadm, 200, NULL);
+  TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "ok")));
+  cJSON_Delete(j);
+  j = call("GET", utp(u1), NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(0, cJSON_GetArraySize(j));
+  cJSON_Delete(j);
+  TEST_ASSERT_NULL(db_tariff_at(&a->db, u1, T));
+  adm_free("DELETE", ut(first), NULL, 404, "not_found");
+}
+
+void test_delete_rejects_older_and_billed(void) {
+  fx_assign();
+  int64_t second = post_assign(red, T + DAY);
+  adm_err("DELETE", ut(first), NULL, 409, "assignment_not_newest",
+          "Nur die neueste Tarifzuordnung kann geändert werden.");
+  adm_free("DELETE", ut(second), NULL, 200, NULL);
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+  plant_booking(T - 10 * DAY, 1);
+  adm_err("DELETE", ut(first), NULL, 409, "assignment_billed",
+          "Es gibt schon abgerechnete Fahrten in diesem Zeitraum.");
+  TEST_ASSERT_NOT_NULL(db_user_tariff(&a->db, first));
+}
+
+void test_assignment_routes_admin_only(void) {
+  fx_assign();
+  cJSON_Delete(call("GET", utp(u1), NULL, tu1, 403, NULL));
+  cJSON_Delete(call("POST", utp(u1), abody(red, T + DAY), tu1, 403, NULL));
+  cJSON_Delete(call("PUT", ut(first), tidbody(red), tu1, 403, NULL));
+  cJSON_Delete(call("DELETE", ut(first), NULL, tu1, 403, NULL));
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+  TEST_ASSERT_EQUAL_INT64(std, db_user_tariff(&a->db, first)->tariff_id);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_create_and_list_tariffs);
@@ -368,5 +630,19 @@ int main(void) {
   RUN_TEST(test_delete_active_version_409);
   RUN_TEST(test_unknown_tariff_404);
   RUN_TEST(test_tariff_routes_admin_only);
+  RUN_TEST(test_switch_future_ok_and_listed);
+  RUN_TEST(test_switch_today_ok);
+  RUN_TEST(test_switch_in_past_409);
+  RUN_TEST(test_switch_duplicate_409);
+  RUN_TEST(test_switch_unknown_tariff_400);
+  RUN_TEST(test_repair_backdates_newest);
+  RUN_TEST(test_repair_changes_tariff_only);
+  RUN_TEST(test_repair_rejects_older);
+  RUN_TEST(test_repair_valid_from_vs_previous);
+  RUN_TEST(test_repair_empty_body_400);
+  RUN_TEST(test_repair_billed_409);
+  RUN_TEST(test_delete_newest_and_only);
+  RUN_TEST(test_delete_rejects_older_and_billed);
+  RUN_TEST(test_assignment_routes_admin_only);
   return UNITY_END();
 }

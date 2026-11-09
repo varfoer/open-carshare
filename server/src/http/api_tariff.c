@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/booking_rules.h"
 #include "core/codec.h"
 #include "http/api_internal.h"
 
@@ -167,5 +168,145 @@ void h_admin_version_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
     return;
   }
   if (db_delete_version(&a->db, id) != 0) { api_storage_error(res); return; }
+  api_ok(res);
+}
+
+/* ---- user tariff assignments (all MIN_ADMIN) ---- */
+
+static int cmp_assign_newest_first(const void *x, const void *y) {
+  const user_tariff_t *p = *(const user_tariff_t *const *)x;
+  const user_tariff_t *q = *(const user_tariff_t *const *)y;
+  return p->valid_from < q->valid_from ? 1 : p->valid_from > q->valid_from ? -1 : 0;
+}
+
+static void duplicate_assignment(api_res_t *res) {
+  api_error(res, 409, "duplicate_valid_from", "Für diesen Zeitpunkt gibt es schon eine Zuordnung.");
+}
+
+/* "tariff_id" of an existing tariff into *out. */
+static bool read_tariff_id(db_t *db, const cJSON *body, int64_t *out) {
+  return api_get_int(body, "tariff_id", out) && db_tariff(db, *out);
+}
+
+/* "valid_from" within br_time_in_range into *out. */
+static bool read_valid_from(const cJSON *body, int64_t now, int64_t *out) {
+  return api_get_int(body, "valid_from", out) && br_time_in_range(*out, now);
+}
+
+/* Any invoiced booking of the user with booked_start >= from. */
+static bool billed_since(const db_t *db, int64_t user_id, int64_t from) {
+  for (size_t i = 0; i < db->n_bookings; i++) {
+    const booking_t *b = &db->bookings[i];
+    if (b->user_id == user_id && b->invoice_id != 0 && b->booked_start >= from) return true;
+  }
+  return false;
+}
+
+/* 404, then 409 assignment_not_newest. The assignment, or NULL with res filled. */
+static const user_tariff_t *newest_from_path(app_t *a, const api_req_t *req, api_res_t *res) {
+  int64_t id;
+  if (!api_path_id(req->path, "/api/admin/user-tariffs/", &id)) { api_invalid(res); return NULL; }
+  const user_tariff_t *u = db_user_tariff(&a->db, id);
+  if (!u) { api_not_found(res); return NULL; }
+  const user_tariff_t *n = db_user_tariff_newest(&a->db, u->user_id);
+  if (n != u) {
+    api_error(res, 409, "assignment_not_newest", "Nur die neueste Tarifzuordnung kann geändert werden.");
+    return NULL;
+  }
+  return u;
+}
+
+static void billed(api_res_t *res) {
+  api_error(res, 409, "assignment_billed", "Es gibt schon abgerechnete Fahrten in diesem Zeitraum.");
+}
+
+void h_admin_user_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)ctx;
+  int64_t uid;
+  if (!api_segment_id(req->path, "/api/admin/users/", &uid)) { api_invalid(res); return; }
+  if (!db_user(&a->db, uid)) { api_not_found(res); return; }
+  const db_t *db = &a->db;
+  cJSON *arr = cJSON_CreateArray();
+  const user_tariff_t **v = malloc((db->n_user_tariffs + 1) * sizeof *v);
+  if (!arr || !v) goto fail;
+  size_t n = 0;
+  for (size_t i = 0; i < db->n_user_tariffs; i++)
+    if (db->user_tariffs[i].user_id == uid) v[n++] = &db->user_tariffs[i];
+  qsort(v, n, sizeof *v, cmp_assign_newest_first);
+  for (size_t i = 0; i < n; i++) {
+    cJSON *e = user_tariff_to_json(v[i]);
+    if (!e || !cJSON_AddItemToArray(arr, e)) {
+      cJSON_Delete(e);
+      goto fail;
+    }
+  }
+  free(v);
+  api_json(res, 200, arr);
+  return;
+fail:
+  free(v);
+  cJSON_Delete(arr);
+  api_storage_error(res);
+}
+
+void h_admin_user_tariff_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  int64_t uid;
+  if (!api_segment_id(req->path, "/api/admin/users/", &uid)) { api_invalid(res); return; }
+  if (!db_user(&a->db, uid)) { api_not_found(res); return; }
+  user_tariff_t u;
+  memset(&u, 0, sizeof u);
+  if (!read_tariff_id(&a->db, ctx->body, &u.tariff_id) ||
+      !read_valid_from(ctx->body, req->now, &u.valid_from)) {
+    api_invalid(res);
+    return;
+  }
+  for (size_t i = 0; i < a->db.n_user_tariffs; i++) {
+    const user_tariff_t *o = &a->db.user_tariffs[i];
+    if (o->user_id == uid && o->valid_from == u.valid_from) { duplicate_assignment(res); return; }
+  }
+  if (u.valid_from < req->now) {
+    api_error(res, 409, "assignment_in_past", "Ein Tarifwechsel darf erst ab heute gelten.");
+    return;
+  }
+  u.user_id = uid;
+  u.created_at = req->now;
+  u.created_by = ctx->user->id;
+  if (db_put_user_tariff(&a->db, &u) != 0) { api_storage_error(res); return; }
+  api_json(res, 201, user_tariff_to_json(&u));
+}
+
+void h_admin_user_tariff_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  const user_tariff_t *old = newest_from_path(a, req, res);
+  if (!old) return;
+  user_tariff_t u = *old;
+  bool has_tid = cJSON_GetObjectItemCaseSensitive(ctx->body, "tariff_id") != NULL;
+  bool has_vf = cJSON_GetObjectItemCaseSensitive(ctx->body, "valid_from") != NULL;
+  if ((!has_tid && !has_vf) || (has_tid && !read_tariff_id(&a->db, ctx->body, &u.tariff_id)) ||
+      (has_vf && !read_valid_from(ctx->body, req->now, &u.valid_from))) {
+    api_invalid(res);
+    return;
+  }
+  /* The user's assignment just before this one; u.valid_from must stay after it. */
+  const user_tariff_t *prev = NULL;
+  for (size_t i = 0; i < a->db.n_user_tariffs; i++) {
+    const user_tariff_t *o = &a->db.user_tariffs[i];
+    if (o->user_id == old->user_id && o->valid_from < old->valid_from &&
+        (!prev || o->valid_from > prev->valid_from))
+      prev = o;
+  }
+  if (prev && u.valid_from == prev->valid_from) { duplicate_assignment(res); return; }
+  if (prev && u.valid_from < prev->valid_from) { api_invalid(res); return; }
+  int64_t from = u.valid_from < old->valid_from ? u.valid_from : old->valid_from;
+  if (billed_since(&a->db, old->user_id, from)) { billed(res); return; }
+  if (db_put_user_tariff(&a->db, &u) != 0) { api_storage_error(res); return; }
+  api_json(res, 200, user_tariff_to_json(&u));
+}
+
+void h_admin_user_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)ctx;
+  const user_tariff_t *old = newest_from_path(a, req, res);
+  if (!old) return;
+  if (billed_since(&a->db, old->user_id, old->valid_from)) { billed(res); return; }
+  if (db_delete_user_tariff(&a->db, old->id) != 0) { api_storage_error(res); return; }
   api_ok(res);
 }

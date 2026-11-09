@@ -45,7 +45,6 @@ static int query_opt(const char *q, const char *key, int64_t *out) {
 /* ---- users ---- */
 
 void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
-  (void)req;
   (void)ctx;
   cJSON *arr = cJSON_CreateArray();
   if (!arr) { api_storage_error(res); return; }
@@ -67,6 +66,14 @@ void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
     }
     if (!mj) { cJSON_Delete(o); cJSON_Delete(arr); api_json(res, 500, NULL); return; }
     cJSON_AddItemToObject(o, "mandate", mj);
+    /* Assignment in force now; a future-dated switch does not show yet. */
+    const user_tariff_t *ut = db_user_tariff_at(&a->db, a->db.users[i].id, req->now);
+    if (!cJSON_AddNumberToObject(o, "tariff_id", ut ? (double)ut->tariff_id : 0)) {
+      cJSON_Delete(o);
+      cJSON_Delete(arr);
+      api_json(res, 500, NULL);
+      return;
+    }
     cJSON_AddItemToArray(arr, o);
   }
   api_json(res, 200, arr);
@@ -105,10 +112,19 @@ void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   user_t u;
   memset(&u, 0, sizeof u);
   if (!read_user_fields(ctx->body, req->now, &u, res)) return;
+  int64_t tariff_id;
+  if (!api_get_int(ctx->body, "tariff_id", &tariff_id) || !db_tariff(&a->db, tariff_id)) {
+    api_invalid(res);
+    return;
+  }
   if (db_user_by_email(&a->db, u.email)) { err_duplicate_email(res); return; }
   u.active = true;
   u.created_at = req->now;
   if (db_put_user(&a->db, &u) != 0) { api_storage_error(res); return; }
+  /* The user row is written first; if the assignment fails the user stays without one. */
+  user_tariff_t ut = {.user_id = u.id, .tariff_id = tariff_id, .valid_from = req->now,
+                      .created_at = req->now, .created_by = ctx->user->id};
+  if (db_put_user_tariff(&a->db, &ut) != 0) { api_storage_error(res); return; }
   int rc = api_send_token_mail(a, u.id, TOKEN_INVITE, req->now);
   if (rc == -1 || rc == -2) { api_storage_error(res); return; }
   cJSON *j = cJSON_CreateObject();
@@ -194,6 +210,25 @@ static cJSON *export_invoice(const db_t *db, const invoice_t *v) {
   return NULL;
 }
 
+static int cmp_assign_newest(const void *x, const void *y) {
+  const user_tariff_t *p = *(const user_tariff_t *const *)x, *q = *(const user_tariff_t *const *)y;
+  return p->valid_from < q->valid_from ? 1 : p->valid_from > q->valid_from ? -1 : 0;
+}
+
+/* {id, tariff_name, valid_from}; tariff_name "" if the tariff is missing. NULL on OOM. */
+static cJSON *export_assignment(const db_t *db, const user_tariff_t *u) {
+  const char *name = "";
+  for (size_t i = 0; i < db->n_tariffs; i++)
+    if (db->tariffs[i].id == u->tariff_id) name = db->tariffs[i].name;
+  cJSON *o = cJSON_CreateObject();
+  if (o && cJSON_AddNumberToObject(o, "id", (double)u->id) &&
+      cJSON_AddStringToObject(o, "tariff_name", name) &&
+      cJSON_AddNumberToObject(o, "valid_from", (double)u->valid_from))
+    return o;
+  cJSON_Delete(o);
+  return NULL;
+}
+
 /* damage_report_to_json plus "photos": API paths of its photos; NULL on OOM. */
 static cJSON *export_damage(const damage_report_t *d) {
   cJSON *o = damage_report_to_json(d), *arr = cJSON_CreateArray();
@@ -218,7 +253,8 @@ void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   const db_t *db = &a->db;
   cJSON *o = cJSON_CreateObject();
   cJSON *bk = cJSON_CreateArray(), *dm = cJSON_CreateArray(), *md = cJSON_CreateArray(), *iv = cJSON_CreateArray();
-  bool ok = o && bk && dm && md && iv;
+  cJSON *tf = cJSON_CreateArray();
+  bool ok = o && bk && dm && md && iv && tf;
   for (size_t i = 0; ok && i < db->n_bookings; i++)
     if (db->bookings[i].user_id == id) ok = push(bk, booking_to_json(&db->bookings[i]));
   for (size_t i = 0; ok && i < db->n_damages; i++)
@@ -227,6 +263,14 @@ void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
     if (db->mandates[i].user_id == id) ok = push(md, mandate_api_json(&db->mandates[i]));
   for (size_t i = 0; ok && i < db->n_invoices; i++)
     if (db->invoices[i].user_id == id) ok = push(iv, export_invoice(db, &db->invoices[i]));
+  const user_tariff_t **ts = ok ? malloc((db->n_user_tariffs + 1) * sizeof *ts) : NULL;
+  ok = ok && ts;
+  size_t nt = 0;
+  for (size_t i = 0; ok && i < db->n_user_tariffs; i++)
+    if (db->user_tariffs[i].user_id == id) ts[nt++] = &db->user_tariffs[i];
+  if (ok) qsort(ts, nt, sizeof *ts, cmp_assign_newest);
+  for (size_t i = 0; ok && i < nt; i++) ok = push(tf, export_assignment(db, ts[i]));
+  free(ts);
   cJSON *uj = ok ? user_to_public_json(u) : NULL;
   ok = ok && cJSON_AddNumberToObject(o, "exported_at", (double)req->now) &&
        (uj ? cJSON_AddItemToObject(o, "user", uj) : false);
@@ -239,10 +283,13 @@ void h_admin_user_export(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   if (ok) md = NULL;
   ok = ok && cJSON_AddItemToObject(o, "invoices", iv);
   if (ok) iv = NULL;
+  ok = ok && cJSON_AddItemToObject(o, "tariffs", tf);
+  if (ok) tf = NULL;
   cJSON_Delete(bk);
   cJSON_Delete(dm);
   cJSON_Delete(md);
   cJSON_Delete(iv);
+  cJSON_Delete(tf);
   if (!ok) { cJSON_Delete(o); api_json(res, 500, NULL); return; }
   api_json(res, 200, o);
 }

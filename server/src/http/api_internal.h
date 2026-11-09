@@ -114,6 +114,12 @@ void h_admin_tariff_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, ap
 void h_admin_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_version_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_version_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+/* Assignments: GET/POST /api/admin/users/<id>/tariffs (list newest valid_from first),
+ * PUT/DELETE /api/admin/user-tariffs/<id> (only the user's newest assignment). */
+void h_admin_user_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_tariff_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_tariff_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_user_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_billing.c (all MIN_ADMIN) */
 void h_admin_billing_list(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

@@ -15,7 +15,7 @@
 #define H 3600
 
 static app_t *a;
-static int64_t adm, u1, car1, car2;
+static int64_t adm, u1, car1, car2, std;
 static char tadm[65], tu1[65];
 
 static int64_t add_car(const char *name, bool active) {
@@ -39,6 +39,9 @@ void setUp(void) {
   TEST_ASSERT_EQUAL_INT(0, session_create(a, u1, T, tu1));
   car1 = add_car("Golf", true);
   car2 = add_car("Polo", true);
+  std = th_add_tariff(a, "Standard");
+  TEST_ASSERT_TRUE(std > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, std, 1, 0, 0, 0) > 0);
   settings_t s = a->db.settings; /* keeps codec defaults (sepa_lead_days, reminder_before_min) */
   s.start_tolerance_min = 15;
   s.cancel_deadline_min = 60;
@@ -90,8 +93,8 @@ static char *user_body(const char *email, const char *role) {
   static char b[400];
   snprintf(b, sizeof b,
            "{\"email\":\"%s\",\"name\":\"Neu Nutzer\",\"street\":\"Weg 1\",\"zip\":\"12345\","
-           "\"city\":\"Ort\",\"role\":\"%s\"}",
-           email, role);
+           "\"city\":\"Ort\",\"role\":\"%s\",\"tariff_id\":%lld}",
+           email, role, (long long)std);
   return b;
 }
 
@@ -842,9 +845,11 @@ void test_admin_user_may_club_trip(void) {
   cJSON *j = call("POST", "/api/admin/users", user_body("neu@x.de", "user"), tadm, 201, NULL);
   TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(j, "user"), "may_club_trip")));
   cJSON_Delete(j);
-  adm_free("POST", "/api/admin/users",
+  char vb[200];
+  snprintf(vb, sizeof vb,
            "{\"email\":\"v@x.de\",\"name\":\"V\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
-           "\"role\":\"user\",\"may_club_trip\":true}", 201, NULL);
+           "\"role\":\"user\",\"may_club_trip\":true,\"tariff_id\":%lld}", (long long)std);
+  adm_free("POST", "/api/admin/users", vb, 201, NULL);
   TEST_ASSERT_TRUE(db_user_by_email(&a->db, "v@x.de")->may_club_trip);
   adm_free("POST", "/api/admin/users",
            "{\"email\":\"w@x.de\",\"name\":\"V\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
@@ -1162,6 +1167,115 @@ void test_deactivate_keeps_invoices_and_mandates(void) {
   cJSON_Delete(j);
 }
 
+/* ---- tariff assignment on users ---- */
+
+static int64_t row_tariff_id(const cJSON *arr, int64_t uid) {
+  const cJSON *u;
+  cJSON_ArrayForEach(u, arr) {
+    if (num(u, "id") == uid) return num(u, "tariff_id");
+  }
+  TEST_FAIL_MESSAGE("user row missing");
+  return -1;
+}
+
+void test_user_post_requires_tariff(void) {
+  size_t n = a->db.n_users;
+  adm_free("POST", "/api/admin/users",
+           "{\"email\":\"t@x.de\",\"name\":\"Neu\",\"street\":\"W\",\"zip\":\"1\",\"city\":\"O\","
+           "\"role\":\"user\"}",
+           400, "invalid");
+  adm_free("POST", "/api/admin/users",
+           "{\"email\":\"t@x.de\",\"name\":\"Neu\",\"street\":\"W\",\"zip\":\"1\",\"city\":\"O\","
+           "\"role\":\"user\",\"tariff_id\":999}",
+           400, "invalid");
+  adm_free("POST", "/api/admin/users",
+           "{\"email\":\"t@x.de\",\"name\":\"Neu\",\"street\":\"W\",\"zip\":\"1\",\"city\":\"O\","
+           "\"role\":\"user\",\"tariff_id\":\"1\"}",
+           400, "invalid");
+  TEST_ASSERT_EQUAL_size_t(n, a->db.n_users);
+  TEST_ASSERT_EQUAL_size_t(0, a->db.n_user_tariffs);
+  TEST_ASSERT_EQUAL_INT(0, th_mail_count());
+}
+
+void test_user_post_assigns_tariff(void) {
+  cJSON *j = call("POST", "/api/admin/users", user_body("t@x.de", "user"), tadm, 201, NULL);
+  int64_t id = num(cJSON_GetObjectItemCaseSensitive(j, "user"), "id");
+  cJSON_Delete(j);
+  const user_tariff_t *ut = db_user_tariff_newest(&a->db, id);
+  TEST_ASSERT_NOT_NULL(ut);
+  TEST_ASSERT_EQUAL_INT64(std, ut->tariff_id);
+  TEST_ASSERT_EQUAL_INT64(T, ut->valid_from);
+  TEST_ASSERT_EQUAL_INT64(T, ut->created_at);
+  TEST_ASSERT_EQUAL_INT64(adm, ut->created_by);
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+}
+
+void test_users_list_has_tariff_id(void) {
+  cJSON *j = call("POST", "/api/admin/users", user_body("t@x.de", "user"), tadm, 201, NULL);
+  int64_t id = num(cJSON_GetObjectItemCaseSensitive(j, "user"), "id");
+  cJSON_Delete(j);
+  j = call("GET", "/api/admin/users", NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(std, row_tariff_id(j, id));
+  TEST_ASSERT_EQUAL_INT64(0, row_tariff_id(j, u1));
+  cJSON_Delete(j);
+  /* a future switch does not show yet (Review Focus 5) */
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, std, T + 86400) > 0);
+  j = call("GET", "/api/admin/users", NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(0, row_tariff_id(j, u1));
+  cJSON_Delete(j);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, std, T) > 0);
+  j = call("GET", "/api/admin/users", NULL, tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT64(std, row_tariff_id(j, u1));
+  cJSON_Delete(j);
+}
+
+void test_user_put_ignores_tariff_id(void) {
+  int64_t ut = th_assign_tariff(a, u1, std, T - 86400);
+  TEST_ASSERT_TRUE(ut > 0);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/users/%lld", (long long)u1);
+  adm_free("PUT", p,
+           "{\"email\":\"anna@x.de\",\"name\":\"Anna\",\"street\":\"S\",\"zip\":\"1\",\"city\":\"C\","
+           "\"role\":\"user\",\"active\":true,\"tariff_id\":999}",
+           200, NULL);
+  TEST_ASSERT_EQUAL_size_t(1, a->db.n_user_tariffs);
+  TEST_ASSERT_EQUAL_INT64(std, db_user_tariff(&a->db, ut)->tariff_id);
+  TEST_ASSERT_EQUAL_INT64(T - 86400, db_user_tariff(&a->db, ut)->valid_from);
+}
+
+void test_export_lists_tariffs(void) {
+  int64_t red = th_add_tariff(a, "Reduziert");
+  TEST_ASSERT_TRUE(red > 0);
+  int64_t first = th_assign_tariff(a, u1, std, 5);
+  int64_t second = th_assign_tariff(a, u1, red, T + 86400);
+  TEST_ASSERT_TRUE(first > 0 && second > 0);
+  /* another user's assignment is not exported */
+  TEST_ASSERT_TRUE(th_assign_tariff(a, adm, red, 7) > 0);
+  cJSON *j = export_u1();
+  cJSON *t = cJSON_GetObjectItemCaseSensitive(j, "tariffs");
+  TEST_ASSERT_TRUE(cJSON_IsArray(t));
+  TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(t));
+  cJSON *t0 = cJSON_GetArrayItem(t, 0), *t1 = cJSON_GetArrayItem(t, 1);
+  TEST_ASSERT_EQUAL_STRING("Reduziert", str(t0, "tariff_name"));
+  TEST_ASSERT_EQUAL_INT64(T + 86400, num(t0, "valid_from"));
+  TEST_ASSERT_EQUAL_INT64(second, num(t0, "id"));
+  TEST_ASSERT_EQUAL_INT64(first, num(t1, "id"));
+  TEST_ASSERT_EQUAL_STRING("Standard", str(t1, "tariff_name"));
+  TEST_ASSERT_EQUAL_INT64(5, num(t1, "valid_from"));
+  cJSON_Delete(j);
+}
+
+void test_me_has_no_tariff(void) {
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, std, T - 86400) > 0);
+  api_res_t r = th_req(a, "GET", "/api/me", NULL, tu1, T);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  TEST_ASSERT_NOT_NULL(r.body);
+  bool has = strstr(r.body, "\"tariff\"") || strstr(r.body, "\"tariff_id\"") ||
+             strstr(r.body, "\"tariffs\"");
+  api_res_free(&r);
+  TEST_ASSERT_FALSE(has);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_user_role_gets_403_on_admin);
@@ -1226,5 +1340,11 @@ int main(void) {
   RUN_TEST(test_export_unknown_user_404);
   RUN_TEST(test_export_user_role_403);
   RUN_TEST(test_deactivate_keeps_invoices_and_mandates);
+  RUN_TEST(test_user_post_requires_tariff);
+  RUN_TEST(test_user_post_assigns_tariff);
+  RUN_TEST(test_users_list_has_tariff_id);
+  RUN_TEST(test_user_put_ignores_tariff_id);
+  RUN_TEST(test_export_lists_tariffs);
+  RUN_TEST(test_me_has_no_tariff);
   return UNITY_END();
 }
