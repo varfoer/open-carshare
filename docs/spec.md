@@ -73,6 +73,7 @@ active, license_checked_at, may_club_trip (default false, set by admin only),
 created_at. The postal address (street, zip, city) is optional and set by
 the admin only; it is the invoice addressee (empty lines are left out).
 `PUT /api/me` changes only `name`. Email changes are admin-only.
+Tariff: see user_tariff; member endpoints never return tariff data.
 
 ### mandate
 id, user_id, holder (account holder, max 70 UTF-8 code points), iban, bic
@@ -94,14 +95,29 @@ id, secret (encrypted at rest), algorithm params (step, digits, drift).
 PIN algorithm: pluggable, delivered later:
 `int access_pin(const keysafe_t*, const booking_t*, int64_t now, char *out, size_t n)`.
 
-### tariff (per car, versioned)
-car_id, valid_from, rate_day_cents_per_h, rate_night_cents_per_h,
+### tariff
+id, name (1..63 bytes UTF-8, unique after trim), created_at. A named global
+price list. Stored in `data/tariffs.jsonl`.
+
+### tariff_version
+id, tariff_id, valid_from, rate_day_cents_per_h, rate_night_cents_per_h,
 night_start (minutes after midnight, default 20:00), night_end (default 06:00),
 rate_km_cents, unused_factor_permille (default 500),
 time_cap_cents_per_day, combined_cap_cents_per_day,
-late_fee_cents_per_started_h.
+late_fee_cents_per_started_h, created_at. Append-only; unique
+(tariff_id, valid_from). Stored in `data/tariff_versions.jsonl`.
 
-Pricing uses the tariff valid at the booking's booked start.
+### user_tariff
+id, user_id, tariff_id, valid_from, created_at, created_by (admin user id).
+Append-only assignment of a tariff to a user from `valid_from`; the one in
+force at a time is the newest with `valid_from <= t`. Repair rule: only the
+user's newest assignment may be edited or deleted, and only while no invoiced
+booking of the user has `booked_start >= min(old, new valid_from)` (delete:
+`>= old valid_from`); a new `valid_from` must stay greater than the previous
+assignment's. Stored in `data/user_tariffs.jsonl`.
+
+Pricing uses the booking user's assignment in force at `booked_start` and that
+tariff's version in force at `booked_start`; either missing means no tariff.
 
 ### booking
 id, car_id, user_id, booked_start, booked_end, state
@@ -345,7 +361,7 @@ period must be greater than the period of every existing run (409
    total is the sum of the line totals. The admin reviews and may edit
    bookings; the next read shows the result. The draft lists blockers:
    `km_pending` (every included booking with km pending, club trips
-   included), `no_tariff` (included non-cancelled non-club bookings without a
+   included), `no_tariff` (included non-cancelled non-club bookings whose user has no
    tariff at `booked_start`), `no_mandate` (users with total > 0 without a
    current mandate).
 3. **Finalize** (`POST …/finalize`). Refused with 409 `no_creditor` „Bitte
@@ -511,7 +527,7 @@ it (the mailer logs it).
   `reminder_before_min` is 0.
 - **Late-return reminder** (`Rückgabe überfällig: <car>`): once for an
   `active` booking when `now >= booked_end`. It names the late fee only when
-  the tariff at `booked_start` has `late_fee_cents_per_started_h > 0` and the
+  the user's tariff at `booked_start` has `late_fee_cents_per_started_h > 0` and the
   booking is not a club trip.
 - **Once only:** `start_reminded` / `late_reminded` are set only after a
   successful send, so a failed send is retried on the next 5-min tick while
@@ -597,12 +613,27 @@ POST /api/bookings/{id}/damage    GET /api/bookings/{id}/damage
 POST /api/damage/{id}/photos      (raw image/jpeg body, ≤ 2 MiB)
 GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
 GET  /api/bookings/{id}/pin
+GET  /api/price-estimate?start&end&km[&club=1]
 admin:
   GET  /api/admin/users/{id}/mandates
   GET  /api/admin/users/{id}/export      (GDPR export, §12)
   POST /api/admin/users/{id}/mandate/revoke
   (GET /api/admin/users includes a "mandate" summary per user)
-  /api/admin/users, /cars, /keysafes, /tariffs, /bookings, /settings
+  /api/admin/users, /cars, /keysafes, /bookings, /settings
+  (POST /api/admin/users requires tariff_id; GET /api/admin/users rows include
+   tariff_id = assignment in force now, 0 = none; the export includes
+   tariffs: [{id, tariff_name, valid_from}] newest first;
+   PUT /api/admin/users/{id} ignores tariff_id)
+  GET    /api/admin/tariffs                      (with versions, newest first)
+  POST   /api/admin/tariffs                      {name}; 409 duplicate_name
+  PUT    /api/admin/tariffs/{id}                 {name}; 409 duplicate_name
+  DELETE /api/admin/tariffs/{id}                 409 tariff_in_use; deletes its versions
+  POST   /api/admin/tariffs/{id}/versions        409 duplicate_valid_from | tariff_in_past
+  DELETE /api/admin/tariff-versions/{id}         409 tariff_active
+  GET    /api/admin/users/{id}/tariffs           (assignments, newest first)
+  POST   /api/admin/users/{id}/tariffs           {tariff_id, valid_from}; 409 assignment_in_past | duplicate_valid_from
+  PUT    /api/admin/user-tariffs/{id}            newest only; 409 assignment_not_newest | assignment_billed | duplicate_valid_from
+  DELETE /api/admin/user-tariffs/{id}            newest only; 409 assignment_not_newest | assignment_billed
   GET  /api/admin/billing                       (runs, newest first, with n_invoices, total_cents)
   POST /api/admin/billing?period=YYYY-MM        (new draft)
   GET  /api/admin/billing/{id}                  (detail; draft: live, with blockers)
@@ -672,7 +703,8 @@ can still override manually.
 
 ### Phase 4: Tariffs and pricing — done (merged 2026-11-02)
 Depends on: Phase 2 (actual times); Phase 3 km optional (manual km works).
-- Tariff entity (§4), versioned per car, admin CRUD.
+- Tariff entity (§4), versioned, admin CRUD (tariffs moved from cars to
+  users in Phase 8).
 - Pricing engine (§6) as a pure function in `core/`: day/night per minute,
   unused factor, per-day time cap, combined cap, late fee, cancel fee,
   club trip = 0. Exhaustive unit tests including DST days and caps.
@@ -715,6 +747,16 @@ Phase 6 except the "billing run done" mail.
 - GDPR: user data export (admin), deactivation; invoice retention 10 years.
 Done when: all §10 mails are sent and the encrypted backup arrives and
 restores.
+
+### Phase 8: User tariffs — done (merged 2026-11-09)
+Design: `docs/superpowers/specs/2026-11-09-user-tariffs-design.md`.
+Plan: `docs/superpowers/plans/2026-11-09-user-tariffs.md`.
+- Tariffs are named global price lists with append-only versions; users carry
+  dated assignments; pricing follows the user's tariff at `booked_start`.
+- Forward-dated switch, repair path on the newest assignment (blocked by
+  invoiced bookings), "Tarife" admin page, tariff select on user creation.
+Done when: two users on different tariffs get different prices for the same
+trip, a switch re-prices only bookings starting after it, club trips stay 0 €.
 
 ### Later (see §14)
 Keysafe entity and PIN (`access_pin`, §7) once the algorithm is delivered;

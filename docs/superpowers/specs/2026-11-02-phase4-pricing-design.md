@@ -1,5 +1,7 @@
 # Phase 4: Tariffs and pricing — design
 
+> Note: tariffs moved from cars to users in Phase 8; see `2026-11-09-user-tariffs-design.md`.
+
 Date: 2026-11-02. Authority: `docs/spec.md` §4 (tariff), §6 (pricing),
 §15 Phase 4. This document adds what the spec leaves open; where they
 disagree, the spec wins unless this document says it changes the spec.
