@@ -14,7 +14,7 @@ static int64_t overlap(int64_t lo, int64_t hi, int64_t ns, int64_t ne) {
 }
 
 /* Night minutes of the local-minute range [lo, hi). */
-static int64_t night_of(const tariff_t *t, int64_t lo, int64_t hi) {
+static int64_t night_of(const tariff_version_t *t, int64_t lo, int64_t hi) {
     if (t->night_start > t->night_end)
         return overlap(lo, hi, 0, t->night_end) + overlap(lo, hi, t->night_start, 1440);
     if (t->night_start < t->night_end)
@@ -24,7 +24,7 @@ static int64_t night_of(const tariff_t *t, int64_t lo, int64_t hi) {
 
 /* Add the minutes of the UTC interval [x, y) to *day / *night. The interval lies inside one
  * constant-offset segment with offset off; local midnight is l0 (local seconds). */
-static void add_seg(const tariff_t *t, int64_t x, int64_t y, int64_t off, int64_t l0,
+static void add_seg(const tariff_version_t *t, int64_t x, int64_t y, int64_t off, int64_t l0,
                     int64_t *day, int64_t *night) {
     if (y <= x) return;
     int64_t lo = (x + off - l0) / 60, hi = (y + off - l0) / 60;
@@ -35,7 +35,7 @@ static void add_seg(const tariff_t *t, int64_t x, int64_t y, int64_t off, int64_
 
 /* Minutes of [x, y) within the local day [d0, d1), split by rate. A DST change inside the day
  * splits it into two constant-offset segments. */
-static void add_day(const tariff_t *t, int64_t d0, int64_t d1, int64_t x, int64_t y,
+static void add_day(const tariff_version_t *t, int64_t d0, int64_t d1, int64_t x, int64_t y,
                     int64_t *day, int64_t *night) {
     x = max64(x, d0); y = min64(y, d1);
     if (y <= x) return;
@@ -53,7 +53,7 @@ static void add_day(const tariff_t *t, int64_t d0, int64_t d1, int64_t x, int64_
     add_seg(t, max64(x, hi), y, berlin_offset(hi), l0, day, night);
 }
 
-void price_compute(const tariff_t *t, int tolerance_min, int64_t b0, int64_t b1,
+void price_compute(const tariff_version_t *t, int tolerance_min, int64_t b0, int64_t b1,
                    int64_t a0, int64_t a1, int64_t km, price_t *out) {
     memset(out, 0, sizeof *out);
     b0 = trunc_min(b0); b1 = trunc_min(b1);
@@ -117,7 +117,7 @@ void price_compute(const tariff_t *t, int tolerance_min, int64_t b0, int64_t b1,
     out->total_cents = sum - out->combined_cap_cut_cents + out->late_fee_cents;
 }
 
-void price_booking(const tariff_t *t, const settings_t *s, const booking_t *b, price_t *out) {
+void price_booking(const tariff_version_t *t, const settings_t *s, const booking_t *b, price_t *out) {
     memset(out, 0, sizeof *out);
     if (b->club_trip) { out->status = PRICE_OK; return; }
     if (b->state == BK_CANCELLED) {

@@ -91,7 +91,7 @@ static int calc_draft(app_t *a, const billing_run_t *run, int64_t now, calc_t *c
     const booking_t *b = &db->bookings[i];
     if (!billing_includes(b, to)) continue;
     const car_t *car = db_car((db_t *)db, b->car_id);
-    const tariff_t *t = db_tariff_at(db, b->car_id, b->booked_start);
+    const tariff_version_t *t = db_tariff_at(db, b->user_id, b->booked_start);
     price_t p;
     price_booking(t, &db->settings, b, &p);
     entry_t *x = &e[k++];

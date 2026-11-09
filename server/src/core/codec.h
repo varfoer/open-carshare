@@ -21,6 +21,8 @@ cJSON *token_to_json(const token_t *v);
 cJSON *settings_to_json(const settings_t *v);
 cJSON *mandate_to_json(const mandate_t *v);
 cJSON *tariff_to_json(const tariff_t *v);
+cJSON *tariff_version_to_json(const tariff_version_t *v);
+cJSON *user_tariff_to_json(const user_tariff_t *v);
 cJSON *billing_run_to_json(const billing_run_t *v);
 cJSON *invoice_to_json(const invoice_t *v);
 cJSON *invoice_line_to_json(const invoice_line_t *v);
@@ -44,10 +46,14 @@ int settings_from_json(const cJSON *j, settings_t *out);
 /* All keys required; -1 also if iban is not iban_valid or bic is neither "" nor bic_valid. */
 int mandate_from_json(const cJSON *j, mandate_t *out);
 
-/* All keys required; -1 also if !tariff_valid. */
+/* All keys required; -1 also if name is empty (1..63 bytes, not trimmed). */
 int tariff_from_json(const cJSON *j, tariff_t *out);
+/* All keys required; -1 also if !tariff_version_valid. */
+int tariff_version_from_json(const cJSON *j, tariff_version_t *out);
 /* Money fields 0..10000000, night_start/night_end 0..1439, unused_factor_permille 0..1000. */
-bool tariff_valid(const tariff_t *t);
+bool tariff_version_valid(const tariff_version_t *t);
+/* All keys required. */
+int user_tariff_from_json(const cJSON *j, user_tariff_t *out);
 
 /* All keys required. */
 int billing_run_from_json(const cJSON *j, billing_run_t *out);

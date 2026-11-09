@@ -14,6 +14,8 @@ typedef struct {
   token_t *tokens; size_t n_tokens, cap_tokens;
   damage_report_t *damages; size_t n_damages, cap_damages;
   tariff_t *tariffs; size_t n_tariffs, cap_tariffs;
+  tariff_version_t *versions; size_t n_versions, cap_versions;
+  user_tariff_t *user_tariffs; size_t n_user_tariffs, cap_user_tariffs;
   mandate_t *mandates; size_t n_mandates, cap_mandates;
   billing_run_t *runs; size_t n_runs, cap_runs;
   invoice_t *invoices; size_t n_invoices, cap_invoices;
@@ -38,13 +40,23 @@ booking_t *db_booking(db_t *db, int64_t id);
 damage_report_t *db_damage(db_t *db, int64_t id);
 token_t *db_token(db_t *db, const char *token_hash);
 tariff_t *db_tariff(db_t *db, int64_t id);
+tariff_t *db_tariff_by_name(db_t *db, const char *name); /* exact match; NULL if none */
+tariff_version_t *db_version(db_t *db, int64_t id);
+user_tariff_t *db_user_tariff(db_t *db, int64_t id);
 mandate_t *db_mandate(db_t *db, int64_t id);
 const mandate_t *db_mandate_current(const db_t *db, int64_t user_id); /* status ACTIVE, largest id; NULL if none */
 billing_run_t *db_run(db_t *db, int64_t id);
 invoice_t *db_invoice(db_t *db, int64_t number);
 int64_t db_next_invoice_number(const db_t *db);      /* max number + 1 */
-/* Version of the car with the largest valid_from <= ts; NULL if none. */
-const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts);
+/* Version of the tariff with the largest valid_from <= ts; NULL if none. */
+const tariff_version_t *db_version_at(const db_t *db, int64_t tariff_id, int64_t ts);
+/* Assignment of the user with the largest valid_from <= ts; NULL if none. */
+const user_tariff_t *db_user_tariff_at(const db_t *db, int64_t user_id, int64_t ts);
+/* Assignment of the user with the largest valid_from; NULL if none. */
+const user_tariff_t *db_user_tariff_newest(const db_t *db, int64_t user_id);
+/* Price list in force for the user at ts: the assignment at ts, then its tariff's version
+ * at ts. NULL if either is missing. */
+const tariff_version_t *db_tariff_at(const db_t *db, int64_t user_id, int64_t ts);
 
 /* All return 0 on success, -1 if persisting failed; RAM is then restored to its
  * state before the call, including the id counter. */
@@ -53,8 +65,14 @@ int db_put_car(db_t *db, car_t *c);
 int db_put_booking(db_t *db, booking_t *b);
 int db_put_damage(db_t *db, damage_report_t *d);
 int db_put_tariff(db_t *db, tariff_t *t);      /* id==0: assign max+1 and insert; else replace */
+int db_put_version(db_t *db, tariff_version_t *v); /* id==0: assign max+1 and insert; else replace */
+int db_put_user_tariff(db_t *db, user_tariff_t *u); /* id==0: assign max+1 and insert; else replace */
 int db_put_mandate(db_t *db, mandate_t *m);   /* id==0: assign max+1 and insert; else replace */
-int db_delete_tariff(db_t *db, int64_t id);    /* -1 if unknown id or persisting failed */
+/* Delete by id; -1 if unknown id or persisting failed. db_delete_tariff also removes the
+ * tariff's versions (tariff_versions.jsonl is written first). */
+int db_delete_tariff(db_t *db, int64_t id);
+int db_delete_version(db_t *db, int64_t id);
+int db_delete_user_tariff(db_t *db, int64_t id);
 int db_put_run(db_t *db, billing_run_t *r);   /* id==0: assign max+1 and insert; else replace */
 int db_delete_run(db_t *db, int64_t id);      /* -1 if unknown id or persisting failed */
 int db_put_invoices(db_t *db, const invoice_t *inv, size_t n); /* replace by number, one write */

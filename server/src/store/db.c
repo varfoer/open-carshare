@@ -109,6 +109,10 @@ DEFINE_LOADER_X(cars, car_t, cars, n_cars, cap_cars, car_from_json)
 DEFINE_LOADER_X(bookings, booking_t, bookings, n_bookings, cap_bookings, booking_from_json)
 DEFINE_LOADER_X(damages, damage_report_t, damages, n_damages, cap_damages, damage_report_from_json)
 DEFINE_LOADER_X(tariffs, tariff_t, tariffs, n_tariffs, cap_tariffs, tariff_from_json)
+DEFINE_LOADER_X(versions, tariff_version_t, versions, n_versions, cap_versions,
+                tariff_version_from_json)
+DEFINE_LOADER_X(user_tariffs, user_tariff_t, user_tariffs, n_user_tariffs, cap_user_tariffs,
+                user_tariff_from_json)
 DEFINE_LOADER_X(mandates, mandate_t, mandates, n_mandates, cap_mandates, mandate_from_json)
 DEFINE_LOADER_X(runs, billing_run_t, runs, n_runs, cap_runs, billing_run_from_json)
 DEFINE_LOADER_X(invoices, invoice_t, invoices, n_invoices, cap_invoices, invoice_from_json)
@@ -144,6 +148,8 @@ void db_free(db_t *db) {
   free(db->bookings);
   free(db->damages);
   free(db->tariffs);
+  free(db->versions);
+  free(db->user_tariffs);
   free(db->mandates);
   free(db->runs);
   free(db->invoices);
@@ -188,6 +194,8 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "bookings.jsonl", load_bookings);
   if (rc == 0) rc = load_file(db, "damage_reports.jsonl", load_damages);
   if (rc == 0) rc = load_file(db, "tariffs.jsonl", load_tariffs);
+  if (rc == 0) rc = load_file(db, "tariff_versions.jsonl", load_versions);
+  if (rc == 0) rc = load_file(db, "user_tariffs.jsonl", load_user_tariffs);
   if (rc == 0) rc = load_file(db, "mandates.jsonl", load_mandates);
   if (rc == 0) rc = load_file(db, "billing_runs.jsonl", load_runs);
   if (rc == 0) rc = load_file(db, "invoices.jsonl", load_invoices);
@@ -277,6 +285,24 @@ tariff_t *db_tariff(db_t *db, int64_t id) {
   return NULL;
 }
 
+tariff_t *db_tariff_by_name(db_t *db, const char *name) {
+  for (size_t i = 0; i < db->n_tariffs; i++)
+    if (strcmp(db->tariffs[i].name, name) == 0) return &db->tariffs[i];
+  return NULL;
+}
+
+tariff_version_t *db_version(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_versions; i++)
+    if (db->versions[i].id == id) return &db->versions[i];
+  return NULL;
+}
+
+user_tariff_t *db_user_tariff(db_t *db, int64_t id) {
+  for (size_t i = 0; i < db->n_user_tariffs; i++)
+    if (db->user_tariffs[i].id == id) return &db->user_tariffs[i];
+  return NULL;
+}
+
 mandate_t *db_mandate(db_t *db, int64_t id) {
   for (size_t i = 0; i < db->n_mandates; i++)
     if (db->mandates[i].id == id) return &db->mandates[i];
@@ -312,14 +338,40 @@ int64_t db_next_invoice_number(const db_t *db) {
   return max + 1;
 }
 
-const tariff_t *db_tariff_at(const db_t *db, int64_t car_id, int64_t ts) {
-  const tariff_t *best = NULL;
-  for (size_t i = 0; i < db->n_tariffs; i++) {
-    const tariff_t *t = &db->tariffs[i];
-    if (t->car_id == car_id && t->valid_from <= ts && (!best || t->valid_from > best->valid_from))
-      best = t;
+const tariff_version_t *db_version_at(const db_t *db, int64_t tariff_id, int64_t ts) {
+  const tariff_version_t *best = NULL;
+  for (size_t i = 0; i < db->n_versions; i++) {
+    const tariff_version_t *v = &db->versions[i];
+    if (v->tariff_id == tariff_id && v->valid_from <= ts &&
+        (!best || v->valid_from > best->valid_from))
+      best = v;
   }
   return best;
+}
+
+const user_tariff_t *db_user_tariff_at(const db_t *db, int64_t user_id, int64_t ts) {
+  const user_tariff_t *best = NULL;
+  for (size_t i = 0; i < db->n_user_tariffs; i++) {
+    const user_tariff_t *u = &db->user_tariffs[i];
+    if (u->user_id == user_id && u->valid_from <= ts &&
+        (!best || u->valid_from > best->valid_from))
+      best = u;
+  }
+  return best;
+}
+
+const user_tariff_t *db_user_tariff_newest(const db_t *db, int64_t user_id) {
+  const user_tariff_t *best = NULL;
+  for (size_t i = 0; i < db->n_user_tariffs; i++) {
+    const user_tariff_t *u = &db->user_tariffs[i];
+    if (u->user_id == user_id && (!best || u->valid_from > best->valid_from)) best = u;
+  }
+  return best;
+}
+
+const tariff_version_t *db_tariff_at(const db_t *db, int64_t user_id, int64_t ts) {
+  const user_tariff_t *u = db_user_tariff_at(db, user_id, ts);
+  return u ? db_version_at(db, u->tariff_id, ts) : NULL;
 }
 
 /* ---- writes ---- */
@@ -350,6 +402,10 @@ DEFINE_PUT_ENTITY(db_put_damage, damage_report_t, damages, n_damages, cap_damage
                   "damage_reports.jsonl", damage_report_to_json)
 DEFINE_PUT_ENTITY(db_put_tariff, tariff_t, tariffs, n_tariffs, cap_tariffs,
                   "tariffs.jsonl", tariff_to_json)
+DEFINE_PUT_ENTITY(db_put_version, tariff_version_t, versions, n_versions, cap_versions,
+                  "tariff_versions.jsonl", tariff_version_to_json)
+DEFINE_PUT_ENTITY(db_put_user_tariff, user_tariff_t, user_tariffs, n_user_tariffs,
+                  cap_user_tariffs, "user_tariffs.jsonl", user_tariff_to_json)
 
 DEFINE_PUT_ENTITY(db_put_mandate, mandate_t, mandates, n_mandates, cap_mandates,
                   "mandates.jsonl", mandate_to_json)
@@ -478,24 +534,66 @@ int db_finalize_run(db_t *db, const billing_run_t *run, const invoice_t *inv, si
 }
 
 /* Removes one tariff; RAM restored if persisting fails. */
-int db_delete_tariff(db_t *db, int64_t id) {
-  size_t n = db->n_tariffs, at = n;
-  for (size_t i = 0; i < n; i++)
-    if (db->tariffs[i].id == id) at = i;
-  if (at == n) return -1;
-  tariff_t *copy = malloc(n * sizeof *copy);
+/* Removes the entity with this id (the first int64_t of every entity type) from arr and
+ * persists file; RAM restored if persisting fails. -1 if unknown id or persist failed. */
+static int delete_one(db_t *db, void **arr, size_t *n, size_t esz, int64_t id, const char *file,
+                      to_json_fn to_json) {
+  char *base = *arr;
+  size_t cnt = *n, at = cnt;
+  for (size_t i = 0; i < cnt; i++) {
+    int64_t eid;
+    memcpy(&eid, base + i * esz, sizeof eid);
+    if (eid == id) at = i;
+  }
+  if (at == cnt) return -1;
+  char *copy = malloc(cnt * esz);
   if (!copy) return -1;
-  memcpy(copy, db->tariffs, n * sizeof *copy);
-  memmove(db->tariffs + at, db->tariffs + at + 1, (n - at - 1) * sizeof *copy);
-  db->n_tariffs = n - 1;
-  int rc = persist_table(db, "tariffs.jsonl", db->tariffs, n - 1, sizeof *copy,
-                         (to_json_fn)tariff_to_json);
+  memcpy(copy, base, cnt * esz);
+  memmove(base + at * esz, base + (at + 1) * esz, (cnt - at - 1) * esz);
+  *n = cnt - 1;
+  int rc = persist_table(db, file, base, cnt - 1, esz, to_json);
   if (rc != 0) {
-    memcpy(db->tariffs, copy, n * sizeof *copy);
-    db->n_tariffs = n;
+    memcpy(base, copy, cnt * esz);
+    *n = cnt;
   }
   free(copy);
   return rc == 0 ? 0 : -1;
+}
+
+int db_delete_tariff(db_t *db, int64_t id) {
+  if (!db_tariff(db, id)) return -1;
+  snap_t snap;
+  if (snap_take(&snap, db->versions, db->n_versions, sizeof *db->versions) != 0) return -1;
+  size_t kept = 0;
+  for (size_t i = 0; i < db->n_versions; i++)
+    if (db->versions[i].tariff_id != id) db->versions[kept++] = db->versions[i];
+  db->n_versions = kept;
+  int rc = persist_table(db, "tariff_versions.jsonl", db->versions, db->n_versions,
+                         sizeof *db->versions, (to_json_fn)tariff_version_to_json);
+  bool versions_written = rc == 0;
+  if (rc == 0)
+    rc = delete_one(db, (void **)&db->tariffs, &db->n_tariffs, sizeof *db->tariffs, id,
+                    "tariffs.jsonl", (to_json_fn)tariff_to_json);
+  if (rc != 0) {
+    snap_restore(&snap, db->versions, &db->n_versions, sizeof *db->versions);
+    /* Best effort: the def stayed on disk, so put its versions back there too. */
+    if (versions_written)
+      persist_table(db, "tariff_versions.jsonl", db->versions, db->n_versions,
+                    sizeof *db->versions, (to_json_fn)tariff_version_to_json);
+  }
+  free(snap.copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_delete_version(db_t *db, int64_t id) {
+  return delete_one(db, (void **)&db->versions, &db->n_versions, sizeof *db->versions, id,
+                    "tariff_versions.jsonl", (to_json_fn)tariff_version_to_json);
+}
+
+int db_delete_user_tariff(db_t *db, int64_t id) {
+  return delete_one(db, (void **)&db->user_tariffs, &db->n_user_tariffs,
+                    sizeof *db->user_tariffs, id, "user_tariffs.jsonl",
+                    (to_json_fn)user_tariff_to_json);
 }
 
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap) {

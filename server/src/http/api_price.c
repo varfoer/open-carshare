@@ -9,11 +9,11 @@
 #define ESTIMATE_SPAN_MAX (90 * 86400)
 
 /* Every price_t number by its field name; "tariff" is the version used or null. NULL on OOM. */
-cJSON *price_to_json(const price_t *p, const tariff_t *t) {
+cJSON *price_to_json(const price_t *p, const tariff_version_t *t) {
   static const char *const status[] = {"ok", "km_pending", "no_tariff"};
   cJSON *o = cJSON_CreateObject();
   if (!o) return NULL;
-  cJSON *tj = t ? tariff_to_json(t) : cJSON_CreateNull();
+  cJSON *tj = t ? tariff_version_to_json(t) : cJSON_CreateNull();
   if (!cJSON_AddStringToObject(o, "status", status[p->status]) ||
       !cJSON_AddNumberToObject(o, "day_min", (double)p->day_min) ||
       !cJSON_AddNumberToObject(o, "night_min", (double)p->night_min) ||
@@ -37,11 +37,11 @@ cJSON *price_to_json(const price_t *p, const tariff_t *t) {
   return o;
 }
 
-/* booking_to_json plus "price". NULL on OOM. */
+/* booking_to_json plus "price" (tariff of the user at booked_start). NULL on OOM. */
 cJSON *api_booking_json(app_t *a, const booking_t *b) {
   cJSON *o = booking_to_json(b);
   if (!o) return NULL;
-  const tariff_t *t = db_tariff_at(&a->db, b->car_id, b->booked_start);
+  const tariff_version_t *t = db_tariff_at(&a->db, b->user_id, b->booked_start);
   price_t p;
   price_booking(t, &a->db.settings, b, &p);
   cJSON *pj = price_to_json(&p, t);
@@ -69,20 +69,17 @@ static bool query_club(const char *query, bool *club) {
 }
 
 void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
-  (void)ctx;
-  int64_t car, start, end, km;
+  int64_t start, end, km;
   bool club;
-  if (!api_query_int(req->query, "car", &car) || !api_query_int(req->query, "start", &start) ||
-      !api_query_int(req->query, "end", &end) || !api_query_int(req->query, "km", &km) ||
+  if (!api_query_int(req->query, "start", &start) || !api_query_int(req->query, "end", &end) ||
+      !api_query_int(req->query, "km", &km) ||
       !query_club(req->query, &club) || end <= start || km < 0 || km > ESTIMATE_KM_MAX ||
       start <= 0 || !br_time_in_range(start, req->now) || !br_time_in_range(end, req->now) ||
       end - start > ESTIMATE_SPAN_MAX) {
     api_invalid(res);
     return;
   }
-  const car_t *c = db_car(&a->db, car);
-  if (!c || !c->active) { api_not_found(res); return; }
-  const tariff_t *t = db_tariff_at(&a->db, car, start);
+  const tariff_version_t *t = db_tariff_at(&a->db, ctx->user->id, start);
   price_t p;
   if (club) {
     memset(&p, 0, sizeof p);

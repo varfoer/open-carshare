@@ -318,17 +318,10 @@ void test_late_reminder_at_end(void) {
 }
 
 void test_late_reminder_fee_from_tariff(void) {
-  tariff_t t;
-  memset(&t, 0, sizeof t);
-  t.car_id = car1;
-  t.valid_from = 1;
-  t.rate_day_cents_per_h = 300;
-  t.rate_night_cents_per_h = 150;
-  t.night_start = 1200;
-  t.night_end = 360;
-  t.late_fee_cents_per_started_h = 300;
-  t.created_at = 1;
-  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&a->db, &t));
+  int64_t t = th_add_tariff(a, "Standard");
+  TEST_ASSERT_TRUE(t > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, t, 1, 0, 0, 300) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, t, 1) > 0);
   plant(BK_ACTIVE, S, S + 2 * H, T);
   TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
   TEST_ASSERT_NOT_NULL(strstr(th_last_mail_body(), "kostet jede angefangene Stunde 3,00 \xE2\x82\xAC"));

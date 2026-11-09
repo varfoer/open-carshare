@@ -14,7 +14,7 @@
 #define B0 (T - 11 * H)
 
 static app_t *a;
-static int64_t adm, u1, car1, car2;
+static int64_t adm, u1, car1, car2, std;
 static char tadm[65], tu1[65];
 
 static int64_t add_car(const char *name) {
@@ -28,24 +28,6 @@ static int64_t add_car(const char *name) {
   return c.id;
 }
 
-static void add_tariff(int64_t car, int64_t valid_from) {
-  tariff_t t;
-  memset(&t, 0, sizeof t);
-  t.car_id = car;
-  t.valid_from = valid_from;
-  t.rate_day_cents_per_h = 300;
-  t.rate_night_cents_per_h = 150;
-  t.rate_km_cents = 30;
-  t.night_start = 1200;
-  t.night_end = 360;
-  t.unused_factor_permille = 500;
-  t.time_cap_cents_per_day = 3000;
-  t.combined_cap_cents_per_day = 5000;
-  t.late_fee_cents_per_started_h = 1500;
-  t.created_at = T;
-  TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&a->db, &t));
-}
-
 void setUp(void) {
   a = th_app();
   TEST_ASSERT_NOT_NULL(a);
@@ -56,7 +38,10 @@ void setUp(void) {
   TEST_ASSERT_EQUAL_INT(0, session_create(a, u1, T, tu1));
   car1 = add_car("Golf");
   car2 = add_car("Polo");
-  add_tariff(car1, T - 100 * DAY);
+  std = th_add_tariff(a, "Standard");
+  TEST_ASSERT_TRUE(std > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, std, T - 100 * DAY, 3000, 5000, 1500) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, u1, std, T - 100 * DAY) > 0);
 }
 
 void tearDown(void) { th_free(a); }
@@ -133,9 +118,15 @@ void test_price_km_pending(void) {
 }
 
 void test_price_no_tariff(void) {
-  put_done(car2, B0, B0 + 4 * H, 1000, 1040);
-  add_tariff(car2, B0 + DAY);
-  cJSON *j = call("/api/bookings?scope=history", tu1, 200, NULL);
+  /* adm's tariff only gets a version after the booking */
+  int64_t late = th_add_tariff(a, "Sp\xC3\xA4t");
+  TEST_ASSERT_TRUE(late > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, late, B0 + DAY, 3000, 5000, 1500) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, adm, late, T - 100 * DAY) > 0);
+  int64_t id = put_done(car2, B0, B0 + 4 * H, 1000, 1040);
+  db_booking(&a->db, id)->user_id = adm;
+  cJSON *j = call("/api/bookings?scope=history", tadm, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
   const cJSON *p = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(j, 0), "price");
   TEST_ASSERT_EQUAL_STRING("no_tariff", cJSON_GetObjectItemCaseSensitive(p, "status")->valuestring);
   TEST_ASSERT_EQUAL_INT64(0, num(p, "total_cents"));
@@ -154,15 +145,15 @@ void test_cancelled_price_is_fee(void) {
   cJSON_Delete(j);
 }
 
-static char *est(int64_t car, int64_t s, int64_t e, const char *rest) {
+static char *est(int64_t s, int64_t e, const char *rest) {
   static char p[200];
-  snprintf(p, sizeof p, "/api/price-estimate?car=%lld&start=%lld&end=%lld%s", (long long)car,
-           (long long)s, (long long)e, rest);
+  snprintf(p, sizeof p, "/api/price-estimate?start=%lld&end=%lld%s", (long long)s, (long long)e,
+           rest);
   return p;
 }
 
 void test_estimate_basic(void) {
-  cJSON *j = call(est(car1, B0, B0 + 4 * H, "&km=15"), tu1, 200, NULL);
+  cJSON *j = call(est(B0, B0 + 4 * H, "&km=15"), tu1, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
   TEST_ASSERT_EQUAL_INT64(1650, num(j, "total_cents"));
   TEST_ASSERT_EQUAL_INT64(300, num(cJSON_GetObjectItemCaseSensitive(j, "tariff"), "rate_day_cents_per_h"));
@@ -170,37 +161,44 @@ void test_estimate_basic(void) {
 }
 
 void test_estimate_club(void) {
-  cJSON *j = call(est(car1, B0, B0 + 4 * H, "&km=15&club=1"), tu1, 200, NULL);
+  cJSON *j = call(est(B0, B0 + 4 * H, "&km=15&club=1"), tu1, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
   TEST_ASSERT_EQUAL_INT64(0, num(j, "total_cents"));
   cJSON_Delete(j);
 }
 
 void test_estimate_rejects_bad_input(void) {
-  cJSON_Delete(call(est(car1, B0, B0, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 - H, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=-1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=10000001"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=10000000"), tu1, 200, NULL));
-  cJSON_Delete(call(est(car1, B0, B0 + H, ""), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=5x"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=99999999999999999999"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=1&club=2"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + 90 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, B0 + 90 * DAY, "&km=1"), tu1, 200, NULL));
+  cJSON_Delete(call(est(B0, B0, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 - H, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=-1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=10000001"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=10000000"), tu1, 200, NULL));
+  cJSON_Delete(call(est(B0, B0 + H, ""), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=5x"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=99999999999999999999"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=1&club=2"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + 90 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, B0 + 90 * DAY, "&km=1"), tu1, 200, NULL));
   /* times bounded like booking writes: no huge/zero start (day loop, overflow) */
-  cJSON_Delete(call(est(car1, T + 2 * 365 * DAY + 1, T + 2 * 365 * DAY + H, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, B0, T + 2 * 365 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, INT64_MAX - H, INT64_MAX, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(car1, 0, H, "&km=1"), tu1, 400, "invalid"));
-  cJSON_Delete(call(est(999, B0, B0 + H, "&km=1"), tu1, 404, "not_found"));
-  car_t *c = db_car(&a->db, car2);
-  c->active = false;
-  cJSON_Delete(call(est(car2, B0, B0 + H, "&km=1"), tu1, 404, "not_found"));
-  c->active = true;
-  cJSON *j = call(est(car2, B0, B0 + H, "&km=1"), tu1, 200, NULL);
+  cJSON_Delete(call(est(T + 2 * 365 * DAY + 1, T + 2 * 365 * DAY + H, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(B0, T + 2 * 365 * DAY + 1, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(INT64_MAX - H, INT64_MAX, "&km=1"), tu1, 400, "invalid"));
+  cJSON_Delete(call(est(0, H, "&km=1"), tu1, 400, "invalid"));
+  /* a user without tariff assignment gets no_tariff, for estimates and bookings alike */
+  char tu2[65];
+  int64_t u2 = th_add_user(a, "bo@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(u2 > 0);
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, u2, T, tu2));
+  cJSON *j = call(est(B0, B0 + H, "&km=1"), tu2, 200, NULL);
   TEST_ASSERT_EQUAL_STRING("no_tariff", cJSON_GetObjectItemCaseSensitive(j, "status")->valuestring);
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "tariff")));
+  cJSON_Delete(j);
+  int64_t id = put_done(car1, B0, B0 + 4 * H, 1000, 1040);
+  db_booking(&a->db, id)->user_id = u2;
+  j = call("/api/bookings?scope=history", tu2, 200, NULL);
+  TEST_ASSERT_EQUAL_INT(1, cJSON_GetArraySize(j));
+  const cJSON *p = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(j, 0), "price");
+  TEST_ASSERT_EQUAL_STRING("no_tariff", cJSON_GetObjectItemCaseSensitive(p, "status")->valuestring);
   cJSON_Delete(j);
 }
 
@@ -219,7 +217,7 @@ void test_booking_create_has_price(void) {
 }
 
 void test_estimate_requires_login(void) {
-  cJSON_Delete(call(est(car1, B0, B0 + H, "&km=1"), NULL, 401, NULL));
+  cJSON_Delete(call(est(B0, B0 + H, "&km=1"), NULL, 401, NULL));
 }
 
 int main(void) {

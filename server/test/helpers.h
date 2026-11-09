@@ -29,6 +29,14 @@ void th_mail_fail_to(const char *to);      /* fake mailer fails only for this re
 int64_t th_add_user_bare(app_t *a, const char *email, const char *pw, role_t role);
 int th_set_creditor(app_t *a); /* 0 ok, else -1; assoc_name "Carsharing Testverein e.V.", creditor_id "DE98ZZZ09999999999" */
 int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role);
+/* Named tariff without versions; id or -1. */
+int64_t th_add_tariff(app_t *a, const char *name);
+/* One version with the standard rates (300/150/30, night 1200-360, unused 500) and the given
+ * caps/late fee; created_at = valid_from. id or -1. */
+int64_t th_add_version(app_t *a, int64_t tariff_id, int64_t valid_from, int64_t time_cap,
+                       int64_t combined_cap, int64_t late_fee);
+/* Assigns tariff_id to user_id from valid_from, created_by 0; id or -1. */
+int64_t th_assign_tariff(app_t *a, int64_t user_id, int64_t tariff_id, int64_t valid_from);
 /* Logs in via POST /api/login at platform_now(); token (static buf) or NULL. */
 char *th_login(app_t *a, const char *email, const char *pw);
 char *th_login_at(app_t *a, const char *email, const char *pw, int64_t now);

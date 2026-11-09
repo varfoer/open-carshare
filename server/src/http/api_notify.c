@@ -59,7 +59,7 @@ int api_send_reminders(app_t *a, int64_t now) {
                           .base_url = a->cfg.base_url,
                           .start_tolerance_min = a->db.settings.start_tolerance_min};
     if (kind == NT_REMIND_LATE) {
-      const tariff_t *t = db_tariff_at(&a->db, b.car_id, b.booked_start);
+      const tariff_version_t *t = db_tariff_at(&a->db, b.user_id, b.booked_start);
       n.late_fee_cents_per_h = t ? t->late_fee_cents_per_started_h : 0;
     }
     char subject[256], body[4096];

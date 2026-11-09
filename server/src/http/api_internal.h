@@ -115,16 +115,12 @@ void h_admin_billing_send(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
 void h_admin_billing_sepa(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_invoice_pdf(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
-/* api_tariff.c (all MIN_ADMIN) */
-void h_admin_tariffs_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
-void h_admin_tariff_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
-void h_admin_tariff_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
-
 /* api_price.c */
-/* booking_to_json plus "price" (tariff of the car at booked_start). NULL on OOM. */
+/* booking_to_json plus "price" (tariff of the user at booked_start). NULL on OOM. */
 cJSON *api_booking_json(app_t *a, const booking_t *b);
-/* Every price_t number by name, status as string, "tariff" = tariff_to_json(t) or null. NULL on OOM. */
-cJSON *price_to_json(const price_t *p, const tariff_t *t);
+/* Every price_t number by name, status as string, "tariff" = tariff_version_to_json(t) or null.
+ * NULL on OOM. */
+cJSON *price_to_json(const price_t *p, const tariff_version_t *t);
 void h_price_estimate(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_mandate.c */

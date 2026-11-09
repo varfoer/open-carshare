@@ -23,7 +23,7 @@
 #define FULL_IBAN "DE89370400440532013000"
 
 static app_t *a;
-static int64_t adm, uz, ua, car1, car2;   /* uz "Zora" has the lower id, ua "Anna" sorts first */
+static int64_t adm, uz, ua, car1, std;   /* uz "Zora" has the lower id, ua "Anna" sorts first */
 static char tadm[65];
 
 static void set_name(int64_t id, const char *name) {
@@ -32,7 +32,7 @@ static void set_name(int64_t id, const char *name) {
   TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
 }
 
-static int64_t add_car(const char *name, bool tariff) {
+static int64_t add_car(const char *name) {
   car_t c;
   memset(&c, 0, sizeof c);
   snprintf(c.name, sizeof c.name, "%s", name);
@@ -40,21 +40,6 @@ static int64_t add_car(const char *name, bool tariff) {
   snprintf(c.location, sizeof c.location, "Hof");
   c.active = true;
   TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c));
-  if (tariff) {
-    tariff_t t;
-    memset(&t, 0, sizeof t);
-    t.car_id = c.id;
-    t.valid_from = 1;
-    t.rate_day_cents_per_h = 300;
-    t.rate_night_cents_per_h = 150;
-    t.rate_km_cents = 30;
-    t.night_start = 1200;
-    t.night_end = 360;
-    t.unused_factor_permille = 500;
-    t.late_fee_cents_per_started_h = 1500;
-    t.created_at = 1;
-    TEST_ASSERT_EQUAL_INT(0, db_put_tariff(&a->db, &t));
-  }
   return c.id;
 }
 
@@ -89,8 +74,12 @@ void setUp(void) {
   settings_t s = a->db.settings;
   snprintf(s.creditor_iban, sizeof s.creditor_iban, "%s", FULL_IBAN);
   TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
-  car1 = add_car("Golf", true);
-  car2 = add_car("Polo", false);
+  car1 = add_car("Golf");
+  std = th_add_tariff(a, "Standard");
+  TEST_ASSERT_TRUE(std > 0);
+  TEST_ASSERT_TRUE(th_add_version(a, std, 1, 0, 0, 1500) > 0); /* no caps */
+  TEST_ASSERT_TRUE(th_assign_tariff(a, uz, std, 1) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, ua, std, 1) > 0);
 }
 
 void tearDown(void) { th_free(a); }
@@ -302,7 +291,9 @@ void test_finalize_blocked_km_pending(void) {
 }
 
 void test_finalize_blocked_no_tariff(void) {
-  int64_t bid = add_done(ua, car2, APR10, 2, 0);
+  int64_t ub = th_add_user(a, "bo@x.de", NULL, ROLE_USER); /* no tariff assigned */
+  TEST_ASSERT_TRUE(ub > 0);
+  int64_t bid = add_done(ub, car1, APR10, 2, 0);
   create_run("2026-04");
   expect_blocker("no_tariff", bid);
 }
@@ -310,6 +301,7 @@ void test_finalize_blocked_no_tariff(void) {
 void test_finalize_blocked_no_mandate(void) {
   int64_t ub = th_add_user_bare(a, "bare@x.de", NULL, ROLE_USER);
   TEST_ASSERT_TRUE(ub > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, ub, std, 1) > 0);
   add_done(ub, car1, APR10, 2, 10);
   create_run("2026-04");
   expect_blocker("no_mandate", ub);

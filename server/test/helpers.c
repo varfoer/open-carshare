@@ -124,6 +124,47 @@ int64_t th_add_user(app_t *a, const char *email, const char *pw, role_t role) {
   return id;
 }
 
+int64_t th_add_tariff(app_t *a, const char *name) {
+  tariff_t t;
+  memset(&t, 0, sizeof t);
+  if (!a || !name || strlen(name) >= sizeof t.name) return -1;
+  snprintf(t.name, sizeof t.name, "%s", name);
+  if (db_put_tariff(&a->db, &t) != 0) return -1;
+  return t.id;
+}
+
+int64_t th_add_version(app_t *a, int64_t tariff_id, int64_t valid_from, int64_t time_cap,
+                       int64_t combined_cap, int64_t late_fee) {
+  if (!a) return -1;
+  tariff_version_t v;
+  memset(&v, 0, sizeof v);
+  v.tariff_id = tariff_id;
+  v.valid_from = valid_from;
+  v.rate_day_cents_per_h = 300;
+  v.rate_night_cents_per_h = 150;
+  v.rate_km_cents = 30;
+  v.night_start = 1200;
+  v.night_end = 360;
+  v.unused_factor_permille = 500;
+  v.time_cap_cents_per_day = time_cap;
+  v.combined_cap_cents_per_day = combined_cap;
+  v.late_fee_cents_per_started_h = late_fee;
+  v.created_at = valid_from;
+  if (db_put_version(&a->db, &v) != 0) return -1;
+  return v.id;
+}
+
+int64_t th_assign_tariff(app_t *a, int64_t user_id, int64_t tariff_id, int64_t valid_from) {
+  if (!a) return -1;
+  user_tariff_t u;
+  memset(&u, 0, sizeof u);
+  u.user_id = user_id;
+  u.tariff_id = tariff_id;
+  u.valid_from = valid_from;
+  if (db_put_user_tariff(&a->db, &u) != 0) return -1;
+  return u.id;
+}
+
 int th_set_creditor(app_t *a) {
   settings_t s = a->db.settings;
   snprintf(s.assoc_name, sizeof s.assoc_name, "Carsharing Testverein e.V.");
