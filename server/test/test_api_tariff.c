@@ -164,10 +164,19 @@ void test_name_trimmed_and_unique(void) {
   memset(n64, 'a', 64);
   n64[64] = 0;
   adm_free("POST", "/api/admin/tariffs", nbody(n64), 400, "invalid");
+  /* length is checked after trimming: 63 bytes plus padding fits, 64 plus padding does not */
+  char padded[80];
+  snprintf(padded, sizeof padded, "   %.63s  ", n64);
+  j = call("POST", "/api/admin/tariffs", nbody(padded), tadm, 201, NULL);
+  TEST_ASSERT_EQUAL_STRING(n64 + 1, str(j, "name"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_size_t(63, strlen(a->db.tariffs[1].name));
+  snprintf(padded, sizeof padded, "   %s  ", n64);
+  adm_free("POST", "/api/admin/tariffs", nbody(padded), 400, "invalid");
   adm_free("POST", "/api/admin/tariffs", "{}", 400, "invalid");
   adm_free("POST", "/api/admin/tariffs", "{\"name\":5}", 400, "invalid");
   adm_free("POST", "/api/admin/tariffs", NULL, 400, "invalid");
-  TEST_ASSERT_EQUAL_size_t(1, a->db.n_tariffs);
+  TEST_ASSERT_EQUAL_size_t(2, a->db.n_tariffs);
 }
 
 void test_rename(void) {

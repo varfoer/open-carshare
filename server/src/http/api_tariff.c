@@ -42,15 +42,18 @@ fail:
   return NULL;
 }
 
+/* Raw "name" cap including padding; the trimmed name must still fit tariff_t.name. */
+#define NAME_RAW_CAP 256
+
 /* "name" from body, ASCII spaces trimmed at both ends, into out[64]. False if missing,
- * not a string, 64+ bytes or empty after trimming. */
+ * not a string, NAME_RAW_CAP+ bytes raw, or not 1..63 bytes after trimming. */
 static bool read_name(const cJSON *body, char out[64]) {
-  const char *s = api_get_str(body, "name", 64);
+  const char *s = api_get_str(body, "name", NAME_RAW_CAP);
   if (!s) return false;
   while (*s == ' ') s++;
   size_t n = strlen(s);
   while (n > 0 && s[n - 1] == ' ') n--;
-  if (n == 0) return false;
+  if (n == 0 || n >= 64) return false;
   memcpy(out, s, n);
   out[n] = 0;
   return true;
