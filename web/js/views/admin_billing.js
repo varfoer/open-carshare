@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { el, adminNav, messageBox, selectField } from '../admin_ui.js';
+import { el, adminPage, pageHead, messageBox, selectField } from '../admin_ui.js';
 import { formatEuro } from '../money.js';
 import { formatDateTime } from '../time.js';
 import { lastMonth, periodLabel, dateDe, blockerLines } from '../billing.js';
@@ -36,7 +36,7 @@ export async function render(root, params = {}) {
   const err = messageBox('error');
   const ok = messageBox('success');
   const host = el('div');
-  root.append(adminNav('#/admin/abrechnung'), el('h1', { text: 'Abrechnung' }), err.node, ok.node, host);
+  adminPage(root, '#/admin/abrechnung').append(pageHead('Abrechnung'), err.node, ok.node, host);
   const runId = Number(params.id) || 0;
   if (runId) await showDetail(runId); else await showList();
 

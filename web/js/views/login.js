@@ -3,6 +3,10 @@ import { refreshUser, navigate } from '../app.js';
 
 export function render(root) {
   root.innerHTML = `
+    <picture>
+      <source srcset="img/logo-full-dark.svg" media="(prefers-color-scheme: dark)">
+      <img class="login-logo" src="img/logo-full.svg" alt="Dörpsmobil SH" width="260" height="75">
+    </picture>
     <form class="card" id="login-form">
       <h1>Anmelden</h1>
       <label>E-Mail <input name="email" type="email" autocomplete="username" required></label>

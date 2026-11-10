@@ -1,10 +1,12 @@
 import { api } from '../api.js';
 import { navigate } from '../app.js';
-import { formatDateTime } from '../time.js';
+import { formatDateTime, formatTime, sameBerlinDay } from '../time.js';
 import { formatEuro } from '../money.js';
 import { tripActions } from '../trip.js';
 import { apiUpload, resizeToJpeg } from '../photo.js';
 import { damageDialog } from './damage_dialog.js';
+import { bookingCard } from '../booking_card.js';
+import { el } from '../admin_ui.js';
 
 // Description of a failed start report per booking id, offered again by "Schaden melden".
 const retryText = new Map();
@@ -49,21 +51,10 @@ async function runReport(b) {
 
 function confirmDialog(text) {
   return new Promise((resolve) => {
-    const dlg = document.createElement('dialog');
-    dlg.className = 'confirm';
-    const p = document.createElement('p');
-    p.textContent = text;
-    const row = document.createElement('div');
-    row.className = 'dialog-actions';
-    const no = document.createElement('button');
-    no.type = 'button';
-    no.textContent = 'Zurück';
-    const yes = document.createElement('button');
-    yes.type = 'button';
-    yes.className = 'danger';
-    yes.textContent = 'Stornieren';
-    row.append(no, yes);
-    dlg.append(p, row);
+    const dlg = el('dialog', { className: 'confirm' });
+    const no = el('button', { type: 'button', text: 'Zurück' });
+    const yes = el('button', { type: 'button', className: 'danger', text: 'Stornieren' });
+    dlg.append(el('p', { text }), el('div', { className: 'dialog-actions' }, no, yes));
     let result = false;
     no.addEventListener('click', () => dlg.close());
     yes.addEventListener('click', () => { result = true; dlg.close(); });
@@ -71,6 +62,15 @@ function confirmDialog(text) {
     document.body.append(dlg);
     dlg.showModal();
   });
+}
+
+// Second line under the time: today marker, trip start, or the car for multi-car clubs.
+function subline(b, now, carName, carCount) {
+  if (b.state === 'active') return `Unterwegs seit ${formatTime(b.actual_start)}`;
+  const parts = [];
+  if (sameBerlinDay(b.booked_start, now)) parts.push('Heute');
+  if (carCount > 1 && carName) parts.push(carName);
+  return parts.join(' · ');
 }
 
 // Error from a failed trip step; shown after the list reloads.
@@ -83,45 +83,21 @@ export async function render(root) {
   const upcoming = list.filter((b) => !b.cancelled_at && b.state !== 'cancelled')
     .sort((a, b) => a.booked_start - b.booked_start);
 
-  const h1 = document.createElement('h1');
-  h1.textContent = 'Meine Buchungen';
-  const err = document.createElement('p');
-  err.className = 'error';
+  const err = el('p', { className: 'error' });
   err.setAttribute('role', 'alert');
   err.hidden = !carriedError;
   err.textContent = carriedError;
   carriedError = '';
-  root.append(h1, err);
+  root.append(el('h1', { text: 'Meine Buchungen' }), err);
   if (!upcoming.length) {
-    const p = document.createElement('p');
-    p.className = 'placeholder';
-    p.textContent = 'Keine anstehenden Buchungen.';
-    root.append(p);
+    root.append(el('p', { className: 'placeholder', text: 'Keine anstehenden Buchungen.' }),
+      el('a', { className: 'btn primary', href: '#/kalender', text: 'Zum Kalender' }));
     return;
   }
   for (const b of upcoming) {
-    const card = document.createElement('div');
-    card.className = 'card booking';
-    const t = document.createElement('p');
-    t.className = 'booking-time';
-    t.textContent = `${formatDateTime(b.booked_start)} – ${formatDateTime(b.booked_end)}`;
-    const c = document.createElement('p');
-    c.className = 'booking-car';
-    c.textContent = names.get(b.car_id) || '';
-    if (b.club_trip) {
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.textContent = 'Vereinsfahrt';
-      c.append(' ', badge);
-    }
     const act = tripActions(b, now);
-    const actions = document.createElement('div');
-    actions.className = 'dialog-actions';
     const step = (label, className, run) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = className;
-      btn.textContent = label;
+      const btn = el('button', { type: 'button', className, text: label });
       btn.addEventListener('click', async () => {
         err.hidden = true;
         btn.disabled = true;
@@ -134,25 +110,13 @@ export async function render(root) {
       });
       return btn;
     };
-    if (act.start) actions.append(step('Starten', 'primary', () => runTrip(b, 'start', 'Fahrt starten', 'start')));
-    if (act.ret) actions.append(step('Zurückgeben', 'primary', () => runTrip(b, 'return', 'Fahrzeug zurückgeben', 'end')));
-    if (act.report) actions.append(step('Schaden melden', 'danger', () => runReport(b)));
-    const since = document.createElement('p');
-    since.className = 'booking-car';
-    since.textContent = `Unterwegs seit ${formatDateTime(b.actual_start)}`;
-    since.hidden = b.state !== 'active';
-    if (act.extend) {
-      const ext = document.createElement('a');
-      ext.className = 'btn';
-      ext.href = `#/buchen?id=${b.id}`;
-      ext.textContent = 'Verlängern';
-      actions.append(ext);
-    }
+    const actions = [];
+    if (act.start) actions.push(step('Starten', 'primary', () => runTrip(b, 'start', 'Fahrt starten', 'start')));
+    if (act.ret) actions.push(step('Zurückgeben', 'primary', () => runTrip(b, 'return', 'Fahrzeug zurückgeben', 'end')));
+    if (act.report) actions.push(step('Schaden melden', 'btn', () => runReport(b)));
+    if (act.extend) actions.push(el('a', { className: 'btn', href: `#/buchen?id=${b.id}`, text: 'Verlängern' }));
     if (act.cancel) {
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'danger';
-      del.textContent = 'Stornieren';
+      const del = el('button', { type: 'button', className: 'danger', text: 'Stornieren' });
       del.addEventListener('click', async () => {
         err.hidden = true;
         try {
@@ -169,9 +133,14 @@ export async function render(root) {
           err.hidden = false;
         }
       });
-      actions.append(del);
+      actions.push(del);
     }
-    card.append(t, c, since, actions);
-    root.append(card);
+    const badges = [];
+    if (b.state === 'active') badges.push({ text: 'Läuft', kind: 'ok' });
+    if (b.club_trip) badges.push({ text: 'Vereinsfahrt' });
+    const line = subline(b, now, names.get(b.car_id), cars.length);
+    root.append(bookingCard({
+      start: b.booked_start, end: b.booked_end, nowSec: now, badges, lines: line ? [line] : [], actions,
+    }));
   }
 }

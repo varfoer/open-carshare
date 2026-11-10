@@ -1,5 +1,6 @@
-// Shell: hash router, session state, top bar and menu.
+// Shell: hash router, session state, top bar, menu and mobile tab bar.
 import { api, onUnauthorized } from './api.js';
+import { icon } from './icons.js';
 
 const ROUTES = {
   '#/login': 'login',
@@ -18,11 +19,18 @@ const ROUTES = {
 };
 const PUBLIC = new Set(['#/login', '#/passwort']);
 const DEFAULT_ROUTE = '#/kalender';
+// Destinations in the mobile tab bar; the menu shows them only on desktop (class in-tabs).
+const TABS = [
+  ['#/kalender', 'Kalender', 'calendar'],
+  ['#/buchungen', 'Buchungen', 'list'],
+  ['#/verlauf', 'Verlauf', 'clock'],
+  ['#/konto', 'Konto', 'user'],
+];
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
 let user = null;
-let carName = 'Carsharing';
+let carName = '';
 let renderToken = 0;
 
 export function currentUser() { return user; }
@@ -57,33 +65,46 @@ export function parseHash(hash) {
 }
 
 const menuEl = document.getElementById('menu');
-const toggleEl = document.getElementById('menu-toggle');
+const tabbarEl = document.getElementById('tabbar');
 const topbarEl = document.getElementById('topbar');
 const viewEl = document.getElementById('view');
+let moreBtn = null;
 
 function setMenuOpen(open) {
   menuEl.hidden = !open;
-  toggleEl.setAttribute('aria-expanded', String(open));
+  if (moreBtn) moreBtn.setAttribute('aria-expanded', String(open));
+}
+
+// Marks the current destination in menu and tab bar; any admin route lights up "Admin".
+function markCurrent() {
+  const { path } = parseHash(location.hash);
+  for (const a of [...menuEl.querySelectorAll('a'), ...tabbarEl.querySelectorAll('a')]) {
+    const href = a.getAttribute('href');
+    const current = href === path || (href === '#/admin/nutzer' && path.startsWith('#/admin/'));
+    if (current) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  }
 }
 
 function updateChrome() {
   topbarEl.hidden = !user;
+  tabbarEl.hidden = !user;
+  document.body.classList.toggle('tabs', !!user);
   document.getElementById('car-name').textContent = carName;
+  moreBtn = null;
   setMenuOpen(false);
   menuEl.replaceChildren();
+  tabbarEl.replaceChildren();
   if (!user) return;
-  const items = [
-    ['#/kalender', 'Kalender'],
-    ['#/buchungen', 'Meine Buchungen'],
-    ['#/verlauf', 'Verlauf'],
-    ['#/konto', 'Konto'],
-  ];
+  const inTabs = new Set(TABS.map(([href]) => href));
+  const items = TABS.map(([href, label]) => [href, label === 'Buchungen' ? 'Meine Buchungen' : label]);
   if (user.role === 'admin') items.push(['#/admin/nutzer', 'Admin']);
   items.push(['/help.html', 'Hilfe']);
   for (const [href, label] of items) {
     const a = document.createElement('a');
     a.href = href;
     a.textContent = label;
+    if (inTabs.has(href)) a.className = 'in-tabs';
     menuEl.append(a);
   }
   const out = document.createElement('button');
@@ -91,6 +112,27 @@ function updateChrome() {
   out.textContent = 'Abmelden';
   out.addEventListener('click', logout);
   menuEl.append(out);
+
+  for (const [href, label, ic] of TABS) {
+    const a = document.createElement('a');
+    a.className = 'tab';
+    a.href = href;
+    const text = document.createElement('span');
+    text.textContent = label;
+    a.append(icon(ic), text);
+    tabbarEl.append(a);
+  }
+  moreBtn = document.createElement('button');
+  moreBtn.type = 'button';
+  moreBtn.className = 'tab';
+  moreBtn.setAttribute('aria-expanded', 'false');
+  moreBtn.setAttribute('aria-controls', 'menu');
+  const moreText = document.createElement('span');
+  moreText.textContent = 'Mehr';
+  moreBtn.append(icon('more'), moreText);
+  moreBtn.addEventListener('click', () => setMenuOpen(menuEl.hidden));
+  tabbarEl.append(moreBtn);
+  markCurrent();
 }
 
 async function logout() {
@@ -115,6 +157,7 @@ async function route() {
   if (!PUBLIC.has(path) && !user) return navigate('#/login');
   if (path === '#/login' && user) return navigate(DEFAULT_ROUTE);
   setMenuOpen(false);
+  markCurrent();
   let mod = null;
   try {
     mod = await import(`./views/${name}.js`);
@@ -134,8 +177,12 @@ async function route() {
   }
 }
 
-toggleEl.addEventListener('click', () => setMenuOpen(menuEl.hidden));
 menuEl.addEventListener('click', (e) => { if (e.target.tagName === 'A') setMenuOpen(false); });
+// Tap outside the open sheet closes it (desktop shows the menu inline; hidden is ignored there).
+document.addEventListener('click', (e) => {
+  if (menuEl.hidden || menuEl.contains(e.target) || (moreBtn && moreBtn.contains(e.target))) return;
+  setMenuOpen(false);
+});
 window.addEventListener('hashchange', route);
 
 onUnauthorized(() => {

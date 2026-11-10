@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { el, adminNav, messageBox, textField, primaryButton } from '../admin_ui.js';
+import { el, adminPage, pageHead, messageBox, textField, primaryButton } from '../admin_ui.js';
 import { parseEuroToCents, formatEuro } from '../money.js';
 
 const toEuroInput = (cents) => formatEuro(cents).replace(' €', '');
@@ -26,7 +26,7 @@ export async function render(root) {
     el('h2', { text: 'Verein und Lastschrift' }),
     aname.node, astreet.node, azip.node, acity.node, cid.node, ciban.node, cbic.node, lead.node, footerNode);
   const form = el('form', { className: 'card' },
-    el('h1', { text: 'Einstellungen' }), tol.node, dead.node, fee.node, rem.node, sepaCard,
+    el('h2', { text: 'Buchungsregeln' }), tol.node, dead.node, fee.node, rem.node, sepaCard,
     err.node, ok.node, primaryButton('Speichern'));
   form.addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -68,5 +68,5 @@ export async function render(root) {
       ok.show('Gespeichert.');
     } catch (x) { err.show(x.message); }
   });
-  root.append(adminNav('#/admin/einstellungen'), form);
+  adminPage(root, '#/admin/einstellungen').append(pageHead('Einstellungen'), form);
 }

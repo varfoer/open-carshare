@@ -1,6 +1,6 @@
 // Service worker: app shell cache-first with background update; /api/* is never cached.
 // Keep SHELL in sync with `git ls-files web` (minus web/test/); bump CACHE on every web change.
-const CACHE = 'ocs-v21';
+const CACHE = 'ocs-v22';
 const SHELL = [
   '/',
   '/index.html',
@@ -10,11 +10,17 @@ const SHELL = [
   '/icon.svg',
   '/icon-192.png',
   '/icon-512.png',
+  '/img/logo.svg',
+  '/img/logo-dark.svg',
+  '/img/logo-full.svg',
+  '/img/logo-full-dark.svg',
   '/js/admin_ui.js',
   '/js/api.js',
   '/js/app.js',
   '/js/billing.js',
+  '/js/booking_card.js',
   '/js/form_time.js',
+  '/js/icons.js',
   '/js/money.js',
   '/js/photo.js',
   '/js/price.js',

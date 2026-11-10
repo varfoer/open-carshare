@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { el, adminNav, messageBox, selectField, checkField, primaryButton } from '../admin_ui.js';
+import { el, adminPage, pageHead, messageBox, selectField, checkField, primaryButton } from '../admin_ui.js';
 import { epochToBerlin, formatDateTime, monthRange } from '../time.js';
 import { priceSummary } from '../price.js';
 import { field, dateTime, toEpoch, p2 } from '../form_time.js';
@@ -50,7 +50,7 @@ export async function render(root) {
   const list = el('div');
   const formHost = el('div');
   const bar = el('div', { className: 'filter-bar' }, carSel.node, monthLabel);
-  root.append(adminNav('#/admin/buchungen'), el('h1', { text: 'Buchungen' }), bar, err.node, list, formHost);
+  adminPage(root, '#/admin/buchungen').append(pageHead('Buchungen'), bar, err.node, list, formHost);
 
   async function load() {
     err.hide();

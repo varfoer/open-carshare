@@ -6,7 +6,7 @@ const fmt = new Intl.DateTimeFormat('en-GB', {
   hour: 'numeric', minute: 'numeric', weekday: 'short',
 });
 const WD = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
-const WD_DE = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+export const WD_DE = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 
 export function epochToBerlin(ts) {
   const p = {};
@@ -52,4 +52,19 @@ export function monthRange(y, mo) {
   const ny = mo === 12 ? y + 1 : y;
   const nm = mo === 12 ? 1 : mo + 1;
   return { from: berlinToEpoch(y, mo, 1, 0, 0), to: berlinToEpoch(ny, nm, 1, 0, 0) };
+}
+
+export const MONTH_DE_SHORT = ['', 'Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
+
+export function sameBerlinDay(a, b) {
+  const x = epochToBerlin(a), y = epochToBerlin(b);
+  return x.y === y.y && x.mo === y.mo && x.d === y.d;
+}
+
+// "14:00 – 17:30" on one day, else "14:00 – Sa, 14.11., 18:00".
+export function formatRange(start, end) {
+  if (sameBerlinDay(start, end)) return `${formatTime(start)} – ${formatTime(end)}`;
+  const b = epochToBerlin(end);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${formatTime(start)} – ${WD_DE[b.wd]}, ${p(b.d)}.${p(b.mo)}., ${formatTime(end)}`;
 }

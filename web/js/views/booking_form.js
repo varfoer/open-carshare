@@ -3,7 +3,8 @@ import { navigate, currentUser } from '../app.js';
 import { epochToBerlin, formatDateTime } from '../time.js';
 import { priceSummary, priceLines, priceNote } from '../price.js';
 import { formatEuro } from '../money.js';
-import { dateStr, timeStr, field, dateTime, toEpoch } from '../form_time.js';
+import { dateStr, timeStr, dateTime, toEpoch, pairField, setDateTime } from '../form_time.js';
+import { el } from '../admin_ui.js';
 
 function parseEpoch(v, fallback) {
   const n = Number(v);
@@ -30,8 +31,7 @@ export async function render(root, params) {
   form.className = 'card';
   const h1 = document.createElement('h1');
   h1.textContent = booking ? 'Buchung verlängern' : 'Buchen';
-  const carLine = document.createElement('p');
-  carLine.textContent = car ? `${car.name} (${car.plate})` : '';
+  const carLine = el('p', { className: 'hint', text: car ? `${car.name} · ${car.plate}` : '' });
   const s = dateTime(startTs);
   const e = dateTime(endTs);
   const err = document.createElement('p');
@@ -44,11 +44,7 @@ export async function render(root, params) {
   submit.type = 'submit';
   submit.className = 'primary';
   submit.textContent = booking ? 'Verlängern' : 'Buchen';
-  const back = document.createElement('p');
-  const a = document.createElement('a');
-  a.href = booking ? '#/buchungen' : '#/kalender';
-  a.textContent = 'Abbrechen';
-  back.append(a);
+  const back = el('a', { className: 'quiet', href: booking ? '#/buchungen' : '#/kalender', text: 'Abbrechen' });
   // Club trip checkbox: only for permitted users (or if the booking already is one).
   const me = currentUser();
   const showClub = (me && me.may_club_trip) || (booking && booking.club_trip);
@@ -63,30 +59,39 @@ export async function render(root, params) {
   km.type = 'text';
   km.inputMode = 'numeric';
   km.value = '15';
-  const estimate = document.createElement('div');
-  estimate.className = 'estimate';
+  const estimate = el('div', { className: 'estimate' });
   estimate.hidden = true;
-  const estTotal = document.createElement('p');
-  const toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.className = 'link';
-  toggle.textContent = 'Details';
+  const estTotal = el('span', { className: 'total' });
+  estimate.append(el('span', { className: 'label', text: 'Voraussichtlich' }), estTotal);
+  const toggle = el('button', { type: 'button', className: 'link est-toggle', text: 'Details zum Preis' });
   toggle.setAttribute('aria-expanded', 'false');
-  const details = document.createElement('div');
+  toggle.hidden = true;
+  const details = el('div', { className: 'estimate-details' });
   details.hidden = true;
   toggle.addEventListener('click', () => {
     details.hidden = !details.hidden;
     toggle.setAttribute('aria-expanded', String(!details.hidden));
   });
-  estimate.append(estTotal, toggle, details);
+  // Quick end-time chips: push the end by a fixed span from its current value.
+  const chips = el('div', { className: 'chips' });
+  for (const [label, secs] of [['+ 30 min', 1800], ['+ 1 h', 3600], ['+ 1 Tag', 86400]]) {
+    const c = el('button', { type: 'button', className: 'chip', text: label });
+    c.addEventListener('click', () => {
+      if (!e.date.value) return;
+      setDateTime(e, toEpoch(e) + secs);
+      e.time.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    chips.append(c);
+  }
   form.append(h1, carLine,
-    field('Start', s.date, s.time), field('Ende', e.date, e.time),
-    field('Geplante Strecke (km)', km), estimate,
-    ...(showClub ? [clubLabel] : []), hint, err, submit, back);
+    pairField('Start', s), pairField('Ende', e), chips,
+    el('label', {}, 'Geplante Strecke (km)', km), estimate, toggle, details,
+    ...(showClub ? [clubLabel] : []), hint, err,
+    el('div', { className: 'form-foot' }, submit, back));
   root.append(form);
 
   const showEstimate = (p) => {
-    estTotal.textContent = `Voraussichtlich ${priceSummary(p)}`;
+    estTotal.textContent = priceSummary(p);
     details.replaceChildren();
     if (p.status !== 'no_tariff') {
       const dl = document.createElement('dl');

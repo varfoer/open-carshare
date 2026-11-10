@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { navigate } from '../app.js';
-import { berlinToEpoch, epochToBerlin, formatTime, startOfBerlinDay } from '../time.js';
+import { berlinToEpoch, epochToBerlin, formatTime, startOfBerlinDay, sameBerlinDay } from '../time.js';
+import { icon } from '../icons.js';
 
 const DAY = 86400;
 const WD_DE = ['', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
@@ -85,7 +86,7 @@ export async function render(root) {
     prev.type = 'button';
     prev.setAttribute('aria-label', 'Zurück');
     prev.addEventListener('click', () => shift(-1));
-    const today = el('button', 'cal-btn', 'Heute');
+    const today = el('button', 'cal-btn today', 'Heute');
     today.type = 'button';
     today.addEventListener('click', () => { anchor = Math.floor(Date.now() / 1000); draw(); });
     const next = el('button', 'cal-btn', '›');
@@ -102,6 +103,7 @@ export async function render(root) {
   }
 
   let drawSeq = 0;
+  let firstDraw = true;
   async function draw() {
     const seq = ++drawSeq;
     const first = weekMode ? mondayOf(anchor) : startOfBerlinDay(anchor);
@@ -121,7 +123,17 @@ export async function render(root) {
       return;
     }
     if (seq !== drawSeq) return;
-    body.replaceChildren(grid(days, starts[n], busy));
+    const slot = Math.ceil(Math.floor(Date.now() / 1000) / 900) * 900;
+    const cta = el('a', 'btn primary cal-cta', 'Buchen');
+    cta.href = `#/buchen?car=${selectedCar}&start=${slot}&end=${slot + 7200}`;
+    cta.prepend(icon('plus'));
+    body.replaceChildren(grid(days, starts[n], busy), cta);
+    // First paint: bring the current hour into view instead of starting at midnight.
+    if (firstDraw) {
+      firstDraw = false;
+      const cell = body.querySelector('.cal-cell.now');
+      if (cell) cell.scrollIntoView({ block: 'center' });
+    }
   }
 
   function grid(days, endTs, busy) {
@@ -131,7 +143,7 @@ export async function render(root) {
     g.append(el('div', 'cal-corner'));
     for (const d of days) {
       const b = epochToBerlin(d);
-      g.append(el('div', 'cal-head', `${WD_DE[b.wd]} ${p2(b.d)}.${p2(b.mo)}.`));
+      g.append(el('div', sameBerlinDay(d, now) ? 'cal-head today' : 'cal-head', `${WD_DE[b.wd]} ${p2(b.d)}.${p2(b.mo)}.`));
     }
     const shown = new Set();
     for (let r = 0; r < 48; r++) {
@@ -147,9 +159,10 @@ export async function render(root) {
         const e = nr === 48 ? startOfBerlinDay(d + 1.5 * DAY)
           : berlinToEpoch(b.y, b.mo, b.d, nr >> 1, (nr & 1) * 30);
         if (!exists) { g.append(el('div', 'cal-cell gap')); continue; }
+        const isNow = s <= now && now < e;
         const hit = busy.find((x) => x.start < e && x.end > s);
         if (hit) {
-          const cell = el(hit.own ? 'button' : 'div', `cal-cell ${hit.own ? 'own' : 'other'}`);
+          const cell = el(hit.own ? 'button' : 'div', `cal-cell ${hit.own ? 'own' : 'other'}${isNow ? ' now' : ''}`);
           const key = `${hit.start}-${hit.end}-${d}`;
           if (!shown.has(key) && (hit.start >= s || r === 0)) {
             shown.add(key);
@@ -163,7 +176,7 @@ export async function render(root) {
           g.append(cell);
           continue;
         }
-        const cell = el('button', 'cal-cell free');
+        const cell = el('button', isNow ? 'cal-cell free now' : 'cal-cell free');
         cell.type = 'button';
         cell.setAttribute('aria-label', `Frei ${p2(b.d)}.${p2(b.mo)}. ${p2(h)}:${p2(mi)}`);
         if (s < now) cell.disabled = true;

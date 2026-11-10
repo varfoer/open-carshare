@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { currentUser } from '../app.js';
-import { el, adminNav, messageBox, textField, checkField, selectField, primaryButton } from '../admin_ui.js';
+import { el, adminPage, pageHead, badge, messageBox, textField, checkField, selectField, primaryButton } from '../admin_ui.js';
+import { icon } from '../icons.js';
 import { berlinToEpoch, epochToBerlin, formatDateTime } from '../time.js';
 import { dateStr, p2, dateTime, toEpoch } from '../form_time.js';
 
@@ -9,6 +10,9 @@ const berlinDate = (ts) => {
   return `${p2(b.d)}.${p2(b.mo)}.${b.y}`;
 };
 const STATUS_DE = { active: 'aktiv', replaced: 'ersetzt', revoked: 'widerrufen' };
+
+// Filter state survives re-render (reload after edit keeps it).
+const filter = { q: '', role: '', inactive: false };
 
 export async function render(root) {
   const users = await api('GET', '/api/admin/users');
@@ -20,9 +24,21 @@ export async function render(root) {
   const ok = messageBox('success');
   const table = el('table', { className: 'data' });
   const formHost = el('div');
-  const add = el('button', { type: 'button', className: 'primary', text: 'Nutzer anlegen' });
-  root.append(adminNav('#/admin/nutzer'), el('h1', { text: 'Nutzer' }), err.node, ok.node,
-    el('div', { className: 'table-wrap' }, table), add, formHost);
+  const add = el('button', { type: 'button', className: 'primary' }, icon('plus'), el('span', { text: 'Nutzer anlegen' }));
+  const activeCount = users.filter((u) => u.active).length;
+  const sub = `${activeCount} aktiv · ${users.length - activeCount} inaktiv`;
+
+  const search = el('input', { type: 'search', value: filter.q, placeholder: 'Name oder E-Mail' });
+  search.setAttribute('aria-label', 'Suchen');
+  const role = selectField('', [['', 'Alle Rollen'], ['user', 'Mitglied'], ['admin', 'Admin']], filter.role);
+  role.input.setAttribute('aria-label', 'Rolle');
+  const inactive = checkField('Inaktive anzeigen', filter.inactive);
+  const bar = el('div', { className: 'filter-bar' },
+    el('label', { className: 'search' }, search), role.node, inactive.node);
+
+  const main = adminPage(root, '#/admin/nutzer');
+  main.append(pageHead('Nutzer', sub, add), bar, err.node, ok.node,
+    el('div', { className: 'table-wrap' }, table), formHost);
 
   const reload = async (msg) => {
     root.replaceChildren();
@@ -35,11 +51,12 @@ export async function render(root) {
   };
 
   const head = el('tr');
-  for (const h of ['Name', 'E-Mail', 'Rolle', 'aktiv', 'Vereinsfahrten', 'Tarif', 'Mandat', '']) head.append(el('th', { text: h }));
+  for (const h of ['Name', 'E-Mail', 'Rolle', 'Tarif', 'Mandat', '']) head.append(el('th', { text: h }));
   table.append(el('thead', {}, head));
   const body = el('tbody');
   table.append(body);
-  for (const u of users) {
+
+  function row(u) {
     const edit = el('button', { type: 'button', text: 'Bearbeiten' });
     edit.addEventListener('click', () => showForm(u));
     const inv = el('button', { type: 'button', text: 'Einladung erneut senden' });
@@ -52,15 +69,36 @@ export async function render(root) {
       } catch (x) { err.show(x.message); }
       inv.disabled = false;
     });
-    body.append(el('tr', {},
-      el('td', { text: u.name }), el('td', { text: u.email }),
-      el('td', { text: u.role === 'admin' ? 'Admin' : 'Nutzer' }),
-      el('td', { text: u.active ? 'ja' : 'nein' }),
-      el('td', { text: u.may_club_trip ? 'ja' : 'nein' }),
-      el('td', { className: u.tariff_id === 0 ? 'warn' : '', text: tariffName(u.tariff_id) }),
-      el('td', { className: u.mandate ? '' : 'warn', text: u.mandate ? u.mandate.ref : 'fehlt' }),
-      el('td', { className: 'actions' }, edit, inv)));
+    const roleCell = el('td', {}, badge(u.role === 'admin' ? 'Admin' : 'Mitglied', u.role === 'admin' ? 'accent' : ''));
+    if (u.may_club_trip) roleCell.append(' ', badge('Vereinsfahrten'));
+    if (!u.active) roleCell.append(' ', badge('inaktiv', 'warn'));
+    const mandate = u.mandate
+      ? el('td', {}, el('span', { className: 'dot ok' }), u.mandate.ref)
+      : el('td', {}, el('span', { className: 'dot warn' }), 'fehlt');
+    const tr = el('tr', { className: u.active ? '' : 'inactive' },
+      el('td', { text: u.name }), el('td', { text: u.email }), roleCell,
+      el('td', {}, u.tariff_id === 0 ? badge('keiner', 'warn') : tariffName(u.tariff_id)),
+      mandate, el('td', { className: 'actions' }, edit, inv));
+    return tr;
   }
+
+  function applyFilter() {
+    filter.q = search.value.trim().toLowerCase();
+    filter.role = role.input.value;
+    filter.inactive = inactive.input.checked;
+    const shown = users.filter((u) =>
+      (filter.inactive || u.active) &&
+      (!filter.role || u.role === filter.role) &&
+      (!filter.q || u.name.toLowerCase().includes(filter.q) || u.email.toLowerCase().includes(filter.q)));
+    body.replaceChildren(...shown.map(row));
+    if (!shown.length) {
+      body.append(el('tr', {}, el('td', { className: 'placeholder', text: 'Keine Nutzer gefunden.', colSpan: 6 })));
+    }
+  }
+  search.addEventListener('input', applyFilter);
+  role.input.addEventListener('change', applyFilter);
+  inactive.input.addEventListener('change', applyFilter);
+  applyFilter();
 
   function showForm(u) {
     const email = textField('E-Mail', u ? u.email : '', { type: 'email', required: true });
@@ -68,7 +106,7 @@ export async function render(root) {
     const street = textField('Straße (optional)', u ? u.street : '');
     const zip = textField('PLZ (optional)', u ? u.zip : '');
     const city = textField('Ort (optional)', u ? u.city : '');
-    const role = selectField('Rolle', [['user', 'Nutzer'], ['admin', 'Admin']], u ? u.role : 'user');
+    const roleF = selectField('Rolle', [['user', 'Mitglied'], ['admin', 'Admin']], u ? u.role : 'user');
     const active = checkField('aktiv', u ? u.active : true);
     const origDate = u && u.license_checked_at ? dateStr(epochToBerlin(u.license_checked_at)) : '';
     const lic = textField('Führerschein geprüft am', origDate, { type: 'date' });
@@ -83,11 +121,11 @@ export async function render(root) {
     cancel.addEventListener('click', () => formHost.replaceChildren());
     const form = el('form', { className: 'card' },
       el('h2', { text: u ? 'Nutzer bearbeiten' : 'Nutzer anlegen' }),
-      email.node, name.node, street.node, zip.node, city.node, role.node,
+      email.node, name.node, street.node, zip.node, city.node, roleF.node,
       ...(u ? [active.node] : []), club.node,
       ...(u ? [] : [tariffSel.node]),
       ...(noTariff ? [el('p', { className: 'hint', text: 'Bitte zuerst einen Tarif anlegen.' })] : []),
-      lic.node, fErr.node, submit, cancel);
+      lic.node, fErr.node, el('div', { className: 'dialog-actions' }, submit, cancel));
     if (u) {
       const exp = el('button', { type: 'button', text: 'Daten exportieren', className: 'btn' });
       exp.addEventListener('click', async () => {
@@ -113,7 +151,7 @@ export async function render(root) {
       const body = {
         email: email.input.value.trim(), name: name.input.value.trim(),
         street: street.input.value.trim(), zip: zip.input.value.trim(), city: city.input.value.trim(),
-        role: role.input.value, may_club_trip: club.input.checked,
+        role: roleF.input.value, may_club_trip: club.input.checked,
       };
       // Optional: send only when set and (on edit) changed, else the server keeps the old value.
       if (lic.input.value && lic.input.value !== origDate) {
@@ -162,7 +200,8 @@ export async function render(root) {
       const inForce = rows.reduce((f, a) => (a.valid_from <= now && (!f || a.valid_from > f.valid_from) ? a : f), null);
       if (!rows.length) list.append(el('p', { className: 'hint', text: 'Tarif: keiner' }));
       rows.forEach((a, i) => {
-        const line = el('p', {}, `ab ${formatDateTime(a.valid_from)}: ${tariffName(a.tariff_id)}${a === inForce ? ' (gilt)' : ''}`);
+        const line = el('p', {}, `ab ${formatDateTime(a.valid_from)}: ${tariffName(a.tariff_id)}`);
+        if (a === inForce) line.append(' ', badge('gilt', 'ok'));
         list.append(line);
         if (i !== 0) return;
         const editBtn = el('button', { type: 'button', text: 'Bearbeiten', className: 'btn' });

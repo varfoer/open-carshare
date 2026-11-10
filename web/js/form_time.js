@@ -37,3 +37,34 @@ export function toEpoch({ date, time }) {
   const [h, mi] = time.value.split(':').map(Number);
   return berlinToEpoch(y, mo, d, h, mi);
 }
+
+// "Start" / "Ende" group: one caption, date and time side by side.
+export function pairField(caption, { date, time }) {
+  const g = document.createElement('div');
+  g.className = 'field-group';
+  const cap = document.createElement('span');
+  cap.textContent = caption;
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  const dl = document.createElement('label');
+  dl.append('Datum', date);
+  const tl = document.createElement('label');
+  tl.append('Uhrzeit', time);
+  row.append(dl, tl);
+  g.append(cap, row);
+  return g;
+}
+
+// Sets a date/time pair from an epoch; adds the time option when it is off the 15-minute grid.
+export function setDateTime({ date, time }, ts) {
+  const b = epochToBerlin(ts);
+  date.value = dateStr(b);
+  const t = timeStr(b);
+  if (![...time.options].some((o) => o.value === t)) {
+    const o = document.createElement('option');
+    o.value = t;
+    o.textContent = t;
+    time.append(o);
+  }
+  time.value = t;
+}

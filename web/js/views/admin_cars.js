@@ -1,12 +1,14 @@
 import { api } from '../api.js';
-import { el, adminNav, messageBox, textField, checkField, primaryButton } from '../admin_ui.js';
+import { el, adminPage, pageHead, messageBox, textField, checkField, primaryButton } from '../admin_ui.js';
 
 export async function render(root) {
   const cars = await api('GET', '/api/admin/cars');
   const err = messageBox('error');
   const list = el('div');
   const formHost = el('div');
-  root.append(adminNav('#/admin/autos'), el('h1', { text: 'Autos' }), err.node, list, formHost);
+  const add = el('button', { type: 'button', className: 'primary', text: 'Auto anlegen' });
+  const main = adminPage(root, '#/admin/autos');
+  main.append(pageHead('Autos', '', add), err.node, list, formHost);
 
   const reload = () => { root.replaceChildren(); return render(root); };
 
@@ -56,7 +58,5 @@ export async function render(root) {
       actions));
   }
   if (!cars.length) list.append(el('p', { className: 'placeholder', text: 'Keine Autos.' }));
-  const add = el('button', { type: 'button', className: 'primary', text: 'Auto anlegen' });
   add.addEventListener('click', () => showForm(null));
-  list.after(add);
 }
