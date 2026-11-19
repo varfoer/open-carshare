@@ -73,11 +73,13 @@ export async function render(root) {
   const main = adminPage(root, '#/admin/tarife');
   main.append(pageHead('Tarife', 'Jeder Nutzer hat genau einen Tarif. Preise ändern sich über neue Versionen.', add), err.node);
 
-  const reload = () => { root.replaceChildren(); return render(root); };
   // Every change: call the server, reload on success, show the server's message otherwise.
+  // After a route change root is detached (see route() in app.js): the reload then renders off-screen.
   const run = async (method, path, body) => {
     err.hide();
-    try { await api(method, path, body); await reload(); } catch (x) { err.show(x.message); err.node.scrollIntoView(); }
+    try { await api(method, path, body); } catch (x) { err.show(x.message); err.node.scrollIntoView(); return; }
+    root.replaceChildren();
+    try { await render(root); } catch (x) { root.replaceChildren(el('p', { className: 'error', text: x.message })); }
   };
   const now = Math.floor(Date.now() / 1000);
 

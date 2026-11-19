@@ -67,7 +67,7 @@ export function parseHash(hash) {
 const menuEl = document.getElementById('menu');
 const tabbarEl = document.getElementById('tabbar');
 const topbarEl = document.getElementById('topbar');
-const viewEl = document.getElementById('view');
+let viewEl = document.getElementById('view');
 let moreBtn = null;
 
 function setMenuOpen(open) {
@@ -163,17 +163,21 @@ async function route() {
     mod = await import(`./views/${name}.js`);
   } catch { /* view not written yet */ }
   if (token !== renderToken) return;
-  viewEl.replaceChildren();
-  viewEl.className = 'view';
+  // Fresh element per route: a render or in-view reload still running for an earlier
+  // route keeps its old element, which is detached now, so its late output never shows.
+  const root = document.createElement('main');
+  root.id = 'view';
+  root.className = 'view';
+  viewEl.replaceWith(root);
+  viewEl = root;
   if (!mod || typeof mod.render !== 'function') return showPlaceholder();
   try {
-    await mod.render(viewEl, params);
+    await mod.render(root, params);
   } catch (e) {
-    if (token !== renderToken) return;
     const p = document.createElement('p');
     p.className = 'error';
     p.textContent = (e && e.message) || 'Es ist ein Fehler aufgetreten.';
-    viewEl.replaceChildren(p);
+    root.replaceChildren(p);
   }
 }
 
