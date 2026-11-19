@@ -172,7 +172,7 @@ dialog.confirm label { display: block; margin-bottom: .75rem; }
 .cal-cell.gap { background: var(--inactive); }
 .cal-cell.now { box-shadow: inset 0 2px 0 var(--danger); }
 .cal-cta { margin-top: 12px; }
-@media (min-width: 700px) { .cal-cta { display: none; } }
+@media (min-width: 700px) { .btn.cal-cta { display: none; } } /* .btn: must beat .btn.primary { display: inline-flex } */
 
 /* Admin: section nav (sidebar on desktop), page header, filters, tables */
 .subnav { display: flex; gap: 4px; overflow-x: auto; margin-bottom: 16px; padding-bottom: 4px; scrollbar-width: none; }

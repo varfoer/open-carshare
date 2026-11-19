@@ -7,9 +7,11 @@ import { el, adminPage, pageHead, badge, messageBox, textField, primaryButton } 
 import { icon } from '../icons.js';
 
 const toEuroInput = (cents) => formatEuro(cents).replace(' €', '');
-const berlinDate = (ts) => {
+// Berlin date of a version start; the time only when it is not midnight (several versions may start on one day).
+const validFrom = (ts) => {
   const b = epochToBerlin(ts);
-  return `${p2(b.d)}.${p2(b.mo)}.${b.y}`;
+  const date = `${p2(b.d)}.${p2(b.mo)}.${b.y}`;
+  return b.h || b.mi ? `${date}, ${p2(b.h)}:${p2(b.mi)}` : date;
 };
 const perH = (cents) => `${formatEuro(cents)}/h`;
 const cap = (cents) => (cents ? formatEuro(cents) : 'keiner');
@@ -93,6 +95,7 @@ export async function render(root) {
 
   const selected = tariffs.find((t) => t.id === ui.selected) || tariffs[0];
   ui.selected = selected.id;
+  const layout = el('div', { className: 'tariff-layout' });
 
   // Left: one card per tariff with user count and the current rates.
   const list = el('nav', { className: 'tariff-list' });
@@ -101,86 +104,96 @@ export async function render(root) {
     const cur = currentVersion(t, now);
     const n = users.filter((u) => u.tariff_id === t.id).length;
     const sum = !cur ? 'Keine Version'
-      : `${perH(cur.rate_day_cents_per_h)} · ${formatEuro(cur.rate_km_cents)}/km · ${cur.valid_from <= now ? 'seit' : 'ab'} ${berlinDate(cur.valid_from)}`;
+      : `${perH(cur.rate_day_cents_per_h)} · ${formatEuro(cur.rate_km_cents)}/km · ${cur.valid_from <= now ? 'seit' : 'ab'} ${validFrom(cur.valid_from)}`;
     const a = el('a', { href: '#/admin/tarife' },
       el('div', { className: 'row' }, el('span', { text: t.name }), badge(`${n} Nutzer`)),
       el('span', { className: 'sum', text: sum }));
     if (t === selected) a.setAttribute('aria-current', 'true');
-    a.addEventListener('click', (ev) => { ev.preventDefault(); ui.selected = t.id; ui.version = false; ui.rename = false; reload(); });
+    // Switch the detail from the loaded data: no refetch, nothing to race with a route change.
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ui.selected = t.id; ui.version = false; ui.rename = false;
+      for (const o of list.children) o.removeAttribute('aria-current');
+      a.setAttribute('aria-current', 'true');
+      err.hide();
+      layout.replaceChildren(list, detailFor(t));
+    });
     list.append(a);
   }
 
   // Right: the selected tariff.
-  const t = selected;
-  const cur = currentVersion(t, now);
-  const renameBtn = el('button', { type: 'button', className: 'btn', text: 'Umbenennen' });
-  const del = el('button', { type: 'button', className: 'danger', text: 'Löschen' });
-  del.addEventListener('click', () => {
-    if (!window.confirm(`Tarif „${t.name}“ mit allen Versionen löschen?`)) return;
-    run('DELETE', `/api/admin/tariffs/${t.id}`);
-  });
-  const name = textField('Name', t.name, { required: true });
-  const rename = el('form', { className: 'dialog-actions' }, name.node, primaryButton('Umbenennen'));
-  rename.hidden = !ui.rename;
-  rename.addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    ui.rename = false;
-    run('PUT', `/api/admin/tariffs/${t.id}`, { name: name.input.value.trim() });
-  });
-  renameBtn.addEventListener('click', () => { rename.hidden = !rename.hidden; ui.rename = !rename.hidden; if (!rename.hidden) name.input.focus(); });
+  const detailFor = (t) => {
+    const cur = currentVersion(t, now);
+    const renameBtn = el('button', { type: 'button', className: 'btn', text: 'Umbenennen' });
+    const del = el('button', { type: 'button', className: 'danger', text: 'Löschen' });
+    del.addEventListener('click', () => {
+      if (!window.confirm(`Tarif „${t.name}“ mit allen Versionen löschen?`)) return;
+      run('DELETE', `/api/admin/tariffs/${t.id}`);
+    });
+    const name = textField('Name', t.name, { required: true });
+    const rename = el('form', { className: 'dialog-actions' }, name.node, primaryButton('Umbenennen'));
+    rename.hidden = !ui.rename;
+    rename.addEventListener('submit', (ev) => {
+      ev.preventDefault();
+      ui.rename = false;
+      run('PUT', `/api/admin/tariffs/${t.id}`, { name: name.input.value.trim() });
+    });
+    renameBtn.addEventListener('click', () => { rename.hidden = !rename.hidden; ui.rename = !rename.hidden; if (!rename.hidden) name.input.focus(); });
 
-  const tiles = el('div', { className: 'rate-tiles' });
-  if (cur) {
-    const tile = (k, v) => el('div', { className: 'tile' }, el('span', { className: 'k', text: k }), el('span', { className: 'v', text: v }));
-    tiles.append(
-      tile('Tag', perH(cur.rate_day_cents_per_h)),
-      tile(`Nacht ${minutesToHHMM(cur.night_start)} – ${minutesToHHMM(cur.night_end)}`, perH(cur.rate_night_cents_per_h)),
-      tile('Kilometer', `${formatEuro(cur.rate_km_cents)}/km`),
-      tile('Deckel pro Tag', cap(cur.time_cap_cents_per_day)));
-  }
-
-  const newVersion = el('button', { type: 'button', className: 'soft', text: 'Neue Version' });
-  const vform = versionForm(t, t.versions[0] || (tariffs[0] && tariffs[0].versions[0]), now, run, err);
-  vform.hidden = !ui.version;
-  newVersion.addEventListener('click', () => { vform.hidden = !vform.hidden; ui.version = !vform.hidden; });
-
-  const table = el('table', { className: 'data' });
-  const head = el('tr');
-  for (const h of ['Gültig ab', 'Tag', 'Nacht', 'km', 'Ungenutzt', 'Deckel Zeit / gesamt', 'Verspätung', '']) head.append(el('th', { text: h }));
-  table.append(el('thead', {}, head));
-  const body = el('tbody');
-  for (const v of t.versions) {
-    const when = el('td', { className: 'num', text: berlinDate(v.valid_from) });
-    if (v === cur && v.valid_from <= now) when.append(' ', badge('Aktuell', 'ok'));
-    else if (v.valid_from > now) when.append(' ', badge('Geplant', 'warn'));
-    const actions = el('td', { className: 'actions' });
-    if (v.valid_from > now) {
-      const vdel = el('button', { type: 'button', className: 'danger', text: 'Löschen' });
-      vdel.addEventListener('click', () => {
-        if (!window.confirm(`Version ab ${berlinDate(v.valid_from)} löschen?`)) return;
-        run('DELETE', `/api/admin/tariff-versions/${v.id}`);
-      });
-      actions.append(vdel);
+    const tiles = el('div', { className: 'rate-tiles' });
+    if (cur) {
+      const tile = (k, v) => el('div', { className: 'tile' }, el('span', { className: 'k', text: k }), el('span', { className: 'v', text: v }));
+      tiles.append(
+        tile('Tag', perH(cur.rate_day_cents_per_h)),
+        tile(`Nacht ${minutesToHHMM(cur.night_start)} – ${minutesToHHMM(cur.night_end)}`, perH(cur.rate_night_cents_per_h)),
+        tile('Kilometer', `${formatEuro(cur.rate_km_cents)}/km`),
+        tile('Deckel pro Tag', cap(cur.time_cap_cents_per_day)));
     }
-    body.append(el('tr', { className: v.valid_from <= now && v !== cur ? 'inactive' : '' }, when,
-      el('td', { className: 'num', text: perH(v.rate_day_cents_per_h) }),
-      el('td', { className: 'num', text: `${perH(v.rate_night_cents_per_h)} (${minutesToHHMM(v.night_start)}–${minutesToHHMM(v.night_end)})` }),
-      el('td', { className: 'num', text: formatEuro(v.rate_km_cents) }),
-      el('td', { className: 'num', text: `${v.unused_factor_permille / 10} %` }),
-      el('td', { className: 'num', text: `${cap(v.time_cap_cents_per_day)} / ${cap(v.combined_cap_cents_per_day)}` }),
-      el('td', { className: 'num', text: perH(v.late_fee_cents_per_started_h) }),
-      actions));
-  }
-  table.append(body);
-  const versions = t.versions.length
-    ? el('div', { className: 'table-wrap' }, table)
-    : el('p', { className: 'placeholder', text: 'Keine Version.' });
 
-  const detail = el('section', { className: 'card tariff-detail' },
-    el('div', { className: 'page-head' }, el('h2', { text: t.name }), el('div', { className: 'actions' }, renameBtn, del)),
-    rename, tiles,
-    el('div', { className: 'sec-head' }, el('h3', { text: 'Versionen' }), newVersion),
-    versions, vform);
+    const newVersion = el('button', { type: 'button', className: 'soft', text: 'Neue Version' });
+    const vform = versionForm(t, t.versions[0] || (tariffs[0] && tariffs[0].versions[0]), now, run, err);
+    vform.hidden = !ui.version;
+    newVersion.addEventListener('click', () => { vform.hidden = !vform.hidden; ui.version = !vform.hidden; });
 
-  main.append(el('div', { className: 'tariff-layout' }, list, detail));
+    const table = el('table', { className: 'data' });
+    const head = el('tr');
+    for (const h of ['Gültig ab', 'Tag', 'Nacht', 'km', 'Ungenutzt', 'Deckel Zeit / gesamt', 'Verspätung', '']) head.append(el('th', { text: h }));
+    table.append(el('thead', {}, head));
+    const body = el('tbody');
+    for (const v of t.versions) {
+      const when = el('td', { className: 'num', text: validFrom(v.valid_from) });
+      if (v === cur && v.valid_from <= now) when.append(' ', badge('Aktuell', 'ok'));
+      else if (v.valid_from > now) when.append(' ', badge('Geplant', 'warn'));
+      const actions = el('td', { className: 'actions' });
+      if (v.valid_from > now) {
+        const vdel = el('button', { type: 'button', className: 'danger', text: 'Löschen' });
+        vdel.addEventListener('click', () => {
+          if (!window.confirm(`Version ab ${validFrom(v.valid_from)} löschen?`)) return;
+          run('DELETE', `/api/admin/tariff-versions/${v.id}`);
+        });
+        actions.append(vdel);
+      }
+      body.append(el('tr', { className: v.valid_from <= now && v !== cur ? 'inactive' : '' }, when,
+        el('td', { className: 'num', text: perH(v.rate_day_cents_per_h) }),
+        el('td', { className: 'num', text: `${perH(v.rate_night_cents_per_h)} (${minutesToHHMM(v.night_start)}–${minutesToHHMM(v.night_end)})` }),
+        el('td', { className: 'num', text: formatEuro(v.rate_km_cents) }),
+        el('td', { className: 'num', text: `${v.unused_factor_permille / 10} %` }),
+        el('td', { className: 'num', text: `${cap(v.time_cap_cents_per_day)} / ${cap(v.combined_cap_cents_per_day)}` }),
+        el('td', { className: 'num', text: perH(v.late_fee_cents_per_started_h) }),
+        actions));
+    }
+    table.append(body);
+    const versions = t.versions.length
+      ? el('div', { className: 'table-wrap' }, table)
+      : el('p', { className: 'placeholder', text: 'Keine Version.' });
+
+    return el('section', { className: 'card tariff-detail' },
+      el('div', { className: 'page-head' }, el('h2', { text: t.name }), el('div', { className: 'actions' }, renameBtn, del)),
+      rename, tiles,
+      el('div', { className: 'sec-head' }, el('h3', { text: 'Versionen' }), newVersion),
+      versions, vform);
+  };
+
+  layout.append(list, detailFor(selected));
+  main.append(layout);
 }

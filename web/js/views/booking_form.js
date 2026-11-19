@@ -68,10 +68,11 @@ export async function render(root, params) {
   toggle.hidden = true;
   const details = el('div', { className: 'estimate-details' });
   details.hidden = true;
-  toggle.addEventListener('click', () => {
-    details.hidden = !details.hidden;
-    toggle.setAttribute('aria-expanded', String(!details.hidden));
-  });
+  const setDetailsOpen = (open) => {
+    details.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+  };
+  toggle.addEventListener('click', () => setDetailsOpen(details.hidden));
   // Quick end-time chips: push the end by a fixed span from its current value.
   const chips = el('div', { className: 'chips' });
   for (const [label, secs] of [['+ 30 min', 1800], ['+ 1 h', 3600], ['+ 1 Tag', 86400]]) {
@@ -113,22 +114,28 @@ export async function render(root, params) {
       }
     }
     toggle.hidden = p.status === 'no_tariff';
-    if (toggle.hidden) details.hidden = true;
+    if (toggle.hidden) setDetailsOpen(false);
     estimate.hidden = false;
+  };
+  // Hides the estimate together with its toggle and price lines (they are siblings, not children).
+  const hideEstimate = () => {
+    estimate.hidden = true;
+    toggle.hidden = true;
+    setDetailsOpen(false);
   };
   let seq = 0, timer = null;
   const refreshEstimate = async () => {
     const my = ++seq;
     const kmText = km.value.trim();
-    if (!s.date.value || !e.date.value || !/^\d{1,8}$/.test(kmText)) { estimate.hidden = true; return; }
+    if (!s.date.value || !e.date.value || !/^\d{1,8}$/.test(kmText)) { hideEstimate(); return; }
     const start = booking && s.date.disabled ? booking.booked_start : toEpoch(s);
     const end = toEpoch(e);
-    if (end <= start) { estimate.hidden = true; return; }
+    if (end <= start) { hideEstimate(); return; }
     const q = `start=${start}&end=${end}&km=${Number(kmText)}${club.checked ? '&club=1' : ''}`;
     try {
       const p = await api('GET', `/api/price-estimate?${q}`);
       if (my === seq) showEstimate(p);
-    } catch { if (my === seq) estimate.hidden = true; }
+    } catch { if (my === seq) hideEstimate(); }
   };
   const scheduleEstimate = () => {
     ++seq; // drop responses of older requests right away

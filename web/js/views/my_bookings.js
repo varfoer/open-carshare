@@ -66,9 +66,12 @@ function confirmDialog(text) {
 
 // Second line under the time: today marker, trip start, or the car for multi-car clubs.
 function subline(b, now, carName, carCount) {
-  if (b.state === 'active') return `Unterwegs seit ${formatTime(b.actual_start)}`;
   const parts = [];
-  if (sameBerlinDay(b.booked_start, now)) parts.push('Heute');
+  if (b.state === 'active') {
+    // Full date when the trip did not start today (e.g. started last night).
+    const since = sameBerlinDay(b.actual_start, now) ? formatTime(b.actual_start) : formatDateTime(b.actual_start);
+    parts.push(`Unterwegs seit ${since}`);
+  } else if (sameBerlinDay(b.booked_start, now)) parts.push('Heute');
   if (carCount > 1 && carName) parts.push(carName);
   return parts.join(' · ');
 }
