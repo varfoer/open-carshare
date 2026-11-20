@@ -188,6 +188,46 @@ void test_backup_max_bytes_out_of_range(void) {
   TEST_ASSERT_EQUAL_INT(0, load_text(BASE_CONF "backup_max_mail_bytes = 1\n"));
 }
 
+void test_igloo_defaults(void) {
+  write_conf(BASE_CONF);
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_STRING("https://api.igloohome.co", c.igloo_api_url);
+  TEST_ASSERT_EQUAL_STRING("https://auth.igloohome.co/oauth2/token", c.igloo_token_url);
+  TEST_ASSERT_EQUAL_STRING("", c.igloo_client_id);
+  TEST_ASSERT_EQUAL_STRING("", c.igloo_client_secret);
+}
+
+void test_igloo_keys(void) {
+  write_conf(BASE_CONF "igloo_client_id = cid\nigloo_client_secret = sec ret\n"
+             "igloo_api_url = https://a.example/v2\nigloo_token_url = https://t.example/tok\n");
+  config_t c;
+  TEST_ASSERT_EQUAL_INT(0, config_load(path, &c));
+  remove(path);
+  TEST_ASSERT_EQUAL_STRING("cid", c.igloo_client_id);
+  TEST_ASSERT_EQUAL_STRING("sec ret", c.igloo_client_secret);
+  TEST_ASSERT_EQUAL_STRING("https://a.example/v2", c.igloo_api_url);
+  TEST_ASSERT_EQUAL_STRING("https://t.example/tok", c.igloo_token_url);
+}
+
+void test_igloo_url_not_https(void) {
+  config_t c;
+  write_conf(BASE_CONF "igloo_api_url = http://x\n");
+  TEST_ASSERT_EQUAL_INT(-1, config_load(path, &c));
+  remove(path);
+  write_conf(BASE_CONF "igloo_token_url = http://x/tok\n");
+  TEST_ASSERT_EQUAL_INT(-1, config_load(path, &c));
+  remove(path);
+}
+
+void test_igloo_url_trailing_slash(void) {
+  config_t c;
+  write_conf(BASE_CONF "igloo_api_url = https://x/\n");
+  TEST_ASSERT_EQUAL_INT(-1, config_load(path, &c));
+  remove(path);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_config_parses_values_and_comments);
@@ -196,6 +236,10 @@ int main(void) {
   RUN_TEST(test_config_missing_required_fails);
   RUN_TEST(test_config_too_long_value_fails);
   RUN_TEST(test_config_malformed_line_fails);
+  RUN_TEST(test_igloo_defaults);
+  RUN_TEST(test_igloo_keys);
+  RUN_TEST(test_igloo_url_not_https);
+  RUN_TEST(test_igloo_url_trailing_slash);
   RUN_TEST(test_tracker_port_parsed);
   RUN_TEST(test_tracker_port_absent_is_zero);
   RUN_TEST(test_tracker_port_invalid);

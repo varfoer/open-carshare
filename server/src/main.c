@@ -7,6 +7,7 @@
 #include "config.h"
 #include "core/email.h"
 #include "core/mail_build.h"
+#include "http/igloo_client.h"
 #include "platform/platform.h"
 #include "server.h"
 
@@ -127,6 +128,11 @@ int main(int argc, char **argv) {
   }
   a->mail_send = mail_cb;
   a->mail_ctx = a;
+  static igloo_client_t ig;
+  igloo_client_init(&ig, &a->cfg, platform_https, platform_now);
+  a->pin_create = igloo_pin_create;
+  a->lock_list = igloo_lock_list;
+  a->pin_ctx = &ig;
 
   int rc;
   if (check) {

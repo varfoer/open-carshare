@@ -22,6 +22,14 @@ smtp_url = smtp://relay.example.org:587
 smtp_user = ocs@example.org
 smtp_pass = CHANGE-ME
 
+# igloohome key box API (car access PINs). Client credentials from the igloohome
+# developer portal. Empty id/secret = car access not configured. URLs: https only,
+# no trailing slash; the defaults below are used when the keys are absent.
+# igloo_client_id = CHANGE-ME
+# igloo_client_secret = CHANGE-ME
+# igloo_api_url = https://api.igloohome.co
+# igloo_token_url = https://auth.igloohome.co/oauth2/token
+
 # Sender address of outgoing mail.
 mail_from = open-carshare <ocs@example.org>
 

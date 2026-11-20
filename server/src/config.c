@@ -59,6 +59,13 @@ static int set_mail_bytes(int64_t *dst, const char *v) {
   return 0;
 }
 
+/* https:// URL with a host and no trailing "/". */
+static int set_https_url(char *dst, size_t cap, const char *v) {
+  size_t n = strlen(v);
+  if (strncmp(v, "https://", 8) != 0 || n == 8 || v[n - 1] == '/') return -1;
+  return set(dst, cap, v);
+}
+
 int config_load(const char *path, config_t *cfg) {
   FILE *f = fopen(path, "r");
   if (!f) return -1;
@@ -87,6 +94,12 @@ int config_load(const char *path, config_t *cfg) {
     else if (strcmp(k, "backup_mail_to") == 0) rc = email_normalize(v, cfg->backup_mail_to);
     else if (strcmp(k, "backup_dir") == 0) rc = set(cfg->backup_dir, sizeof cfg->backup_dir, v);
     else if (strcmp(k, "backup_max_mail_bytes") == 0) rc = set_mail_bytes(&cfg->backup_max_mail_bytes, v);
+    else if (strcmp(k, "igloo_client_id") == 0) rc = set(cfg->igloo_client_id, sizeof cfg->igloo_client_id, v);
+    else if (strcmp(k, "igloo_client_secret") == 0)
+      rc = set(cfg->igloo_client_secret, sizeof cfg->igloo_client_secret, v);
+    else if (strcmp(k, "igloo_api_url") == 0) rc = set_https_url(cfg->igloo_api_url, sizeof cfg->igloo_api_url, v);
+    else if (strcmp(k, "igloo_token_url") == 0)
+      rc = set_https_url(cfg->igloo_token_url, sizeof cfg->igloo_token_url, v);
     else rc = -1;
   }
   if (ferror(f)) rc = -1;
@@ -95,6 +108,9 @@ int config_load(const char *path, config_t *cfg) {
   if (!cfg->data_dir[0] || !cfg->web_dir[0] || !cfg->base_url[0]) return -1;
   if (!cfg->listen[0]) snprintf(cfg->listen, sizeof cfg->listen, "http://127.0.0.1:8080");
   if (!cfg->backup_dir[0]) snprintf(cfg->backup_dir, sizeof cfg->backup_dir, "/var/backups/ocs");
+  if (!cfg->igloo_api_url[0]) snprintf(cfg->igloo_api_url, sizeof cfg->igloo_api_url, "https://api.igloohome.co");
+  if (!cfg->igloo_token_url[0])
+    snprintf(cfg->igloo_token_url, sizeof cfg->igloo_token_url, "https://auth.igloohome.co/oauth2/token");
   if (!cfg->backup_max_mail_bytes) cfg->backup_max_mail_bytes = 20000000;
   return 0;
 }
