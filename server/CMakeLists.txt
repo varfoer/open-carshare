@@ -86,6 +86,8 @@ if(OCS_FUZZ)
 endif()
 ocs_add_test(test_pain008)
 ocs_add_test(test_pdf)
+ocs_add_test(test_access)
+ocs_add_test(test_igloo)
 
 # Validates the XML written by test_pain008 against the ISO 20022 schema; skipped (77) without xmllint or XSD.
 set(PAIN008_XSD ${CMAKE_CURRENT_SOURCE_DIR}/test/data/pain.008.001.02.xsd)

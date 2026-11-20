@@ -93,4 +93,8 @@ typedef struct {
   char name[96], street[96], zip[16], city[64];          /* addressee at finalize */
 } invoice_t;
 
+typedef struct { int64_t id, booking_id, car_id; char pin_id[64]; char pin[16];
+  int64_t valid_from, valid_until; int variance; int64_t created_at; } access_pin_t;
+/* booking_id 0 = admin test PIN; pin "" = hidden or test */
+
 #endif
