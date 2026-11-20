@@ -142,3 +142,30 @@ when it is fixed.
   `actual_end == 0` (bill time falls back to `booked_end`).
 - [any] Admin cannot preview invoice PDFs before send (PDFs are written at
   the first send).
+
+## Car access (Phase 9 review findings)
+
+- [any] `platform_https`: `bearer` and `content_type` are not checked for
+  CR/LF before going into headers (token comes from igloohome over TLS;
+  hardening only). Token copies are not reliably zeroed.
+- [any] `lock_device_id_valid` accepts `.` and `..`; libcurl squashes dot
+  segments in the URL path (admin-only, harmless 404).
+- [any] Variance is consumed even when no network call was made
+  (`PIN_ERR_CONFIG`, client-side device reject), so the member may see
+  „ab HH:00“ for a configuration fault.
+- [any] Renew throttle (`renew:true`, 1200 s) also counts blanked rows: after
+  an admin reassigns a trip, the new holder gets 429 on „PIN funktioniert
+  nicht?“ (the „Neue PIN holen“ path works).
+- [any] Defensive gaps: `igloo_hourly_body` does not reject `until <= from`;
+  `db_pin_newest` has no `booking_id <= 0` guard; `access_pin_from_json`
+  accepts `valid_until <= valid_from` and duplicate ids.
+- [any] Untested: `prune_cb` pin pruning, the -3 storage path, failed-persist
+  RAM restore for pins, `platform_https` guards, Basic auth/content type in
+  `test_igloo_client`, lock-test exhausted message, device-list log line.
+  The fuzz car always has a box now (no lock-less start fuzzed).
+- [any] `GET /api/admin/locks` lists at most 32 boxes (silently truncated).
+- [any] Web: PIN digits on the card have no visible „PIN“ label or
+  `aria-label`; `pin_dialog` error lacks `role="alert"`; a failed PIN GET on
+  the card offers no retry; admin fallback ID input has no `maxlength`.
+- [any] Docs: spec §12 export line wrap, §13 note that admins get no PIN
+  override, deploy README igloohome price "(as of 2026-11)".
