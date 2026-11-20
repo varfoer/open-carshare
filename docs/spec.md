@@ -595,7 +595,10 @@ it (the mailer logs it).
   Mitigations: IMEI allowlist, limits, fuzzed parser, positions never stored,
   admin override of km.
 - Outbound HTTPS only (TLS verification on) to igloohome: token endpoint
-  and API (§7), synchronous, 5 s connect / 10 s total timeout. igloohome
+  and API (§7), synchronous, with one overall budget of 15 s per PIN or device-list
+  request across token fetch, API call and the single 401 retry (each HTTP
+  request gets the remaining budget as total timeout, connect timeout
+  min(5 s, remaining)). igloohome
   receives only the device ID, the PIN window and `Buchung <id>`, never a
   name or email.
 - `ocs.conf` keys `igloo_client_id`, `igloo_client_secret`, `igloo_api_url`
