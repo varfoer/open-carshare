@@ -23,7 +23,7 @@
   <main class="view">
     <section class="card">
       <h1>Kontakt</h1>
-      <p>Wenn etwas nicht funktioniert (Anmeldung, Buchung, Schlüsseltresor, Fahrzeug), melde dich bei:</p>
+      <p>Wenn etwas nicht funktioniert (Anmeldung, Buchung, Schlüsselbox, Fahrzeug), melde dich bei:</p>
       <!-- TODO: echte Kontaktdaten eintragen -->
       <dl class="kv">
         <dt>Ansprechpartner</dt><dd>Name eintragen</dd>
@@ -41,6 +41,43 @@
         <li><strong>iPhone/iPad (Safari):</strong> Teilen-Symbol → „Zum Home-Bildschirm“.</li>
       </ul>
       <p class="hint">Für Buchen, PIN und Fahrtbeginn brauchst du eine Internetverbindung.</p>
+    </section>
+
+    <section class="card" id="schluesselbox">
+      <h2>Schlüsselbox</h2>
+      <p>Der Autoschlüssel liegt in einer Schlüsselbox am Stellplatz. Du brauchst dafür nur diese App.</p>
+      <ol>
+        <li>Tippe bei deiner Buchung auf „Starten“. Danach zeigt die Buchung eine PIN in großen Ziffern.</li>
+        <li>Gib die PIN an der Schlüsselbox ein, nimm den Schlüssel heraus und fahre los.</li>
+        <li>Lege den Schlüssel vor dem „Zurückgeben“ wieder in die Box und schließe die Box. Sie verriegelt sich beim Schließen selbst.</li>
+        <li>Die PIN passt für die ganze Fahrt, auch zum Zurückgeben. Beim „Zurückgeben“ zeigt die App sie noch einmal. Danach ist sie nicht mehr zu sehen.</li>
+      </ol>
+      <dl class="kv faq">
+        <dt>PIN funktioniert nicht?</dt>
+        <dd>Auf der Buchung „PIN funktioniert nicht?“ antippen. Du bekommst eine neue PIN. Eine weitere neue PIN gibt es erst nach etwa 20 Minuten.</dd>
+        <dt>PIN abgelaufen?</dt>
+        <dd>Bei später Rückgabe oder verlängerter Fahrt läuft die PIN ab. Die Buchung zeigt dann „PIN abgelaufen“. „Neue PIN holen“ antippen.</dd>
+        <dt>Keine PIN, Fehlermeldung?</dt>
+        <dd>Kurz warten und noch einmal versuchen. Klappt es weiter nicht, melde dich beim Notfallkontakt oben unter „Kontakt“.</dd>
+      </dl>
+    </section>
+
+    <section class="card" id="schluesselbox-einrichten">
+      <h2>Für Admins: Schlüsselbox einrichten</h2>
+      <p>So ordnest du einem Auto eine neue Schlüsselbox zu. Die Zugangsdaten zu igloohome trägt der Server-Betreiber einmalig ein, du brauchst sie nicht.</p>
+      <ol>
+        <li><strong>In der igloohome-App</strong> (mit dem igloohome-Konto des Vereins): Box per Bluetooth koppeln, in ein Objekt mit der Zeitzone <strong>Europe/Berlin</strong> legen und ihr einen Namen geben, zum Beispiel „Dörpsmobil 1“.</li>
+        <li><strong>Im Auto-Formular</strong> (Admin → Autos): unter „Schlüsselbox“ die Box nach Namen auswählen und speichern.</li>
+        <li><strong>„Box prüfen“</strong> antippen. Die App zeigt eine Test-PIN. Gib sie an der Box ein: Öffnet sie sich, ist alles eingerichtet.</li>
+      </ol>
+      <dl class="kv faq">
+        <dt>Box fehlt in der Liste?</dt>
+        <dd>Prüfe in der igloohome-App, ob die Box dort mit dem Konto des Vereins verbunden ist.</dd>
+        <dt>Test schlägt fehl?</dt>
+        <dd>Die Meldung nennt den Grund. Häufig fehlt der Box in der igloohome-App die Zeitzone Europe/Berlin.</dd>
+        <dt>Auto ohne Box?</dt>
+        <dd>„Schlüsselbox“ auf „Keine“ stellen. Das Auto startet dann wie bisher ohne PIN.</dd>
+      </dl>
     </section>
 
     <section class="card">

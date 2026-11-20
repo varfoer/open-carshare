@@ -22,9 +22,10 @@ UI language: German. Code and docs: English. License: GPL-2.0-only
 - Admin views: users (invite by mail), cars, bookings, billing, settings.
 - Installable as a PWA (no app store), dark mode, help page
   (`web/help.html`).
+- Car key in an igloohome key box, PIN shown at trip start.
 - Mail notifications only (no push).
 
-Not yet done: key safe PIN (`access_pin()`, algorithm open), ESP32 port.
+Not yet done: ESP32 port.
 See `docs/spec.md` §14.
 
 ## Architecture

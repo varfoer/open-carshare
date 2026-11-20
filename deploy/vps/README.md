@@ -246,7 +246,27 @@ Check: after the first drive the car's readings appear:
 sudo tail /var/lib/ocs/odometer_readings.jsonl
 ```
 
-## 11. Billing run and Hibiscus
+## 11. igloohome key box
+
+Cars with a key box show the member a PIN at trip start. The server asks
+igloohome's API for it; this needs an API client of the Verein's igloohome
+account.
+
+1. Log in at `web.igloohome.co/api` and create an API client with the
+   scopes `algopin-hourly` and `get-devices`. The API is free for 30 days,
+   then costs about $2 per box and month; after the trial calls answer 402
+   and starts of cars with a box fail with `pin_unavailable`.
+2. Put the credentials into `/etc/ocs/ocs.conf`: `igloo_client_id`,
+   `igloo_client_secret`. `igloo_api_url` and `igloo_token_url` keep their
+   defaults (https only).
+3. Restart: `sudo systemctl restart ocs-server`.
+
+Without `igloo_client_id` the server runs normally; only cars with a box
+cannot start (log line `igloo not configured`). Setting up a box itself
+(pairing, car form, test PIN) is the admin manual on the help page
+(`help.html#schluesselbox-einrichten`).
+
+## 12. Billing run and Hibiscus
 
 After a billing run is finalized and sent (admin view „Abrechnung“), the
 SEPA collection is imported into Hibiscus by hand:

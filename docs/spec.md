@@ -88,12 +88,17 @@ mandates.
 
 ### car
 id, name, plate, active, location_text, tracker_imei (15 digits, optional,
-unique), keysafe_id.
+unique), lock_device_id (igloohome key box device ID, optional, unique
+across cars, 1..63 bytes of `[A-Za-z0-9._-]`; empty = no box; absent in a
+PUT keeps the value, `""` clears it; 409 `duplicate_lock`).
 
-### keysafe
-id, secret (encrypted at rest), algorithm params (step, digits, drift).
-PIN algorithm: pluggable, delivered later:
-`int access_pin(const keysafe_t*, const booking_t*, int64_t now, char *out, size_t n)`.
+### access_pin
+id, booking_id (0 = admin test PIN), car_id, pin_id (igloohome), pin
+(digits; `""` once hidden), valid_from, valid_until, variance, created_at.
+One row per PIN created, appended on creation, in `data/access_pins.jsonl`
+(a missing file means no rows). Kept out of `booking` so that booking JSON
+(admin views, GDPR export) cannot leak it. Rows older than 90 days are
+pruned with the prune timer.
 
 ### tariff
 id, name (1..63 bytes UTF-8, unique after trim), created_at. A named global
@@ -196,6 +201,10 @@ Kept 90 days, then pruned.
   `booked_end`. **Return** allowed anytime after start.
 - Start and return procedures ask for a damage report (optional; "no damage"
   is one tap).
+- **Start** of a car with a key box (`lock_device_id`) first creates the
+  trip's PIN (§7). If that fails, the answer is 503 `pin_unavailable` and
+  the booking stays `reserved`; a booking never becomes `active` without a
+  PIN. Cars without a box start as before.
 - Never started booking: whole booked time is billed as unused time.
 - Admin may modify any booking in any state, including actual times and km.
 
@@ -264,9 +273,33 @@ Rules:
 
 ## 7. Car access
 
-PIN shown in the client only for an `active` booking (after the start
-procedure), computed server-side via `access_pin()`. Keysafe secrets are
-encrypted at rest with a key from the server config file (not in `data/`).
+Each car may have an igloohome key box (Bluetooth, no bridge) holding the
+key. The server asks igloohome's API for an hourly algoPIN; the box checks
+it offline. Full design: `docs/superpowers/specs/2026-11-20-car-access-design.md`.
+
+- **Window.** At start (`now`): `valid_from` = full hour at or before `now`,
+  `valid_until` = full hour at or after `max(booked_end, now + 1 h)`, at most
+  672 h after `valid_from`. One PIN covers the whole trip: it opens the box
+  at start (take key) and at return (put key back).
+- **Usable** while `now < valid_until - 15 min`. A new PIN is created only
+  on request (start, `POST /pin`, return dialog with an expired PIN), never
+  on extension or in the background.
+- **Renew** ("PIN funktioniert nicht?"): always a new PIN, but not within
+  20 min of the booking's last PIN (429 `pin_too_soon`). igloohome allows
+  variance 1..3, so a car gets at most 3 PIN attempts per start hour; a
+  fourth fails with `pin_unavailable`.
+- **Hiding.** The PIN is shown only for an `active` booking, to its owner.
+  When the booking leaves `active`, or an admin changes its car or user,
+  the digits of its `access_pin` rows are blanked.
+- **No remote delete.** igloohome cannot delete algoPINs without a Bridge:
+  a PIN stays valid until `valid_until` even after an early return and may
+  overlap the next booking (accepted).
+- **Box setup** (admin): pair the box in the igloohome app, pick it in the
+  car form, "Box prüfen" creates a real test PIN for the current hour
+  (`booking_id` 0, stored without digits; only that response shows it).
+- **Failure.** Any igloohome failure answers 503 `pin_unavailable`; the log
+  names the cause, never the PIN, token or secret. Emergency contact: the
+  help page.
 
 ## 8. Odometer (Teltonika telematics)
 
@@ -561,6 +594,18 @@ it (the mailer logs it).
   plain TCP unless Teltonika TLS to an own server is verified and added.
   Mitigations: IMEI allowlist, limits, fuzzed parser, positions never stored,
   admin override of km.
+- Outbound HTTPS only (TLS verification on) to igloohome: token endpoint
+  and API (§7), synchronous, 5 s connect / 10 s total timeout. igloohome
+  receives only the device ID, the PIN window and `Buchung <id>`, never a
+  name or email.
+- `ocs.conf` keys `igloo_client_id`, `igloo_client_secret`, `igloo_api_url`
+  (default `https://api.igloohome.co`), `igloo_token_url` (default
+  `https://auth.igloohome.co/oauth2/token`); https only. Secrets live in
+  `ocs.conf`, never in `data/`, logs or error bodies. Without
+  `igloo_client_id` the server starts, and starting a car with a box fails
+  with `pin_unavailable`.
+- PIN digits are stored in plain text in `data/access_pins.jsonl` only
+  while the trip runs (the backup is age-encrypted).
 
 ## 12. Data and backup
 
@@ -588,7 +633,7 @@ it (the mailer logs it).
   `user` (public, no `pw_hash`), `bookings`, `damage_reports` (each with
   `photos`: API paths `/api/damage/{id}/photos/{k}`), `mandates` (masked
   IBAN only, `iban_masked`), `invoices` (each with its `lines`). Sessions,
-  tokens and odometer readings are not exported. Full IBANs never leave the
+  tokens, odometer readings and `access_pin` rows (PINs) are not exported. Full IBANs never leave the
   server, the export included. The web saves it as `ocs-export-<id>.json`.
 - Deactivation (admin user PUT with `active:false`) deletes the sessions and
   cancels every `reserved` booking of the user with cancel fee 0, like a
@@ -605,7 +650,7 @@ it (the mailer logs it).
 POST /api/login | /api/logout | /api/password-reset
 GET/PUT /api/me
 GET/POST/DELETE /api/me/mandate   (DELETE needs the password)
-GET  /api/cars
+GET  /api/cars                    (items carry has_lock: bool)
 GET  /api/calendar?car=&from=&to=
 GET  /api/bookings?scope=upcoming|history
 POST /api/bookings                PUT /api/bookings/{id}     DELETE /api/bookings/{id}
@@ -613,14 +658,20 @@ POST /api/bookings/{id}/start     POST /api/bookings/{id}/return
 POST /api/bookings/{id}/damage    GET /api/bookings/{id}/damage
 POST /api/damage/{id}/photos      (raw image/jpeg body, ≤ 2 MiB)
 GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
-GET  /api/bookings/{id}/pin
+GET  /api/bookings/{id}/pin       (owner, active, car with box; else 404:
+                                  {pin, valid_from, valid_until}; pin null when
+                                  expired or none; never calls igloohome)
+POST /api/bookings/{id}/pin       {renew}; 503 pin_unavailable | 429 pin_too_soon
 GET  /api/price-estimate?start&end&km[&club=1]
 admin:
   GET  /api/admin/users/{id}/mandates
   GET  /api/admin/users/{id}/export      (GDPR export, §12)
   POST /api/admin/users/{id}/mandate/revoke
   (GET /api/admin/users includes a "mandate" summary per user)
-  /api/admin/users, /cars, /keysafes, /bookings, /settings
+  /api/admin/users, /cars, /bookings, /settings
+  (admin car JSON carries lock_device_id; 409 duplicate_lock; invalid lock_device_id: 400 invalid)
+  GET  /api/admin/locks                  ([{device_id, name}]; 503 locks_unavailable)
+  POST /api/admin/cars/{id}/lock-test    ({pin, valid_until}; 400 no_lock | 503 lock_test_failed)
   (POST /api/admin/users requires tariff_id; GET /api/admin/users rows include
    tariff_id = assignment in force now, 0 = none; the export includes
    tariffs: [{id, tariff_name, valid_from}] newest first;
@@ -648,7 +699,7 @@ admin:
 ## 14. Deferred
 
 ESP32 port (LittleFS store, own ACME client with DNS-01 via deSEC, dynamic
-DNS, flash encryption), keysafe PIN algorithm, app store wrappers.
+DNS, flash encryption), app store wrappers.
 
 ## 15. Phases
 
@@ -759,6 +810,17 @@ Plan: `docs/superpowers/plans/2026-11-09-user-tariffs.md`.
 Done when: two users on different tariffs get different prices for the same
 trip, a switch re-prices only bookings starting after it, club trips stay 0 €.
 
+### Phase 9: Car access (igloohome key box)
+Design: `docs/superpowers/specs/2026-11-20-car-access-design.md`.
+- `car.lock_device_id`, `access_pin` table, hourly algoPIN created at start
+  through igloohome's API, shown on the booking card and in the return
+  dialog, renewable, blanked when the trip ends.
+- Admin picks the box in the car form and checks it with a test PIN; manual
+  on the help page.
+Done when (hardware acceptance by the product owner): start opens the box
+with the PIN, return within the window opens it, a renewed PIN works, an
+expired one does not, and with `igloo_client_id` unset starting a car with
+a box fails cleanly with `pin_unavailable`.
+
 ### Later (see §14)
-Keysafe entity and PIN (`access_pin`, §7) once the algorithm is delivered;
 ESP32 port; app store wrappers.
