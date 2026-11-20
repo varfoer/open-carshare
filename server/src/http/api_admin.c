@@ -6,6 +6,7 @@
 
 #include "auth/session.h"
 #include "core/booking_rules.h"
+#include "core/access.h"
 #include "core/codec.h"
 #include "core/email.h"
 #include "core/invoice_doc.h"
@@ -309,7 +310,7 @@ void h_admin_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   api_json(res, 200, arr);
 }
 
-/* tracker_imei is optional: absent keeps the value already in c, "" clears it. */
+/* tracker_imei and lock_device_id are optional: absent keeps the value already in c, "" clears it. */
 static bool read_car_fields(db_t *db, const cJSON *body, car_t *c, api_res_t *res) {
   const char *name = body ? api_get_str(body, "name", sizeof c->name) : NULL;
   const char *plate = body ? api_get_str(body, "plate", sizeof c->plate) : NULL;
@@ -336,7 +337,25 @@ static bool read_car_fields(db_t *db, const cJSON *body, car_t *c, api_res_t *re
       return false;
     }
   }
+  char lock[sizeof c->lock_device_id];
+  snprintf(lock, sizeof lock, "%s", c->lock_device_id);
+  if (body && cJSON_GetObjectItemCaseSensitive(body, "lock_device_id")) {
+    const char *v = api_get_str(body, "lock_device_id", sizeof lock);
+    if (!v || (*v && !lock_device_id_valid(v))) {
+      api_invalid(res);
+      return false;
+    }
+    snprintf(lock, sizeof lock, "%s", v);
+  }
+  if (*lock) {
+    const car_t *other = db_car_by_lock(db, lock);
+    if (other && other->id != c->id) {
+      api_error(res, 409, "duplicate_lock", "Diese Schlüsselbox ist bereits einem Auto zugeordnet.");
+      return false;
+    }
+  }
   snprintf(c->tracker_imei, sizeof c->tracker_imei, "%s", imei);
+  snprintf(c->lock_device_id, sizeof c->lock_device_id, "%s", lock);
   snprintf(c->name, sizeof c->name, "%s", name);
   snprintf(c->plate, sizeof c->plate, "%s", plate);
   snprintf(c->location, sizeof c->location, "%s", loc);

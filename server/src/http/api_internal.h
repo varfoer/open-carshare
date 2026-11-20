@@ -107,6 +107,11 @@ void h_damage_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_
 void h_photo_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_photo_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
+/* Admin box setup, MIN_ADMIN: GET /api/admin/locks (igloohome device list),
+ * POST /api/admin/cars/<id>/lock-test (real test PIN for the current hour, stored hidden). */
+void h_admin_locks_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_admin_lock_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
 /* api_admin.c (all MIN_ADMIN) */
 void h_admin_users_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_admin_user_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

@@ -73,13 +73,15 @@ int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t b
   p.booking_id = booking_id;
   p.car_id = car_id;
   snprintf(p.pin_id, sizeof p.pin_id, "%s", out.pin_id);
-  snprintf(p.pin, sizeof p.pin, "%s", out.pin);
+  /* Test PINs (booking 0) are stored hidden; the digits only go to the caller. */
+  if (booking_id != 0) snprintf(p.pin, sizeof p.pin, "%s", out.pin);
   p.valid_from = from;
   p.valid_until = until;
   p.variance = variance;
   p.created_at = now;
   if (db_put_pin(&a->db, &p) != 0) return -3;
   *row = p;
+  if (booking_id == 0) snprintf(row->pin, sizeof row->pin, "%s", out.pin);
   return 0;
 }
 
@@ -193,4 +195,74 @@ void h_booking_pin_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, ap
   access_pin_t row;
   if (!api_access_booking_pin(a, &b, device, req->now, &row, res)) return;
   pin_response(res, &row, req->now);
+}
+
+/* ---- admin box setup ---- */
+
+void h_admin_locks_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)req;
+  (void)ctx;
+  lock_info_t l[32];
+  size_t n = 0;
+  int http = 0;
+  pin_err_t e = a->lock_list ? a->lock_list(a->pin_ctx, l, 32, &n, &http) : PIN_ERR_CONFIG;
+  if (e != PIN_OK) {
+    fprintf(stderr, "ocs-server: igloo device list failed: %s (HTTP %d)\n", pin_err_log(e), http);
+    api_error(res, 503, "locks_unavailable", pin_err_admin_de(e));
+    return;
+  }
+  if (n > 32) n = 32;
+  cJSON *arr = cJSON_CreateArray();
+  if (!arr) { api_json(res, 500, NULL); return; }
+  for (size_t i = 0; i < n; i++) {
+    cJSON *o = cJSON_CreateObject();
+    if (!o || !cJSON_AddStringToObject(o, "device_id", l[i].device_id) ||
+        !cJSON_AddStringToObject(o, "name", l[i].name)) {
+      cJSON_Delete(o);
+      cJSON_Delete(arr);
+      api_json(res, 500, NULL);
+      return;
+    }
+    cJSON_AddItemToArray(arr, o);
+  }
+  api_json(res, 200, arr);
+}
+
+void h_admin_lock_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  (void)ctx;
+  int64_t id;
+  if (!api_segment_id(req->path, "/api/admin/cars/", &id)) { api_invalid(res); return; }
+  const car_t *c = db_car(&a->db, id);
+  if (!c) { api_not_found(res); return; }
+  if (!c->lock_device_id[0]) {
+    api_error(res, 400, "no_lock", "Für dieses Auto ist keine Schlüsselbox eingetragen.");
+    return;
+  }
+  char device[64];
+  memcpy(device, c->lock_device_id, sizeof device);
+  int64_t from = req->now - ((req->now % 3600) + 3600) % 3600;
+  int64_t until = from + 3600;
+  char name[48];
+  snprintf(name, sizeof name, "Test Auto %lld", (long long)id);
+  access_pin_t row;
+  pin_err_t err;
+  int rc = api_access_create(a, id, device, 0, from, until, name, req->now, &row, &err);
+  if (rc == -3) { api_storage_error(res); return; }
+  if (rc == -1) { api_error(res, 503, "lock_test_failed", pin_err_admin_de(err)); return; }
+  if (rc == -2) {
+    int h, m;
+    berlin_hm(until, &h, &m);
+    char msg[128];
+    snprintf(msg, sizeof msg, "Für diese Stunde sind keine Test-PINs mehr möglich. Bitte ab %02d:00 erneut versuchen.", h);
+    api_error(res, 503, "lock_test_failed", msg);
+    return;
+  }
+  cJSON *o = cJSON_CreateObject();
+  if (!o || !cJSON_AddStringToObject(o, "pin", row.pin) ||
+      !cJSON_AddNumberToObject(o, "valid_until", (double)row.valid_until)) {
+    cJSON_Delete(o);
+    api_json(res, 500, NULL);
+    return;
+  }
+  api_json(res, 200, o);
 }

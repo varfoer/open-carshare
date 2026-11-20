@@ -551,6 +551,78 @@ void test_cars_has_lock(void) {
   cJSON_Delete(j);
 }
 
+static const char *car_body(const char *name, const char *lock_json) {
+  static char b[256];
+  snprintf(b, sizeof b, "{\"name\":\"%s\",\"plate\":\"X-%s\",\"location\":\"Hof\",\"active\":true%s}", name,
+           name, lock_json);
+  return b;
+}
+
+void test_car_lock_field(void) {
+  cJSON *j = call_at("POST", "/api/admin/cars", car_body("Neu", ",\"lock_device_id\":\"D9\""), tokadm, 201, NULL, T);
+  int64_t id = num(j, "id");
+  TEST_ASSERT_EQUAL_STRING("D9", str(j, "lock_device_id"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING("D9", db_car(&a->db, id)->lock_device_id);
+  j = call_at("POST", "/api/admin/cars", car_body("Zwei", ",\"lock_device_id\":\"D9\""), tokadm, 409, "duplicate_lock", T);
+  TEST_ASSERT_EQUAL_STRING("Diese Schlüsselbox ist bereits einem Auto zugeordnet.", str(j, "message"));
+  cJSON_Delete(j);
+  call_free("POST", "/api/admin/cars", car_body("Drei", ",\"lock_device_id\":\"a/b\""), tokadm, 400, "invalid", T);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/cars/%lld", (long long)id);
+  call_free("PUT", p, car_body("Neu2", ""), tokadm, 200, NULL, T);
+  TEST_ASSERT_EQUAL_STRING("D9", db_car(&a->db, id)->lock_device_id);
+  call_free("PUT", p, car_body("Neu2", ",\"lock_device_id\":\"\""), tokadm, 200, NULL, T);
+  TEST_ASSERT_EQUAL_STRING("", db_car(&a->db, id)->lock_device_id);
+}
+
+void test_admin_locks_get(void) {
+  lock_info_t l[2] = {{"D1", "Dörpsmobil 1"}, {"D2", ""}};
+  th_locks_set(l, 2);
+  char *s = raw("GET", "/api/admin/locks", tokadm, 200, T);
+  TEST_ASSERT_EQUAL_STRING("[{\"device_id\":\"D1\",\"name\":\"Dörpsmobil 1\"},{\"device_id\":\"D2\",\"name\":\"\"}]", s);
+  free(s);
+  call_free("GET", "/api/admin/locks", NULL, tok1, 403, NULL, T);
+  th_locks_fail(PIN_ERR_PAYMENT);
+  cJSON *j = call_at("GET", "/api/admin/locks", NULL, tokadm, 503, "locks_unavailable", T);
+  TEST_ASSERT_EQUAL_STRING("igloohome-API nicht bezahlt (Testzeitraum abgelaufen).", str(j, "message"));
+  cJSON_Delete(j);
+}
+
+static const char *lock_test_path(int64_t id) {
+  static char p[64];
+  snprintf(p, sizeof p, "/api/admin/cars/%lld/lock-test", (long long)id);
+  return p;
+}
+
+void test_lock_test_ok(void) {
+  cJSON *j = call_at("POST", lock_test_path(car1), NULL, tokadm, 200, NULL, T + H + 1200);
+  TEST_ASSERT_EQUAL_STRING("100001", str(j, "pin"));
+  TEST_ASSERT_EQUAL_INT64(T + 2 * H, num(j, "valid_until"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING("D1", th_pin_last_device());
+  TEST_ASSERT_EQUAL_INT64(T + H, th_pin_last_from());
+  TEST_ASSERT_EQUAL_INT64(T + 2 * H, th_pin_last_until());
+  char name[32];
+  snprintf(name, sizeof name, "Test Auto %lld", (long long)car1);
+  TEST_ASSERT_EQUAL_STRING(name, th_pin_last_name());
+  TEST_ASSERT_EQUAL_UINT(1, a->db.n_pins);
+  TEST_ASSERT_EQUAL_INT64(0, a->db.pins[0].booking_id);
+  TEST_ASSERT_EQUAL_STRING("", a->db.pins[0].pin);
+  TEST_ASSERT_EQUAL_INT(1, a->db.pins[0].variance);
+}
+
+void test_lock_test_errors(void) {
+  call_free("POST", lock_test_path(car2), NULL, tokadm, 400, "no_lock", T + H);
+  th_pin_fail(PIN_ERR_TIMEZONE);
+  cJSON *j = call_at("POST", lock_test_path(car1), NULL, tokadm, 503, "lock_test_failed", T + H);
+  TEST_ASSERT_EQUAL_STRING("In der igloohome-App der Box eine Zeitzone (Europe/Berlin) zuweisen.", str(j, "message"));
+  cJSON_Delete(j);
+  th_pin_fail(PIN_OK);
+  call_free("POST", lock_test_path(9999), NULL, tokadm, 404, "not_found", T + H);
+  call_free("POST", lock_test_path(car1), NULL, tok1, 403, NULL, T + H);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_start_creates_pin);
@@ -577,5 +649,9 @@ int main(void) {
   RUN_TEST(test_admin_end_trip_blanks);
   RUN_TEST(test_export_has_no_pin);
   RUN_TEST(test_cars_has_lock);
+  RUN_TEST(test_car_lock_field);
+  RUN_TEST(test_admin_locks_get);
+  RUN_TEST(test_lock_test_ok);
+  RUN_TEST(test_lock_test_errors);
   return UNITY_END();
 }

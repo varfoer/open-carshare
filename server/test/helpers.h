@@ -33,6 +33,10 @@ int64_t th_pin_last_from(void);
 int64_t th_pin_last_until(void);
 int th_pin_last_variance(void);
 const char *th_pin_last_name(void);
+/* Fake igloohome device list: th_locks_set replaces the list, th_locks_fail makes it fail with e
+ * (PIN_OK = succeed). Both reset by th_app. */
+void th_locks_set(const lock_info_t *l, size_t n);
+void th_locks_fail(pin_err_t e);
 /* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.
  * th_add_user also inserts an ACTIVE mandate (holder "Test User", IBAN DE89370400440532013000,
  * text_version 1); th_add_user_bare does not. */

@@ -57,6 +57,8 @@ static const route_t ROUTES[] = {
     {"GET", "/api/admin/cars", h_admin_cars_get, MIN_ADMIN, BODY_JSON},
     {"POST", "/api/admin/cars", h_admin_car_post, MIN_ADMIN, BODY_JSON},
     {"PUT", "/api/admin/cars/*", h_admin_car_put, MIN_ADMIN, BODY_JSON},
+    {"GET", "/api/admin/locks", h_admin_locks_get, MIN_ADMIN, BODY_JSON},
+    {"POST", "/api/admin/cars/*/lock-test", h_admin_lock_test, MIN_ADMIN, BODY_JSON},
     {"GET", "/api/admin/tariffs", h_admin_tariffs_get, MIN_ADMIN, BODY_JSON},
     {"POST", "/api/admin/tariffs", h_admin_tariff_post, MIN_ADMIN, BODY_JSON},
     {"PUT", "/api/admin/tariffs/*", h_admin_tariff_put, MIN_ADMIN, BODY_JSON},

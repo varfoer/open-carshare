@@ -78,14 +78,28 @@ static pin_err_t fake_pin(void *ctx, const char *device_id, int64_t from, int64_
   return PIN_OK;
 }
 
+static lock_info_t locks[32];
+static size_t n_locks;
+static pin_err_t locks_fail;
+
 static pin_err_t fake_locks(void *ctx, lock_info_t *out, size_t cap, size_t *n, int *http_status) {
   (void)ctx;
-  (void)out;
-  (void)cap;
   *n = 0;
   *http_status = 200;
+  if (locks_fail != PIN_OK) {
+    *http_status = 402;
+    return locks_fail;
+  }
+  for (size_t i = 0; i < n_locks && i < cap; i++) out[(*n)++] = locks[i];
   return PIN_OK;
 }
+
+void th_locks_set(const lock_info_t *l, size_t n) {
+  if (n > 32) n = 32;
+  if (n) memcpy(locks, l, n * sizeof *l);
+  n_locks = n;
+}
+void th_locks_fail(pin_err_t e) { locks_fail = e; }
 
 void th_pin_fail(pin_err_t e) { pin_fail = e; }
 void th_pin_malformed(int on) { pin_malformed = on; }
@@ -97,6 +111,8 @@ int th_pin_last_variance(void) { return pin_last_variance; }
 const char *th_pin_last_name(void) { return pin_last_name; }
 
 static void pin_reset(void) {
+  n_locks = 0;
+  locks_fail = PIN_OK;
   pin_fail = PIN_OK;
   pin_malformed = pin_count = pin_last_variance = 0;
   pin_last_device[0] = pin_last_name[0] = 0;
