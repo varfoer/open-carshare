@@ -117,6 +117,8 @@ button.primary, .btn.primary { display: inline-flex; align-items: center; justif
 button.primary svg { width: 18px; height: 18px; }
 button:disabled { opacity: .6; cursor: default; }
 button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; min-height: 0; width: auto; }
+.pin-digits { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 2rem; font-weight: 700; letter-spacing: .3em; color: var(--fg); margin: .25rem 0; }
+.pin-box { margin-top: .5rem; }
 .dialog-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
 @media (min-width: 900px) { form.card button.primary, .page-head button.primary { width: auto; } }
 

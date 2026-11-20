@@ -1,6 +1,6 @@
 // Service worker: app shell cache-first with background update; /api/* is never cached.
 // Keep SHELL in sync with `git ls-files web` (minus web/test/); bump CACHE on every web change.
-const CACHE = 'ocs-v22';
+const CACHE = 'ocs-v23';
 const SHELL = [
   '/',
   '/index.html',
@@ -40,6 +40,7 @@ const SHELL = [
   '/js/views/history.js',
   '/js/views/login.js',
   '/js/views/my_bookings.js',
+  '/js/views/pin_dialog.js',
   '/js/views/password.js',
 ];
 

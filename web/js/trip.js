@@ -16,3 +16,11 @@ export const DAMAGE_TEXT_MAX_BYTES = 1023;
 export function damageTextTooLong(text) {
   return new TextEncoder().encode(text).length > DAMAGE_TEXT_MAX_BYTES;
 }
+
+// Key box PIN state from GET /api/bookings/{id}/pin. The server stops handing out a PIN
+// 15 min before it ends, so the card does the same.
+export function pinView(p, nowSec) {
+  if (p && p.pin && nowSec < p.valid_until - 900) return { kind: 'show', pin: p.pin, until: p.valid_until };
+  if (p && p.valid_until > 0) return { kind: 'expired' };
+  return { kind: 'none' };
+}
