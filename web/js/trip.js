@@ -21,6 +21,9 @@ export function damageTextTooLong(text) {
 // 15 min before it ends, so the card does the same.
 export function pinView(p, nowSec) {
   if (p && p.pin && nowSec < p.valid_until - 900) return { kind: 'show', pin: p.pin, until: p.valid_until };
-  if (p && p.valid_until > 0) return { kind: 'expired' };
+  if (p && p.valid_until > 0) {
+    // No digits although the window is not over (e.g. rows blanked after a reassignment).
+    return nowSec >= p.valid_until - 900 ? { kind: 'expired' } : { kind: 'invalid' };
+  }
   return { kind: 'none' };
 }

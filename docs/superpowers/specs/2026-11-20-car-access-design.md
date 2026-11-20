@@ -287,8 +287,8 @@ Server and web:
   form never drops it. When the list cannot be loaded, the field falls back
   to a text input for the device ID (builder's call).
 - `POST /api/admin/cars/{id}/lock-test` (admin; car must have
-  `lock_device_id`): creates a real hourly PIN for the current hour
-  (`valid_from = H(now)`, `valid_until = valid_from + 1 h`, access name
+  `lock_device_id`): creates a real hourly PIN (see below)
+  (the window of `access_window(now, now)`, at least one hour ahead, access name
   `Test Auto <car id>`), stores it as an `access_pin` row with
   `booking_id = 0` and `pin = ""` (the digits are only in the response;
   the row counts toward the car's variance in that hour), and answers

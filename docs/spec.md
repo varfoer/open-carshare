@@ -295,7 +295,7 @@ it offline. Full design: `docs/superpowers/specs/2026-11-20-car-access-design.md
   a PIN stays valid until `valid_until` even after an early return and may
   overlap the next booking (accepted).
 - **Box setup** (admin): pair the box in the igloohome app, pick it in the
-  car form, "Box prüfen" creates a real test PIN for the current hour
+  car form, "Box prüfen" creates a real test PIN (window of `access_window(now, now)`, at least one hour ahead)
   (`booking_id` 0, stored without digits; only that response shows it).
 - **Failure.** Any igloohome failure answers 503 `pin_unavailable`; the log
   names the cause, never the PIN, token or secret. Emergency contact: the
@@ -661,9 +661,10 @@ POST /api/bookings/{id}/start     POST /api/bookings/{id}/return
 POST /api/bookings/{id}/damage    GET /api/bookings/{id}/damage
 POST /api/damage/{id}/photos      (raw image/jpeg body, ≤ 2 MiB)
 GET  /api/damage/{id}/photos/{k}  (image/jpeg; owner or admin)
-GET  /api/bookings/{id}/pin       (owner, active, car with box; else 404:
+GET  /api/bookings/{id}/pin       (404 unless the booking is the caller's, active and its
+                                  car has a box; never calls igloohome. Otherwise 200
                                   {pin, valid_from, valid_until}; pin null when
-                                  expired or none; never calls igloohome)
+                                  expired or no row)
 POST /api/bookings/{id}/pin       {renew}; 503 pin_unavailable | 429 pin_too_soon
 GET  /api/price-estimate?start&end&km[&club=1]
 admin:

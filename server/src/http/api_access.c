@@ -50,7 +50,10 @@ int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t b
   pin_attempt_t *t = attempt_find(a, car_id, from);
   int used = db_pin_max_variance(&a->db, car_id, from);
   if (t && t->used > used) used = t->used;
-  if (used >= ACCESS_VARIANCE_MAX) return -2;
+  if (used >= ACCESS_VARIANCE_MAX) {
+    fprintf(stderr, "ocs-server: pin for booking %lld: no variance left for this hour\n", (long long)booking_id);
+    return -2;
+  }
   int variance = used + 1;
   /* Before the call: a timeout may still have created the PIN at igloohome. */
   attempt_record(a, t, car_id, from, variance);
@@ -79,7 +82,10 @@ int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t b
   p.valid_until = until;
   p.variance = variance;
   p.created_at = now;
-  if (db_put_pin(&a->db, &p) != 0) return -3;
+  if (db_put_pin(&a->db, &p) != 0) {
+    fprintf(stderr, "ocs-server: pin for booking %lld: storage failed\n", (long long)booking_id);
+    return -3;
+  }
   *row = p;
   if (booking_id == 0) snprintf(row->pin, sizeof row->pin, "%s", out.pin);
   return 0;
@@ -207,7 +213,7 @@ void h_admin_locks_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   int http = 0;
   pin_err_t e = a->lock_list ? a->lock_list(a->pin_ctx, l, 32, &n, &http) : PIN_ERR_CONFIG;
   if (e != PIN_OK) {
-    fprintf(stderr, "ocs-server: igloo device list failed: %s (HTTP %d)\n", pin_err_log(e), http);
+    if (e != PIN_ERR_CONFIG) fprintf(stderr, "ocs-server: igloo device list failed: %s (HTTP %d)\n", pin_err_log(e), http);
     api_error(res, 503, "locks_unavailable", pin_err_admin_de(e));
     return;
   }
@@ -240,8 +246,8 @@ void h_admin_lock_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   }
   char device[64];
   memcpy(device, c->lock_device_id, sizeof device);
-  int64_t from = req->now - ((req->now % 3600) + 3600) % 3600;
-  int64_t until = from + 3600;
+  int64_t from, until;
+  access_window(req->now, req->now, &from, &until);
   char name[48];
   snprintf(name, sizeof name, "Test Auto %lld", (long long)id);
   access_pin_t row;
@@ -251,7 +257,7 @@ void h_admin_lock_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   if (rc == -1) { api_error(res, 503, "lock_test_failed", pin_err_admin_de(err)); return; }
   if (rc == -2) {
     int h, m;
-    berlin_hm(until, &h, &m);
+    berlin_hm(from + 3600, &h, &m);
     char msg[128];
     snprintf(msg, sizeof msg, "Für diese Stunde sind keine Test-PINs mehr möglich. Bitte ab %02d:00 erneut versuchen.", h);
     api_error(res, 503, "lock_test_failed", msg);

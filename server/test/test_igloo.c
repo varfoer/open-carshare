@@ -74,6 +74,10 @@ static void test_parse_token(void) {
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_token(ok, tok, 3, &exp)); /* cap too small */
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_token("{\"expires_in\":5}", tok, sizeof tok, &exp));
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_token("junk", tok, sizeof tok, &exp));
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_token("{\"access_token\":\"abc\",\"expires_in\":1e30}", tok, sizeof tok, &exp));
+    TEST_ASSERT_EQUAL_INT64(604800, exp);
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_token("{\"access_token\":\"abc\",\"expires_in\":-5}", tok, sizeof tok, &exp));
+    TEST_ASSERT_EQUAL_INT64(0, exp);
 }
 
 static void test_parse_devices(void) {

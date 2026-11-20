@@ -1,5 +1,6 @@
 #include "core/igloo.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,7 +71,10 @@ int igloo_parse_token(const char *body, char *token, size_t cap, int64_t *expire
   const cJSON *e = cJSON_GetObjectItemCaseSensitive(j, "expires_in");
   if (t && t[0] && strlen(t) < cap) {
     memcpy(token, t, strlen(t) + 1);
-    *expires_in = cJSON_IsNumber(e) ? (int64_t)e->valuedouble : 0;
+    double v = cJSON_IsNumber(e) ? e->valuedouble : 0;
+    if (!isfinite(v) || v < 0) v = 0;
+    if (v > 604800) v = 604800; /* one week */
+    *expires_in = (int64_t)v;
     rc = 0;
   }
   cJSON_Delete(j);

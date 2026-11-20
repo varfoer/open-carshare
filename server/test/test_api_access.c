@@ -598,11 +598,11 @@ static const char *lock_test_path(int64_t id) {
 void test_lock_test_ok(void) {
   cJSON *j = call_at("POST", lock_test_path(car1), NULL, tokadm, 200, NULL, T + H + 1200);
   TEST_ASSERT_EQUAL_STRING("100001", str(j, "pin"));
-  TEST_ASSERT_EQUAL_INT64(T + 2 * H, num(j, "valid_until"));
+  TEST_ASSERT_EQUAL_INT64(T + 3 * H, num(j, "valid_until"));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_STRING("D1", th_pin_last_device());
   TEST_ASSERT_EQUAL_INT64(T + H, th_pin_last_from());
-  TEST_ASSERT_EQUAL_INT64(T + 2 * H, th_pin_last_until());
+  TEST_ASSERT_EQUAL_INT64(T + 3 * H, th_pin_last_until());
   char name[32];
   snprintf(name, sizeof name, "Test Auto %lld", (long long)car1);
   TEST_ASSERT_EQUAL_STRING(name, th_pin_last_name());

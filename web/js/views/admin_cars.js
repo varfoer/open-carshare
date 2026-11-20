@@ -87,9 +87,6 @@ export async function render(root) {
     form.scrollIntoView();
   }
 
-  const lockNames = new Map();
-  try { for (const l of await api('GET', '/api/admin/locks')) if (l.name) lockNames.set(l.device_id, l.name); } catch { /* ids shown */ }
-
   for (const c of cars) {
     const edit = el('button', { type: 'button', text: 'Bearbeiten' });
     edit.addEventListener('click', () => showForm(c));
@@ -101,7 +98,7 @@ export async function render(root) {
     }
     list.append(el('div', { className: 'card booking' },
       el('p', { className: 'booking-time', text: `${c.name} (${c.plate})` }),
-      el('p', { className: 'booking-car', text: `${c.location || 'ohne Standort'} · ${c.tracker_imei ? `Tracker ${c.tracker_imei}` : 'ohne Tracker'} · ${c.lock_device_id ? `Box ${lockNames.get(c.lock_device_id) || c.lock_device_id}` : 'ohne Box'} · ${c.active ? 'aktiv' : 'inaktiv'}` }),
+      el('p', { className: 'booking-car', text: `${c.location || 'ohne Standort'} · ${c.tracker_imei ? `Tracker ${c.tracker_imei}` : 'ohne Tracker'} · ${c.lock_device_id ? `Box ${c.lock_device_id}` : 'ohne Box'} · ${c.active ? 'aktiv' : 'inaktiv'}` }),
       actions));
   }
   if (!cars.length) list.append(el('p', { className: 'placeholder', text: 'Keine Autos.' }));

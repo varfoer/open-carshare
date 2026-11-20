@@ -21,19 +21,20 @@ async function fileReport(b, phase, damage) {
 
 // Start or return: confirm damage state, call the trip endpoint, then file the report.
 // Server-side trip state stays as is when a later step fails; the caller reloads the list.
-async function runTrip(b, action, title, phase, hasLock = false) {
-  if (action === 'return' && hasLock && !await pinDialog(b.id)) return false;
-  const damage = await damageDialog(title);
+async function runTrip(b, action, title, phase, hasBox = false) {
+  if (action === 'return' && hasBox && !await pinDialog(b.id)) return false;
+  const damage = await damageDialog(title, phase === 'start' ? { text: retryText.get(b.id) } : {});
   if (damage === null) return false;
+  if (damage !== 'none' && phase === 'start') retryText.set(b.id, damage.text);
   await api('POST', `/api/bookings/${b.id}/${action}`);
-  if (damage === 'none') return true;
+  if (damage === 'none') { retryText.delete(b.id); return true; }
   try {
     await fileReport(b, phase, damage);
   } catch (x) {
-    if (phase === 'start') retryText.set(b.id, damage.text);
     const done = phase === 'start' ? 'Fahrt gestartet' : 'Fahrzeug zurückgegeben';
     throw new Error(`${done}, aber die Schadensmeldung ist fehlgeschlagen: ${x.message.replace(/\.$/, '')}. Bitte erneut melden.`);
   }
+  retryText.delete(b.id);
   return true;
 }
 
@@ -78,8 +79,18 @@ function subline(b, now, carName, carCount) {
   return parts.join(' · ');
 }
 
+// GET /pin of an active booking: { p } with the answer, { none: true } for 404 (no key box),
+// { error } with the message for anything else. Independent of the car list, which omits inactive cars.
+async function probePin(b) {
+  try {
+    return { p: await api('GET', `/api/bookings/${b.id}/pin`) };
+  } catch (x) {
+    return x.status === 404 ? { none: true } : { error: x.message };
+  }
+}
+
 // PIN line of an active booking with a key box. A failed fetch shows its message in the card only.
-async function pinLine(b, now, err) {
+function pinLine(b, now, err, probe) {
   const box = el('div', { className: 'pin-box' });
   const fail = el('p', { className: 'error', role: 'alert' });
   fail.hidden = true;
@@ -102,7 +113,11 @@ async function pinLine(b, now, err) {
     });
     return btn;
   };
-  const p = await call('GET');
+  const p = probe.p;
+  if (probe.error) {
+    fail.textContent = probe.error;
+    fail.hidden = false;
+  }
   if (p) {
     const v = pinView(p, now);
     if (v.kind === 'show') {
@@ -112,6 +127,7 @@ async function pinLine(b, now, err) {
         act('PIN funktioniert nicht?', 'link', true));
     } else {
       if (v.kind === 'expired') box.append(el('p', { className: 'booking-car', text: 'PIN abgelaufen' }));
+      if (v.kind === 'invalid') box.append(el('p', { className: 'booking-car', text: 'Keine gültige PIN' }));
       box.append(act('Neue PIN holen', 'btn', false));
     }
   }
@@ -125,7 +141,6 @@ let carriedError = '';
 export async function render(root) {
   const [list, cars] = await Promise.all([api('GET', '/api/bookings'), api('GET', '/api/cars')]);
   const names = new Map(cars.map((c) => [c.id, c.name]));
-  const locks = new Map(cars.map((c) => [c.id, !!c.has_lock]));
   const now = Math.floor(Date.now() / 1000);
   const upcoming = list.filter((b) => !b.cancelled_at && b.state !== 'cancelled')
     .sort((a, b) => a.booked_start - b.booked_start);
@@ -142,6 +157,8 @@ export async function render(root) {
     return;
   }
   for (const b of upcoming) {
+    const probe = b.state === 'active' ? await probePin(b) : null;
+    const hasBox = !!probe && !probe.none;
     const act = tripActions(b, now);
     const step = (label, className, run) => {
       const btn = el('button', { type: 'button', className, text: label });
@@ -159,7 +176,7 @@ export async function render(root) {
     };
     const actions = [];
     if (act.start) actions.push(step('Starten', 'primary', () => runTrip(b, 'start', 'Fahrt starten', 'start')));
-    if (act.ret) actions.push(step('Zurückgeben', 'primary', () => runTrip(b, 'return', 'Fahrzeug zurückgeben', 'end', locks.get(b.car_id))));
+    if (act.ret) actions.push(step('Zurückgeben', 'primary', () => runTrip(b, 'return', 'Fahrzeug zurückgeben', 'end', hasBox)));
     if (act.report) actions.push(step('Schaden melden', 'btn', () => runReport(b)));
     if (act.extend) actions.push(el('a', { className: 'btn', href: `#/buchen?id=${b.id}`, text: 'Verlängern' }));
     if (act.cancel) {
@@ -187,7 +204,7 @@ export async function render(root) {
     if (b.club_trip) badges.push({ text: 'Vereinsfahrt' });
     const line = subline(b, now, names.get(b.car_id), cars.length);
     const lines = line ? [line] : [];
-    if (b.state === 'active' && locks.get(b.car_id)) lines.push(await pinLine(b, now, err));
+    if (hasBox) lines.push(pinLine(b, now, err, probe));
     root.append(bookingCard({
       start: b.booked_start, end: b.booked_end, nowSec: now, badges, lines, actions,
     }));

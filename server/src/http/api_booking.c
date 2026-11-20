@@ -273,7 +273,11 @@ void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
   b.actual_start = req->now;
   b.modified_at = req->now;
   b.modified_by = ctx->user->id;
-  if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  if (db_put_booking(&a->db, &b) != 0) {
+    (void)db_pins_blank(&a->db, b.id);   /* best effort: the booking stays reserved without a usable PIN */
+    api_storage_error(res);
+    return;
+  }
   api_json(res, 200, api_booking_json(a, &b));
 }
 

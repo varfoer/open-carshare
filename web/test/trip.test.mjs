@@ -24,6 +24,8 @@ test('damageTextTooLong counts UTF-8 bytes', () => {
 test('pinView', () => {
   assert.deepEqual(pinView({ pin: '5729314', valid_from: 0, valid_until: 10000 }, 9099), { kind: 'show', pin: '5729314', until: 10000 });
   assert.deepEqual(pinView({ pin: '5729314', valid_from: 0, valid_until: 10000 }, 9100), { kind: 'expired' });
-  assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 0), { kind: 'expired' });
+  assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 0), { kind: 'invalid' });
+  assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 9099), { kind: 'invalid' });
+  assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 9100), { kind: 'expired' });
   assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 0 }, 0), { kind: 'none' });
 });

@@ -22,7 +22,10 @@ void igloo_client_init(igloo_client_t *c, const config_t *cfg, igloo_http_fn htt
 typedef struct { igloo_client_t *c; int64_t start; int last_status; } call_t;
 
 /* Remaining budget in seconds; <= 0 means exhausted. */
-static long remaining(const call_t *k) { return (long)(BUDGET_S - (k->c->now() - k->start)); }
+static long remaining(const call_t *k) {
+  long left = (long)(BUDGET_S - (k->c->now() - k->start));
+  return left > BUDGET_S ? BUDGET_S : left; /* wall clock stepping back */
+}
 
 static pin_err_t map_status(int st) {
   if (st >= 200 && st < 300) return PIN_OK;
@@ -68,7 +71,9 @@ static pin_err_t fetch_token(call_t *k) {
       int64_t ttl = 0;
       if (igloo_parse_token(ans, c->token, sizeof c->token, &ttl) != 0) e = PIN_ERR_OTHER;
       else {
-        c->token_exp = t + (ttl > 0 ? ttl : TOKEN_DEFAULT_TTL_S);
+        if (ttl <= 0) ttl = TOKEN_DEFAULT_TTL_S;
+        if (ttl > 604800) ttl = 604800; /* t + ttl cannot overflow */
+        c->token_exp = t + ttl;
       }
     }
   }
