@@ -219,6 +219,76 @@ static void test_car_rejects_bad_imei(void) {
     }
 }
 
+static void test_car_lock_optional(void) {
+    cJSON *j = cJSON_Parse("{\"id\":1,\"name\":\"a\",\"plate\":\"b\",\"location\":\"c\",\"active\":true}");
+    car_t r;
+    TEST_ASSERT_EQUAL_INT(0, car_from_json(j, &r));
+    TEST_ASSERT_EQUAL_STRING("", r.lock_device_id);
+    cJSON_AddItemToObject(j, "lock_device_id", cJSON_CreateString("a/b"));
+    TEST_ASSERT_EQUAL_INT(-1, car_from_json(j, &r));
+    cJSON_Delete(j);
+    car_t c = {.id = 2, .active = true};
+    strcpy(c.name, "Zoe");
+    strcpy(c.lock_device_id, "SP2X");
+    j = car_to_json(&c);
+    TEST_ASSERT_EQUAL_STRING("SP2X", cJSON_GetObjectItem(j, "lock_device_id")->valuestring);
+    TEST_ASSERT_EQUAL_INT(0, car_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&c, &r, sizeof c);
+    cJSON_Delete(j);
+}
+
+static access_pin_t mkpin(void) {
+    access_pin_t v = {.id = 3, .booking_id = 7, .car_id = 2, .valid_from = 1774742400,
+                      .valid_until = 1774749600, .variance = 2, .created_at = 1774742410};
+    strcpy(v.pin_id, "pid-1");
+    strcpy(v.pin, "123456");
+    return v;
+}
+
+static void test_access_pin_roundtrip(void) {
+    access_pin_t v = mkpin(), r;
+    cJSON *j = access_pin_to_json(&v);
+    TEST_ASSERT_NOT_NULL(j);
+    TEST_ASSERT_EQUAL_INT(0, access_pin_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    cJSON_Delete(j);
+    memset(v.pin, 0, sizeof v.pin);
+    v.booking_id = 0;
+    j = access_pin_to_json(&v);
+    TEST_ASSERT_EQUAL_INT(0, access_pin_from_json(j, &r));
+    TEST_ASSERT_EQUAL_MEMORY(&v, &r, sizeof v);
+    cJSON_Delete(j);
+}
+
+static void test_access_pin_rejects(void) {
+    access_pin_t v = mkpin(), r;
+    cJSON *j = access_pin_to_json(&v);
+    cJSON_ReplaceItemInObject(j, "pin", cJSON_CreateString("12a4"));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "pin", cJSON_CreateString("123"));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "pin", cJSON_CreateString("1234567890123"));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "pin", cJSON_CreateString("1234"));
+    TEST_ASSERT_EQUAL_INT(0, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "variance", cJSON_CreateNumber(0));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "variance", cJSON_CreateNumber(4));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_ReplaceItemInObject(j, "variance", cJSON_CreateNumber(1));
+    cJSON_ReplaceItemInObject(j, "booking_id", cJSON_CreateNumber(-1));
+    TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+    cJSON_Delete(j);
+    const char *keys[] = {"id", "booking_id", "car_id", "pin_id", "pin", "valid_from",
+                          "valid_until", "variance", "created_at"};
+    for (int i = 0; i < 9; i++) {
+        j = access_pin_to_json(&v);
+        cJSON_DeleteItemFromObject(j, keys[i]);
+        TEST_ASSERT_EQUAL_INT(-1, access_pin_from_json(j, &r));
+        cJSON_Delete(j);
+    }
+}
+
 static void test_km_source_telematics_roundtrip(void) {
     booking_t b = {.id = 1, .booked_start = 600, .booked_end = 1200, .km_source = KM_TELEMATICS};
     cJSON *j = booking_to_json(&b);
@@ -848,6 +918,9 @@ int main(void) {
     RUN_TEST(test_car_tracker_imei_roundtrip);
     RUN_TEST(test_car_loads_without_tracker_imei);
     RUN_TEST(test_car_rejects_bad_imei);
+    RUN_TEST(test_car_lock_optional);
+    RUN_TEST(test_access_pin_roundtrip);
+    RUN_TEST(test_access_pin_rejects);
     RUN_TEST(test_km_source_telematics_roundtrip);
     RUN_TEST(test_km_source_geotab_loads_as_telematics);
     RUN_TEST(test_odometer_reading_roundtrip);

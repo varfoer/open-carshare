@@ -16,6 +16,7 @@ cJSON *car_to_json(const car_t *v);
 cJSON *booking_to_json(const booking_t *v);
 cJSON *damage_report_to_json(const damage_report_t *v);
 cJSON *odometer_reading_to_json(const odometer_reading_t *v);
+cJSON *access_pin_to_json(const access_pin_t *v);
 cJSON *session_to_json(const session_t *v);
 cJSON *token_to_json(const token_t *v);
 cJSON *settings_to_json(const settings_t *v);
@@ -28,7 +29,8 @@ cJSON *invoice_to_json(const invoice_t *v);
 cJSON *invoice_line_to_json(const invoice_line_t *v);
 
 int user_from_json(const cJSON *j, user_t *out);
-/* tracker_imei is optional on load (absent -> ""); present must be "" or imei_valid. */
+/* tracker_imei is optional on load (absent -> ""); present must be "" or imei_valid.
+ * lock_device_id likewise: absent -> "", present must be "" or lock_device_id_valid. */
 int car_from_json(const cJSON *j, car_t *out);
 /* invoice_id is optional on load (absent -> 0).
  * km_source "geotab" (Phase 2 data) loads as KM_TELEMATICS; it is never written.
@@ -38,6 +40,8 @@ int car_from_json(const cJSON *j, car_t *out);
 int booking_from_json(const cJSON *j, booking_t *out);
 int damage_report_from_json(const cJSON *j, damage_report_t *out); /* all keys required */
 int odometer_reading_from_json(const cJSON *j, odometer_reading_t *out); /* all keys required */
+/* All keys required; pin "" or 4..12 digits; variance 1..3; booking_id >= 0. */
+int access_pin_from_json(const cJSON *j, access_pin_t *out);
 int session_from_json(const cJSON *j, session_t *out);
 int token_from_json(const cJSON *j, token_t *out);
 /* Missing keys get defaults: start_tolerance_min 15, sepa_lead_days 5, reminder_before_min 60,

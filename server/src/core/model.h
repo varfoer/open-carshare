@@ -19,7 +19,8 @@ typedef struct {
   bool may_club_trip;
 } user_t;
 typedef struct { int64_t id; char name[64]; char plate[16]; char location[128]; bool active;
-  char tracker_imei[16]; /* "" = no tracker, else 15 ASCII digits */ } car_t;
+  char tracker_imei[16]; /* "" = no tracker, else 15 ASCII digits */
+  char lock_device_id[64]; /* "" = no key box, else igloohome device ID (lock_device_id_valid) */ } car_t;
 typedef struct {
   int64_t id, car_id, user_id, booked_start, booked_end; booking_state_t state;
   int64_t cancelled_at, cancel_fee_cents, created_at, modified_at, modified_by;

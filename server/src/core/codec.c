@@ -1,4 +1,5 @@
 #include "core/codec.h"
+#include "core/access.h"
 #include "core/sepa.h"
 
 #include <string.h>
@@ -189,6 +190,7 @@ cJSON *car_to_json(const car_t *v) {
   PUT(put_str(o, "location", v->location, sizeof v->location));
   PUT(put_bool(o, "active", v->active));
   PUT(put_str(o, "tracker_imei", v->tracker_imei, sizeof v->tracker_imei));
+  PUT(put_str(o, "lock_device_id", v->lock_device_id, sizeof v->lock_device_id));
   return o;
 }
 
@@ -203,6 +205,10 @@ int car_from_json(const cJSON *j, car_t *out) {
   if (cJSON_GetObjectItemCaseSensitive(j, "tracker_imei")) {
     TRY(get_str(j, "tracker_imei", out->tracker_imei, sizeof out->tracker_imei));
     if (out->tracker_imei[0] != '\0' && !imei_valid(out->tracker_imei)) return -1;
+  }
+  if (cJSON_GetObjectItemCaseSensitive(j, "lock_device_id")) {
+    TRY(get_str(j, "lock_device_id", out->lock_device_id, sizeof out->lock_device_id));
+    if (out->lock_device_id[0] != '\0' && !lock_device_id_valid(out->lock_device_id)) return -1;
   }
   return 0;
 }
@@ -325,6 +331,46 @@ int odometer_reading_from_json(const cJSON *j, odometer_reading_t *out) {
   TRY(get_i64(j, "ts", &out->ts));
   TRY(get_i64(j, "odometer_m", &out->odometer_m));
   TRY(get_i64(j, "received_at", &out->received_at));
+  return 0;
+}
+
+/* ---- access pin ---- */
+
+cJSON *access_pin_to_json(const access_pin_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "booking_id", v->booking_id));
+  PUT(put_i64(o, "car_id", v->car_id));
+  PUT(put_str(o, "pin_id", v->pin_id, sizeof v->pin_id));
+  PUT(put_str(o, "pin", v->pin, sizeof v->pin));
+  PUT(put_i64(o, "valid_from", v->valid_from));
+  PUT(put_i64(o, "valid_until", v->valid_until));
+  PUT(put_i64(o, "variance", v->variance));
+  PUT(put_i64(o, "created_at", v->created_at));
+  return o;
+}
+
+int access_pin_from_json(const cJSON *j, access_pin_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  int64_t variance = 0;
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "booking_id", &out->booking_id));
+  TRY(get_i64(j, "car_id", &out->car_id));
+  TRY(get_str(j, "pin_id", out->pin_id, sizeof out->pin_id));
+  TRY(get_str(j, "pin", out->pin, sizeof out->pin));
+  TRY(get_i64(j, "valid_from", &out->valid_from));
+  TRY(get_i64(j, "valid_until", &out->valid_until));
+  TRY(get_i64(j, "variance", &variance));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  if (out->booking_id < 0) return -1;
+  if (variance < 1 || variance > 3) return -1;
+  out->variance = (int)variance;
+  size_t n = strlen(out->pin);
+  if (n != 0 && (n < 4 || n > 12)) return -1;
+  for (size_t i = 0; i < n; i++)
+    if (out->pin[i] < '0' || out->pin[i] > '9') return -1;
   return 0;
 }
 

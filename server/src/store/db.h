@@ -21,6 +21,7 @@ typedef struct {
   invoice_t *invoices; size_t n_invoices, cap_invoices;
   invoice_line_t *lines; size_t n_lines, cap_lines;
   settings_t settings;
+  access_pin_t *pins; size_t n_pins, cap_pins;
   odometer_reading_t *readings; size_t n_readings, cap_readings;
   int64_t km_mail_day;
 } db_t;
@@ -36,6 +37,7 @@ user_t *db_user(db_t *db, int64_t id);
 user_t *db_user_by_email(db_t *db, const char *email); /* ASCII case-insensitive */
 car_t *db_car(db_t *db, int64_t id);
 car_t *db_car_by_imei(db_t *db, const char *imei); /* NULL for "" or no match; any car, active or not */
+car_t *db_car_by_lock(db_t *db, const char *device_id); /* NULL for "" or no match; any car, active or not */
 booking_t *db_booking(db_t *db, int64_t id);
 damage_report_t *db_damage(db_t *db, int64_t id);
 token_t *db_token(db_t *db, const char *token_hash);
@@ -92,6 +94,17 @@ int db_prune(db_t *db, int64_t now);           /* drop expired sessions/tokens, 
  * nothing was added. prune: drops ts < before, rewrites the file; RAM restored on -1. */
 int db_add_readings(db_t *db, const odometer_reading_t *r, size_t n);
 int db_prune_readings(db_t *db, int64_t before);
+/* access_pins.jsonl: normal table (missing file = empty). put: id==0 -> max+1 insert, else
+ * replace or insert; RAM restored on -1. newest: row of the booking with the largest id, NULL
+ * if none; only meaningful for booking_id > 0 (test PINs use 0). max_variance: highest variance
+ * of rows for the car with that valid_from, 0 if none. blank: sets pin "" on all rows of the
+ * booking in one write, no write if nothing changes. prune: drops created_at < before.
+ * blank/prune restore RAM on -1. Pointers into the table are invalid after any put. */
+int db_put_pin(db_t *db, access_pin_t *p);
+const access_pin_t *db_pin_newest(const db_t *db, int64_t booking_id);
+int db_pin_max_variance(const db_t *db, int64_t car_id, int64_t valid_from);
+int db_pins_blank(db_t *db, int64_t booking_id);
+int db_prune_pins(db_t *db, int64_t before);
 /* Persists jobs.json {"km_mail_day":N}, then sets db->km_mail_day. */
 int db_put_km_mail_day(db_t *db, int64_t day);
 

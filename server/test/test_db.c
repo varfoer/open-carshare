@@ -455,6 +455,114 @@ void test_car_by_imei(void) {
   db_free(&db);
 }
 
+static access_pin_t mkpin(int64_t booking, int64_t car, int64_t from, int variance, int64_t created) {
+  access_pin_t p;
+  memset(&p, 0, sizeof p);
+  p.booking_id = booking; p.car_id = car; p.valid_from = from; p.valid_until = from + 3600;
+  p.variance = variance; p.created_at = created;
+  snprintf(p.pin_id, sizeof p.pin_id, "pid");
+  snprintf(p.pin, sizeof p.pin, "123456");
+  return p;
+}
+
+void test_pins_put_newest_reload(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_NULL(db_pin_newest(&db, 7));
+  access_pin_t a = mkpin(7, 1, 3600, 1, 10), b = mkpin(7, 1, 3600, 2, 20), c = mkpin(8, 1, 3600, 3, 30);
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &c));
+  TEST_ASSERT_EQUAL_INT64(1, a.id);
+  TEST_ASSERT_EQUAL_INT64(2, b.id);
+  const access_pin_t *n = db_pin_newest(&db, 7);
+  TEST_ASSERT_NOT_NULL(n);
+  TEST_ASSERT_EQUAL_INT64(2, n->id);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(3, db.n_pins);
+  n = db_pin_newest(&db, 7);
+  TEST_ASSERT_NOT_NULL(n);
+  TEST_ASSERT_EQUAL_INT64(2, n->id);
+  TEST_ASSERT_EQUAL_INT(2, n->variance);
+  TEST_ASSERT_NULL(db_pin_newest(&db, 9));
+  db_free(&db);
+}
+
+void test_pins_blank(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  access_pin_t a = mkpin(7, 1, 3600, 1, 10), b = mkpin(7, 1, 3600, 2, 20), c = mkpin(8, 1, 3600, 3, 30);
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &c));
+  TEST_ASSERT_EQUAL_INT(0, db_pins_blank(&db, 7));
+  TEST_ASSERT_EQUAL_STRING("", db.pins[0].pin);
+  TEST_ASSERT_EQUAL_STRING("", db.pins[1].pin);
+  TEST_ASSERT_EQUAL_STRING("123456", db.pins[2].pin);
+  TEST_ASSERT_EQUAL_INT(0, db_pins_blank(&db, 7)); /* nothing changes */
+  TEST_ASSERT_EQUAL_INT(0, db_pins_blank(&db, 99));
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_STRING("", db.pins[0].pin);
+  TEST_ASSERT_EQUAL_STRING("", db.pins[1].pin);
+  TEST_ASSERT_EQUAL_STRING("123456", db.pins[2].pin);
+  TEST_ASSERT_EQUAL_STRING("pid", db.pins[0].pin_id);
+  db_free(&db);
+}
+
+void test_pins_max_variance(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_INT(0, db_pin_max_variance(&db, 1, 3600));
+  access_pin_t a = mkpin(7, 1, 3600, 1, 10), b = mkpin(8, 1, 3600, 2, 20), c = mkpin(9, 2, 3600, 3, 30);
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &c));
+  TEST_ASSERT_EQUAL_INT(2, db_pin_max_variance(&db, 1, 3600));
+  TEST_ASSERT_EQUAL_INT(0, db_pin_max_variance(&db, 1, 7200));
+  TEST_ASSERT_EQUAL_INT(3, db_pin_max_variance(&db, 2, 3600));
+  db_free(&db);
+}
+
+void test_prune_pins(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  access_pin_t a = mkpin(7, 1, 3600, 1, 10), b = mkpin(7, 1, 3600, 2, 20), c = mkpin(8, 1, 3600, 3, 30);
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &b));
+  TEST_ASSERT_EQUAL_INT(0, db_put_pin(&db, &c));
+  TEST_ASSERT_EQUAL_INT(0, db_prune_pins(&db, 20));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_pins);
+  TEST_ASSERT_EQUAL_INT64(2, db.pins[0].id);
+  db_free(&db);
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  TEST_ASSERT_EQUAL_size_t(2, db.n_pins);
+  TEST_ASSERT_EQUAL_INT64(3, db.pins[1].id);
+  TEST_ASSERT_EQUAL_INT(0, db_prune_pins(&db, 5)); /* nothing dropped */
+  TEST_ASSERT_EQUAL_size_t(2, db.n_pins);
+  db_free(&db);
+}
+
+void test_car_by_lock(void) {
+  db_t db;
+  TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
+  car_t a, b;
+  memset(&a, 0, sizeof a);
+  memset(&b, 0, sizeof b);
+  snprintf(a.name, sizeof a.name, "A");
+  snprintf(b.name, sizeof b.name, "B");
+  snprintf(b.lock_device_id, sizeof b.lock_device_id, "SP2X");
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &a));
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&db, &b));
+  car_t *f = db_car_by_lock(&db, "SP2X");
+  TEST_ASSERT_NOT_NULL(f);
+  TEST_ASSERT_EQUAL_INT64(b.id, f->id);
+  TEST_ASSERT_NULL(db_car_by_lock(&db, ""));
+  TEST_ASSERT_NULL(db_car_by_lock(&db, "OTHER"));
+  db_free(&db);
+}
+
 void test_km_mail_day_persists(void) {
   db_t db;
   TEST_ASSERT_EQUAL_INT(0, db_load(&db, dir));
@@ -960,6 +1068,11 @@ int main(void) {
   RUN_TEST(test_readings_prune);
   RUN_TEST(test_reading_line_has_only_four_keys);
   RUN_TEST(test_car_by_imei);
+  RUN_TEST(test_pins_put_newest_reload);
+  RUN_TEST(test_pins_blank);
+  RUN_TEST(test_pins_max_variance);
+  RUN_TEST(test_prune_pins);
+  RUN_TEST(test_car_by_lock);
   RUN_TEST(test_km_mail_day_persists);
   RUN_TEST(test_tariff_tables_persist);
   RUN_TEST(test_version_at_picks_latest_valid);

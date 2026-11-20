@@ -119,6 +119,7 @@ DEFINE_LOADER_X(invoices, invoice_t, invoices, n_invoices, cap_invoices, invoice
 DEFINE_LOADER_X(lines, invoice_line_t, lines, n_lines, cap_lines, invoice_line_from_json)
 DEFINE_LOADER_X(sessions, session_t, sessions, n_sessions, cap_sessions, session_from_json)
 DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
+DEFINE_LOADER_X(pins, access_pin_t, pins, n_pins, cap_pins, access_pin_from_json)
 DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
                 odometer_reading_from_json)
 
@@ -156,6 +157,7 @@ void db_free(db_t *db) {
   free(db->lines);
   free(db->sessions);
   free(db->tokens);
+  free(db->pins);
   free(db->readings);
   memset(db, 0, sizeof *db);
 }
@@ -206,6 +208,7 @@ int db_load(db_t *db, const char *dir) {
     rc = table_path(db, subdirs[i], d, sizeof d);
     if (rc == 0) rc = store_ensure_dir(d);
   }
+  if (rc == 0) rc = load_file(db, "access_pins.jsonl", load_pins);
   if (rc == 0) rc = load_file(db, "sessions.jsonl", load_sessions);
   if (rc == 0) rc = load_file(db, "tokens.jsonl", load_tokens);
   if (rc == 0) rc = load_file(db, "settings.json", load_settings);
@@ -259,6 +262,30 @@ car_t *db_car_by_imei(db_t *db, const char *imei) {
   for (size_t i = 0; i < db->n_cars; i++)
     if (strcmp(db->cars[i].tracker_imei, imei) == 0) return &db->cars[i];
   return NULL;
+}
+
+car_t *db_car_by_lock(db_t *db, const char *device_id) {
+  if (!device_id || !*device_id) return NULL;
+  for (size_t i = 0; i < db->n_cars; i++)
+    if (strcmp(db->cars[i].lock_device_id, device_id) == 0) return &db->cars[i];
+  return NULL;
+}
+
+const access_pin_t *db_pin_newest(const db_t *db, int64_t booking_id) {
+  const access_pin_t *best = NULL;
+  for (size_t i = 0; i < db->n_pins; i++)
+    if (db->pins[i].booking_id == booking_id && (!best || db->pins[i].id > best->id))
+      best = &db->pins[i];
+  return best;
+}
+
+int db_pin_max_variance(const db_t *db, int64_t car_id, int64_t valid_from) {
+  int max = 0;
+  for (size_t i = 0; i < db->n_pins; i++)
+    if (db->pins[i].car_id == car_id && db->pins[i].valid_from == valid_from &&
+        db->pins[i].variance > max)
+      max = db->pins[i].variance;
+  return max;
 }
 
 booking_t *db_booking(db_t *db, int64_t id) {
@@ -396,6 +423,8 @@ const tariff_version_t *db_tariff_at(const db_t *db, int64_t user_id, int64_t ts
 
 DEFINE_PUT_ENTITY(db_put_user, user_t, users, n_users, cap_users, "users.jsonl", user_to_json)
 DEFINE_PUT_ENTITY(db_put_car, car_t, cars, n_cars, cap_cars, "cars.jsonl", car_to_json)
+DEFINE_PUT_ENTITY(db_put_pin, access_pin_t, pins, n_pins, cap_pins, "access_pins.jsonl",
+                  access_pin_to_json)
 DEFINE_PUT_ENTITY(db_put_booking, booking_t, bookings, n_bookings, cap_bookings,
                   "bookings.jsonl", booking_to_json)
 DEFINE_PUT_ENTITY(db_put_damage, damage_report_t, damages, n_damages, cap_damages,
@@ -745,6 +774,45 @@ int db_prune_readings(db_t *db, int64_t before) {
   if (rc != 0) {
     memcpy(db->readings, copy, n * sizeof *copy);
     db->n_readings = n;
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_pins_blank(db_t *db, int64_t booking_id) {
+  size_t n = db->n_pins;
+  bool change = false;
+  for (size_t i = 0; i < n; i++)
+    if (db->pins[i].booking_id == booking_id && db->pins[i].pin[0]) change = true;
+  if (!change) return 0;
+  access_pin_t *copy = malloc(n * sizeof *copy);
+  if (!copy) return -1;
+  memcpy(copy, db->pins, n * sizeof *copy);
+  for (size_t i = 0; i < n; i++)
+    if (db->pins[i].booking_id == booking_id) db->pins[i].pin[0] = '\0';
+  int rc = persist_table(db, "access_pins.jsonl", db->pins, n, sizeof *copy,
+                         (to_json_fn)access_pin_to_json);
+  if (rc != 0) memcpy(db->pins, copy, n * sizeof *copy);
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_prune_pins(db_t *db, int64_t before) {
+  size_t n = db->n_pins;
+  access_pin_t *copy = n ? malloc(n * sizeof *copy) : NULL;
+  if (n && !copy) return -1;
+  if (n) memcpy(copy, db->pins, n * sizeof *copy);
+  size_t w = 0;
+  for (size_t i = 0; i < n; i++)
+    if (copy[i].created_at >= before) db->pins[w++] = copy[i];
+  db->n_pins = w;
+  int rc = 0;
+  if (w != n)
+    rc = persist_table(db, "access_pins.jsonl", db->pins, w, sizeof *copy,
+                       (to_json_fn)access_pin_to_json);
+  if (rc != 0) {
+    memcpy(db->pins, copy, n * sizeof *copy);
+    db->n_pins = n;
   }
   free(copy);
   return rc == 0 ? 0 : -1;
