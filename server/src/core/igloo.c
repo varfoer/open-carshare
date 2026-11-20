@@ -49,7 +49,9 @@ int igloo_parse_pin(const char *body, pin_result_t *out) {
     size_t n = strlen(pin), m = strlen(id);
     bool digits = true;
     for (size_t i = 0; i < n; i++) if (pin[i] < '0' || pin[i] > '9') digits = false;
-    if (digits && n >= 4 && n <= 12 && m >= 1 && m < sizeof out->pin_id) {
+    bool printable = true;
+    for (size_t i = 0; i < m; i++) if ((unsigned char)id[i] < 0x20 || (unsigned char)id[i] >= 0x7f) printable = false;
+    if (digits && printable && n >= 4 && n <= 12 && m >= 1 && m < sizeof out->pin_id) {
       memset(out, 0, sizeof *out);
       memcpy(out->pin, pin, n);
       memcpy(out->pin_id, id, m);
@@ -99,7 +101,7 @@ int igloo_parse_devices(const char *body, lock_info_t *out, size_t cap, size_t *
     const char *nm = str_of(it, "deviceName");
     if (!nm) nm = str_of(it, "name");
     if (!nm) nm = "";
-    if (strlen(nm) >= sizeof out[cnt].name) continue;
+    if (strlen(nm) >= sizeof out[cnt].name) nm = "";
     memset(&out[cnt], 0, sizeof out[cnt]);
     memcpy(out[cnt].device_id, id, strlen(id) + 1);
     memcpy(out[cnt].name, nm, strlen(nm) + 1);

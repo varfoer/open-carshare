@@ -51,6 +51,17 @@ static void test_parse_pin(void) {
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin("{\"pin\":\"1234567890123\",\"pinId\":\"X\"}", &r));
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin("{\"pin\":\"1234567\"}", &r));
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin("not json", &r));
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_pin("{\"pin\":\"1234\",\"pinId\":\"X\"}", &r));
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_pin("{\"pin\":\"123456789012\",\"pinId\":\"X\"}", &r));
+    TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin("{\"pin\":\"1234\",\"pinId\":\"A\\u0001B\"}", &r));
+    TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin("{\"pin\":\"1234\",\"pinId\":\"A\\u007fB\"}", &r));
+    char big[80], js[160];
+    memset(big, 'a', 64); big[64] = 0;
+    snprintf(js, sizeof js, "{\"pin\":\"1234\",\"pinId\":\"%s\"}", big);
+    TEST_ASSERT_EQUAL_INT(-1, igloo_parse_pin(js, &r));
+    big[63] = 0;
+    snprintf(js, sizeof js, "{\"pin\":\"1234\",\"pinId\":\"%s\"}", big);
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_pin(js, &r));
 }
 
 static void test_parse_token(void) {
@@ -81,6 +92,14 @@ static void test_parse_devices(void) {
     TEST_ASSERT_EQUAL_STRING("", d[0].name);
     TEST_ASSERT_EQUAL_INT(0, igloo_parse_devices("{\"data\":[{\"deviceId\":\"D4\"}]}", d, 4, &n));
     TEST_ASSERT_EQUAL_size_t(1, n);
+    char json[200];
+    char nm[80];
+    memset(nm, 'n', 64); nm[64] = 0;
+    snprintf(json, sizeof json, "[{\"deviceId\":\"L1\",\"deviceName\":\"%s\"}]", nm);
+    TEST_ASSERT_EQUAL_INT(0, igloo_parse_devices(json, d, 4, &n));
+    TEST_ASSERT_EQUAL_size_t(1, n);
+    TEST_ASSERT_EQUAL_STRING("L1", d[0].device_id);
+    TEST_ASSERT_EQUAL_STRING("", d[0].name);
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_devices("{\"x\":1}", d, 4, &n));
     TEST_ASSERT_EQUAL_INT(-1, igloo_parse_devices("junk", d, 4, &n));
     TEST_ASSERT_EQUAL_INT(0, igloo_parse_devices("[{\"deviceId\":\"A\"},{\"deviceId\":\"B\"},{\"deviceId\":\"C\"}]", d, 2, &n));
