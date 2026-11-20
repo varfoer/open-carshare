@@ -215,8 +215,9 @@ after 90 days.
 Settings in the Teltonika Configurator. Option names differ between
 firmware versions: check names in your firmware's Configurator.
 
-- GPRS: APN of the SIM, no APN user or password (Simbase: `simbase`;
-  melita.io via m2m Germany: `iot.melita.io`; 1NCE: `iot.1nce.net`). Server
+- GPRS: APN of the SIM, no APN user or password (Simbase: `simbase.eu`, which
+  pins the internet breakout to Europe; melita.io via m2m Germany:
+  `iot.melita.io`; 1NCE: `iot.1nce.net`). Server
   domain = the VPS host name, port `5027` (the `tracker_port`), protocol
   TCP. Check names in your firmware's Configurator. Simbase is the current
   provider (chosen as the cheapest at the time); the SIM provider may change,

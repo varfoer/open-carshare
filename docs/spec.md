@@ -270,11 +270,12 @@ encrypted at rest with a key from the server config file (not in `data/`).
 
 ## 8. Odometer (Teltonika telematics)
 
-Hardware: one Teltonika FMx tracker per car in the OBD port (4G model, e.g.
-FMC003 or its successor; no 2G-only models such as FMB003, German 2G networks
-shut down in 2028), IoT SIM (currently Simbase, APN `simbase`, roaming in
-Germany; chosen as the cheapest, the provider may change). No vendor cloud,
-no Traccar: the
+Hardware: one Teltonika FMC003 per car in the OBD port (4G, LTE Cat 1;
+2G-only models such as FMB003 are excluded, German 2G networks shut down in
+2028), IoT SIM from Simbase with APN `simbase.eu` (internet breakout in
+Europe; the tracker sends GPS positions over plain TCP, so their transit
+stays in the EU; chosen as the cheapest, the provider may change). No vendor
+cloud, no Traccar: the
 tracker sends to `ocs-server` directly. Km come from the tracker's GNSS-based
 total odometer (AVL ID 16 "Total Odometer", metres; verify against the model's
 AVL ID list), set once to the dashboard reading. A deviation of a few percent

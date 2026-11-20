@@ -14,7 +14,7 @@ when it is fixed.
 
 ## Phase-bound
 
-- [P4] Tracker abuse with a known IMEI (prerequisite for Phase 4 billing):
+- [any] Tracker abuse with a known IMEI:
   the IMEI is printed on the device, so anyone with it can send readings:
   fake trip-end km within the 90-day window, unbounded readings growth,
   event-loop stall via many packets (fsync + O(n) duplicate scan). Also
@@ -22,7 +22,8 @@ when it is fixed.
   connections linger up to 900 s. Decide: per-connection packet rate limit,
   readings cap per car per day, one live connection per IMEI (close older
   on handshake), plausibility check at resolve (km/h), TLS or source-IP
-  pinning once firmware is verified.
+  pinning once firmware is verified. Simbase offers a static public IPv4
+  (plan and cost unknown), which would allow source-IP pinning.
 
 ## Server
 
