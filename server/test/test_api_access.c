@@ -205,6 +205,10 @@ void test_start_malformed_pin_keeps_reserved(void) {
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(BK_RESERVED, db_booking(&a->db, id)->state);
   TEST_ASSERT_EQUAL_UINT(0, a->db.n_pins);
+  /* A 2xx answer may have created the PIN: its variance stays used. */
+  th_pin_malformed(0);
+  start_ok(id, T + H + 60);
+  TEST_ASSERT_EQUAL_INT(2, th_pin_last_variance());
 }
 
 void test_failure_log_line(void) {
@@ -410,6 +414,23 @@ void test_variance_exhausted(void) {
   start_ok(id, T + 2 * H);
   TEST_ASSERT_EQUAL_INT(1, th_pin_last_variance());
   TEST_ASSERT_EQUAL_INT64(T + 2 * H, th_pin_last_from());
+}
+
+void test_variance_released_on_rejection(void) {
+  /* igloohome surely made no PIN: the variance is not used up, however often this happens. */
+  int64_t id = book(tok1, car1, T + H, T + 5 * H);
+  const pin_err_t errs[] = {PIN_ERR_CONFIG, PIN_ERR_AUTH, PIN_ERR_TIMEZONE, PIN_ERR_OTHER};
+  for (int i = 0; i < 4; i++) {
+    th_pin_fail(errs[i]);
+    cJSON *j = call_at("POST", path(id, "start"), NULL, tok1, 503, "pin_unavailable", T + H + 60 * i);
+    TEST_ASSERT_EQUAL_STRING(PIN_MSG, str(j, "message"));
+    cJSON_Delete(j);
+    TEST_ASSERT_EQUAL_INT(1, th_pin_last_variance());
+  }
+  th_pin_fail(PIN_OK);
+  start_ok(id, T + H + 300);
+  TEST_ASSERT_EQUAL_INT(1, th_pin_last_variance());
+  TEST_ASSERT_EQUAL_INT(1, a->db.pins[0].variance);
 }
 
 void test_variance_seeded_from_rows(void) {
@@ -621,6 +642,60 @@ void test_lock_test_errors(void) {
   th_pin_fail(PIN_OK);
   call_free("POST", lock_test_path(9999), NULL, tokadm, 404, "not_found", T + H);
   call_free("POST", lock_test_path(car1), NULL, tok1, 403, NULL, T + H);
+  /* The rejection used no variance: after fixing the box the admin tests again in the same hour. */
+  call_free("POST", lock_test_path(car1), NULL, tokadm, 200, NULL, T + H + 60);
+  TEST_ASSERT_EQUAL_INT(1, th_pin_last_variance());
+}
+
+#define LOCK_TEST_HOUR_MSG "Für diese Stunde sind keine Test-PINs mehr möglich. Bitte ab 04:00 erneut versuchen."
+
+void test_lock_test_one_per_hour(void) {
+  /* At most one test PIN per car and hour, so a member start and one renewal stay possible. */
+  call_free("POST", lock_test_path(car1), NULL, tokadm, 200, NULL, T + H + 600);
+  cJSON *j = call_at("POST", lock_test_path(car1), NULL, tokadm, 503, "lock_test_failed", T + H + 700);
+  TEST_ASSERT_EQUAL_STRING(LOCK_TEST_HOUR_MSG, str(j, "message"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(1, th_pin_count());
+  int64_t id = book(tok1, car1, T + H + 1200, T + 5 * H);
+  start_ok(id, T + H + 1200);
+  TEST_ASSERT_EQUAL_INT(2, th_pin_last_variance());
+  call_free("POST", path(id, "pin"), "{\"renew\":true}", tok1, 200, NULL, T + H + 2400);
+  TEST_ASSERT_EQUAL_INT(3, th_pin_last_variance());
+}
+
+void test_lock_test_after_booking_pin(void) {
+  /* A member's PIN in this hour leaves no room for a test PIN. */
+  int64_t id = book(tok1, car1, T + H, T + 5 * H);
+  start_ok(id, T + H);
+  cJSON *j = call_at("POST", lock_test_path(car1), NULL, tokadm, 503, "lock_test_failed", T + H + 600);
+  TEST_ASSERT_EQUAL_STRING(LOCK_TEST_HOUR_MSG, str(j, "message"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(1, th_pin_count());
+  /* Another car is not affected. */
+  int64_t car3 = add_car("Up", "D3");
+  call_free("POST", lock_test_path(car3), NULL, tokadm, 200, NULL, T + H + 600);
+}
+
+void test_car_lock_change_blanks(void) {
+  int64_t id = book(tok1, car1, T + H, T + 5 * H);
+  start_ok(id, T + H);
+  char p[64];
+  snprintf(p, sizeof p, "/api/admin/cars/%lld", (long long)car1);
+  /* Same box: the PIN stays. */
+  call_free("PUT", p, car_body("Golf2", ",\"lock_device_id\":\"D1\""), tokadm, 200, NULL, T + H + 300);
+  cJSON *j = call_at("GET", path(id, "pin"), NULL, tok1, 200, NULL, T + H + 300);
+  TEST_ASSERT_EQUAL_STRING("100001", str(j, "pin"));
+  cJSON_Delete(j);
+  /* Box swapped mid-trip: the old box's PIN is hidden; asking gives one for the new box. */
+  call_free("PUT", p, car_body("Golf2", ",\"lock_device_id\":\"D2\""), tokadm, 200, NULL, T + H + 600);
+  assert_pins_blank(id);
+  j = call_at("GET", path(id, "pin"), NULL, tok1, 200, NULL, T + H + 600);
+  TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(j, "pin")));
+  cJSON_Delete(j);
+  j = call_at("POST", path(id, "pin"), "{\"renew\":false}", tok1, 200, NULL, T + H + 660);
+  TEST_ASSERT_EQUAL_STRING("100002", str(j, "pin"));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_STRING("D2", th_pin_last_device());
 }
 
 int main(void) {
@@ -641,6 +716,7 @@ int main(void) {
   RUN_TEST(test_pin_too_soon_winter);
   RUN_TEST(test_variance_counts_failures);
   RUN_TEST(test_variance_exhausted);
+  RUN_TEST(test_variance_released_on_rejection);
   RUN_TEST(test_variance_seeded_from_rows);
   RUN_TEST(test_variance_per_car);
   RUN_TEST(test_attempts_table_evicts_smallest_hour);
@@ -653,5 +729,8 @@ int main(void) {
   RUN_TEST(test_admin_locks_get);
   RUN_TEST(test_lock_test_ok);
   RUN_TEST(test_lock_test_errors);
+  RUN_TEST(test_lock_test_one_per_hour);
+  RUN_TEST(test_lock_test_after_booking_pin);
+  RUN_TEST(test_car_lock_change_blanks);
   return UNITY_END();
 }

@@ -224,10 +224,13 @@ Cars without `lock_device_id` start exactly as today.
 
 igloohome allows variance `1`..`3`. Each PIN request uses the next
 variance for its car and `valid_from` hour, counting **attempts**, not
-stored rows: a request that timed out or whose PIN could not be stored
-still uses up its variance, so a retry never repeats a variance (builder's
-call; the counter lives in memory, keyed by car and hour, and is seeded
-from the stored rows after a restart). So a renewal in the same hour does
+stored rows: a request that timed out, got a 5xx or a garbled answer, or
+whose PIN could not be stored still uses up its variance, so a retry never
+repeats a variance (builder's call; the counter lives in memory, keyed by
+car and hour, and is seeded from the stored rows after a restart). A
+request igloohome surely answered with no PIN (a 4xx, or none sent, e.g.
+missing configuration) does not use it up, so a fixed setup error can be
+retried at once (review fix). So a renewal in the same hour does
 not return the same PIN again. This caps a car at 3 PIN attempts per start
 hour (start plus two renewals, or two bookings of the same car starting in
 the same hour plus one renewal); a fourth fails with `pin_unavailable`
@@ -245,7 +248,10 @@ single booking cannot exhaust its hour alone.
   edit that ends the trip), or an admin edit changes its `car_id` or
   `user_id`, the digits of all its `access_pin` rows are blanked (`pin =
   ""`, row rewritten). An admin edit that changes only times keeps the PIN
-  (builder's call). `pin_id` and the window stay as a record.
+  (builder's call). `pin_id` and the window stay as a record. An admin edit
+  of a car that changes its `lock_device_id` blanks the PINs of the car's
+  active bookings: they belong to the old box, and the member's next
+  request (card or return dialog) creates one for the new box (review fix).
 
 ### Web
 
@@ -292,7 +298,11 @@ Server and web:
   `Test Auto <car id>`), stores it as an `access_pin` row with
   `booking_id = 0` and `pin = ""` (the digits are only in the response;
   the row counts toward the car's variance in that hour), and answers
-  `{pin, valid_until}`. Only the admin sees it, in the car form:
+  `{pin, valid_until}`. At most one test PIN per car and hour, and none
+  once a member's PIN exists in that hour (503 `lock_test_failed` „Für
+  diese Stunde sind keine Test-PINs mehr möglich. Bitte ab HH:00 erneut
+  versuchen.“), so a test never takes the variances a start and its
+  renewal need (review fix). Only the admin sees it, in the car form:
   „Test-PIN 5729314, gültig bis 15:00 — an der Box eingeben. Öffnet sie,
   ist alles eingerichtet.“ Errors map to plain German: credentials missing
   or rejected, payment required (402), box not found (404), box has no

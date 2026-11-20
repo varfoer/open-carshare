@@ -17,6 +17,12 @@ bool access_usable(const access_pin_t *p, int64_t now) {
   return p->pin[0] && now < p->valid_until - ACCESS_MARGIN_S;
 }
 
+bool access_pin_maybe_created(pin_err_t e, int http_status) {
+  if (e == PIN_OK || e == PIN_ERR_NETWORK) return true;
+  if (e != PIN_ERR_OTHER) return false;
+  return http_status != 0 && (http_status < 400 || http_status >= 500);
+}
+
 bool lock_device_id_valid(const char *s) {
   size_t n = strlen(s);
   if (n < 1 || n > 63) return false;

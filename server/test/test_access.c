@@ -59,11 +59,31 @@ static void test_err_texts(void) {
     }
 }
 
+static void test_maybe_created(void) {
+    TEST_ASSERT_TRUE(access_pin_maybe_created(PIN_OK, 200));
+    TEST_ASSERT_TRUE(access_pin_maybe_created(PIN_ERR_NETWORK, 0)); /* timeout: answer lost */
+    TEST_ASSERT_TRUE(access_pin_maybe_created(PIN_ERR_OTHER, 200)); /* malformed answer */
+    TEST_ASSERT_TRUE(access_pin_maybe_created(PIN_ERR_OTHER, 500));
+    TEST_ASSERT_TRUE(access_pin_maybe_created(PIN_ERR_OTHER, 302));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_OTHER, 400));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_OTHER, 499));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_OTHER, 0)); /* nothing sent */
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_CONFIG, 0));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_AUTH, 401));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_PAYMENT, 402));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_SCOPE, 403));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_DEVICE, 0)); /* client-side reject */
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_DEVICE, 404));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_TIMEZONE, 409));
+    TEST_ASSERT_FALSE(access_pin_maybe_created(PIN_ERR_UNSUPPORTED, 418));
+}
+
 int main(void) {
     UNITY_BEGIN();
     RUN_TEST(test_window_examples);
     RUN_TEST(test_usable_margin);
     RUN_TEST(test_device_id_valid);
     RUN_TEST(test_err_texts);
+    RUN_TEST(test_maybe_created);
     return UNITY_END();
 }

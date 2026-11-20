@@ -379,7 +379,9 @@ void h_admin_car_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
   if (!old) { api_not_found(res); return; }
   car_t c = *old;
   if (!read_car_fields(&a->db, ctx->body, &c, res)) return;
+  bool lock_changed = strcmp(old->lock_device_id, c.lock_device_id) != 0;
   if (db_put_car(&a->db, &c) != 0) { api_storage_error(res); return; }
+  if (lock_changed) api_access_lock_changed(a, c.id);
   api_json(res, 200, car_to_json(&c));
 }
 

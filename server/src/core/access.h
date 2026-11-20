@@ -20,6 +20,10 @@ typedef struct { char device_id[64]; char name[64]; } lock_info_t;
 void access_window(int64_t now, int64_t booked_end, int64_t *from, int64_t *until);
 /* pin[0] && now < valid_until - ACCESS_MARGIN_S */
 bool access_usable(const access_pin_t *p, int64_t now);
+/* Whether igloohome may have created a PIN for a request that ended with e and http_status:
+ * success, a lost answer (PIN_ERR_NETWORK) or an answer that is neither a 4xx nor nothing sent.
+ * false only when igloohome surely made none (rejected, or no request went out). */
+bool access_pin_maybe_created(pin_err_t e, int http_status);
 /* [A-Za-z0-9._-]{1,63}: goes into a URL path. */
 bool lock_device_id_valid(const char *s);
 /* English, for stderr. */

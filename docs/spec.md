@@ -287,16 +287,23 @@ it offline. Full design: `docs/superpowers/specs/2026-11-20-car-access-design.md
 - **Renew** ("PIN funktioniert nicht?"): always a new PIN, but not within
   20 min of the booking's last PIN (429 `pin_too_soon`). igloohome allows
   variance 1..3, so a car gets at most 3 PIN attempts per start hour; a
-  fourth fails with `pin_unavailable`.
+  fourth fails with `pin_unavailable`. An attempt counts unless igloohome
+  surely made no PIN (a 4xx answer, or no request sent); a timeout, a 5xx
+  or a garbled answer counts.
 - **Hiding.** The PIN is shown only for an `active` booking, to its owner.
   When the booking leaves `active`, or an admin changes its car or user,
-  the digits of its `access_pin` rows are blanked.
+  the digits of its `access_pin` rows are blanked. When an admin changes a
+  car's box, the PINs of its active bookings are blanked (they belong to the
+  old box); the member's next request creates one for the new box.
 - **No remote delete.** igloohome cannot delete algoPINs without a Bridge:
   a PIN stays valid until `valid_until` even after an early return and may
   overlap the next booking (accepted).
 - **Box setup** (admin): pair the box in the igloohome app, pick it in the
   car form, "Box prüfen" creates a real test PIN (window of `access_window(now, now)`, at least one hour ahead)
   (`booking_id` 0, stored without digits; only that response shows it).
+  At most one test PIN per car and hour, and none after a member's PIN in
+  that hour (503 `lock_test_failed` „… Bitte ab HH:00 erneut versuchen.“),
+  so a test never takes the variances a start and its renewal need.
 - **Failure.** Any igloohome failure answers 503 `pin_unavailable`; the log
   names the cause, never the PIN, token or secret. Emergency contact: the
   help page.

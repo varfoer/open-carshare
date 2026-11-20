@@ -150,9 +150,6 @@ when it is fixed.
   hardening only). Token copies are not reliably zeroed.
 - [any] `lock_device_id_valid` accepts `.` and `..`; libcurl squashes dot
   segments in the URL path (admin-only, harmless 404).
-- [any] Variance is consumed even when no network call was made
-  (`PIN_ERR_CONFIG`, client-side device reject), so the member may see
-  „ab HH:00“ for a configuration fault.
 - [any] Renew throttle (`renew:true`, 1200 s) also counts blanked rows: after
   an admin reassigns a trip, the new holder gets 429 on „PIN funktioniert
   nicht?“ (the „Neue PIN holen“ path works).

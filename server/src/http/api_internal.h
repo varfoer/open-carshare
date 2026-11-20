@@ -97,6 +97,9 @@ bool api_access_booking_pin(app_t *a, const booking_t *b, const char *device_id,
 /* After a successful booking put: blanks the PIN digits of the booking when it left BK_ACTIVE or its
  * car_id or user_id changed. A failure is logged to stderr; the caller's response stays. */
 void api_access_booking_changed(app_t *a, const booking_t *old, const booking_t *nb);
+/* After a successful car put that changed lock_device_id: blanks the PIN digits of the car's active
+ * bookings (they belong to the old box). A failure is logged to stderr; the caller's response stays. */
+void api_access_lock_changed(app_t *a, int64_t car_id);
 /* GET/POST /api/bookings/<id>/pin: owner only, booking active, car has a box; else 404. */
 void h_booking_pin_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_pin_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

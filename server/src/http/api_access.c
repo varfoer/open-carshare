@@ -43,20 +43,23 @@ static void attempt_record(app_t *a, pin_attempt_t *t, int64_t car_id, int64_t h
 /* Non-empty and NUL-terminated within cap. */
 static bool text_ok(const char *s, size_t cap) { return s[0] && memchr(s, 0, cap); }
 
+/* Variances of the car's PINs starting at hour that are used up: stored rows and attempts. */
+static int variance_used(app_t *a, int64_t car_id, int64_t hour) {
+  int used = db_pin_max_variance(&a->db, car_id, hour);
+  const pin_attempt_t *t = attempt_find(a, car_id, hour);
+  return t && t->used > used ? t->used : used;
+}
+
 int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t booking_id,
                       int64_t from, int64_t until, const char *access_name, int64_t now,
                       access_pin_t *row, pin_err_t *err) {
   *err = PIN_OK;
-  pin_attempt_t *t = attempt_find(a, car_id, from);
-  int used = db_pin_max_variance(&a->db, car_id, from);
-  if (t && t->used > used) used = t->used;
+  int used = variance_used(a, car_id, from);
   if (used >= ACCESS_VARIANCE_MAX) {
     fprintf(stderr, "ocs-server: pin for booking %lld: no variance left for this hour\n", (long long)booking_id);
     return -2;
   }
   int variance = used + 1;
-  /* Before the call: a timeout may still have created the PIN at igloohome. */
-  attempt_record(a, t, car_id, from, variance);
 
   pin_result_t out;
   memset(&out, 0, sizeof out);
@@ -65,6 +68,10 @@ int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t b
       : PIN_ERR_CONFIG;
   if (e == PIN_OK && (!text_ok(out.pin, sizeof out.pin) || !text_ok(out.pin_id, sizeof out.pin_id)))
     e = PIN_ERR_OTHER;
+  /* The variance is used up unless igloohome surely made no PIN: a timeout, a 5xx or a garbled
+   * answer may still have created one, and a retry must not repeat it. */
+  if (access_pin_maybe_created(e, out.http_status))
+    attempt_record(a, attempt_find(a, car_id, from), car_id, from, variance);
   if (e != PIN_OK) {
     fprintf(stderr, "ocs-server: pin for booking %lld failed: %s (HTTP %d)\n", (long long)booking_id,
             pin_err_log(e), out.http_status);
@@ -120,11 +127,22 @@ bool api_access_booking_pin(app_t *a, const booking_t *b, const char *device_id,
   return false;
 }
 
+static void blank_pins(app_t *a, int64_t booking_id) {
+  if (db_pins_blank(&a->db, booking_id) != 0)
+    fprintf(stderr, "ocs-server: blanking the pins of booking %lld failed\n", (long long)booking_id);
+}
+
 void api_access_booking_changed(app_t *a, const booking_t *old, const booking_t *nb) {
   bool left_active = old->state == BK_ACTIVE && nb->state != BK_ACTIVE;
   if (!left_active && old->car_id == nb->car_id && old->user_id == nb->user_id) return;
-  if (db_pins_blank(&a->db, nb->id) != 0)
-    fprintf(stderr, "ocs-server: blanking the pins of booking %lld failed\n", (long long)nb->id);
+  blank_pins(a, nb->id);
+}
+
+void api_access_lock_changed(app_t *a, int64_t car_id) {
+  for (size_t i = 0; i < a->db.n_bookings; i++) {
+    const booking_t *b = &a->db.bookings[i];
+    if (b->car_id == car_id && b->state == BK_ACTIVE) blank_pins(a, b->id);
+  }
 }
 
 /* ---- endpoints ---- */
@@ -252,7 +270,11 @@ void h_admin_lock_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api
   snprintf(name, sizeof name, "Test Auto %lld", (long long)id);
   access_pin_t row;
   pin_err_t err;
-  int rc = api_access_create(a, id, device, 0, from, until, name, req->now, &row, &err);
+  /* At most one test PIN per car and hour, and none after a member's PIN in that hour: the
+   * test must not use up the variances a start and its renewal need. */
+  int rc = variance_used(a, id, from) > 0
+               ? -2
+               : api_access_create(a, id, device, 0, from, until, name, req->now, &row, &err);
   if (rc == -3) { api_storage_error(res); return; }
   if (rc == -1) { api_error(res, 503, "lock_test_failed", pin_err_admin_de(err)); return; }
   if (rc == -2) {
