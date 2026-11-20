@@ -5,7 +5,7 @@ import { formatEuro } from '../money.js';
 import { tripActions, pinView } from '../trip.js';
 import { apiUpload, resizeToJpeg } from '../photo.js';
 import { damageDialog } from './damage_dialog.js';
-import { pinDialog } from './pin_dialog.js';
+import { pinDialog, pinDisplay } from './pin_dialog.js';
 import { bookingCard } from '../booking_card.js';
 import { el } from '../admin_ui.js';
 
@@ -122,7 +122,7 @@ function pinLine(b, now, err, probe) {
     const v = pinView(p, now);
     if (v.kind === 'show') {
       const until = sameBerlinDay(v.until, now) ? formatTime(v.until) : formatDateTime(v.until);
-      box.append(el('p', { className: 'pin-digits', text: v.pin }),
+      box.append(pinDisplay(v.pin),
         el('p', { className: 'booking-car', text: `Gültig bis ${until}` }),
         act('PIN funktioniert nicht?', 'link', true));
     } else {

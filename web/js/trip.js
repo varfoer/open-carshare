@@ -17,6 +17,12 @@ export function damageTextTooLong(text) {
   return new TextEncoder().encode(text).length > DAMAGE_TEXT_MAX_BYTES;
 }
 
+// PIN in groups of three digits from the left: "5729314" -> ["572", "931", "4"]. Display only:
+// the box takes the digits without gaps.
+export function pinGroups(pin) {
+  return pin.match(/.{1,3}/g) || [];
+}
+
 // Key box PIN state from GET /api/bookings/{id}/pin. The server stops handing out a PIN
 // 15 min before it ends, so the card does the same.
 export function pinView(p, nowSec) {

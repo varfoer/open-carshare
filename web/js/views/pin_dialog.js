@@ -1,6 +1,17 @@
 import { api } from '../api.js';
-import { pinView } from '../trip.js';
+import { pinView, pinGroups } from '../trip.js';
 import { el } from '../admin_ui.js';
+import { icon } from '../icons.js';
+
+// The PIN as the member types it: digits in groups of three, then the key with the open padlock
+// that confirms the entry on the box's keypad.
+export function pinDisplay(pin, label = 'Schlüsselbox-PIN') {
+  const digits = el('span', { className: 'pin-digits' }, ...pinGroups(pin).map((g) => el('span', { text: g })));
+  const key = el('span', { className: 'pin-key' }, icon('unlock'));
+  const row = el('div', { className: 'pin-row', role: 'img',
+    'aria-label': `${pin.split('').join(' ')}, dann Taste mit offenem Schloss` }, digits, key);
+  return el('div', { className: 'pin-field' }, el('span', { className: 'pin-label', text: label }), row);
+}
 
 // Return step for a car with a key box: shows the PIN (fetching a new one if none is usable)
 // and asks to put the key back. Resolves true to continue with the return.
@@ -33,7 +44,7 @@ export function pinDialog(bookingId) {
       }
       if (v.kind !== 'show') throw new Error('PIN für die Schlüsselbox konnte nicht abgerufen werden.');
       body.replaceChildren(
-        el('p', { className: 'pin-digits', text: v.pin }),
+        pinDisplay(v.pin),
         el('p', { text: 'Schlüssel in die Box legen und Box schließen.' }));
       actions.replaceChildren(cancel(), go('Weiter', 'primary'));
     })().catch((x) => {

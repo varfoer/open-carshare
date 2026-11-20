@@ -13,6 +13,7 @@ const PATHS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
   back: '<path d="M15 6l-6 6 6 6"/>',
+  unlock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.7"/>',
 };
 
 export function icon(name) {

@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { tripActions, damageTextTooLong, pinView } from '../js/trip.js';
+import { tripActions, damageTextTooLong, pinView, pinGroups } from '../js/trip.js';
 import { fitSize } from '../js/photo.js';
 test('tripActions', () => {
   const b = { state: 'reserved', booked_start: 1000, booked_end: 2000 };
@@ -28,4 +28,13 @@ test('pinView', () => {
   assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 9099), { kind: 'invalid' });
   assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 10000 }, 9100), { kind: 'expired' });
   assert.deepEqual(pinView({ pin: null, valid_from: 0, valid_until: 0 }, 0), { kind: 'none' });
+});
+
+test('pinGroups', () => {
+  assert.deepEqual(pinGroups('123456789'), ['123', '456', '789']);
+  assert.deepEqual(pinGroups('5729314'), ['572', '931', '4']);
+  assert.deepEqual(pinGroups('123456'), ['123', '456']);
+  assert.deepEqual(pinGroups('1234'), ['123', '4']);
+  assert.deepEqual(pinGroups('123'), ['123']);
+  assert.deepEqual(pinGroups(''), []);
 });

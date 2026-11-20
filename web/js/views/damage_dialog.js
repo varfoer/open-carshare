@@ -25,7 +25,7 @@ export function damageDialog(title, opts = {}) {
     const report = el('button', { type: 'button', className: 'danger', text: 'Schaden melden' });
     const formCancel = el('button', { type: 'button', text: 'Abbrechen' });
     const send = el('button', { type: 'submit', className: 'danger', text: 'Melden' });
-    const row = el('div', { className: 'dialog-actions' }, cancel, none, report);
+    const row = el('div', { className: 'dialog-actions' }, cancel, report, none);
     row.hidden = !!opts.reportOnly;
     form.append(el('div', { className: 'dialog-actions' }, formCancel, send));
     dlg.append(el('h2', { text: title }), form, row);

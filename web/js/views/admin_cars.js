@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { formatTime } from '../time.js';
+import { pinDisplay } from './pin_dialog.js';
 import { el, adminPage, pageHead, messageBox, textField, checkField, primaryButton } from '../admin_ui.js';
 
 export async function render(root) {
@@ -33,7 +34,7 @@ export async function render(root) {
     let lockInput = null;
     const lockValue = () => (lockInput ? lockInput.value.trim() : saved);
     const testBtn = el('button', { type: 'button', text: 'Box prüfen' });
-    const testOut = el('p', { className: 'hint' });
+    const testOut = el('div', { className: 'hint' });
     function syncTest() {
       const dirty = lockInput !== null && lockValue() !== saved;
       testBtn.disabled = dirty;
@@ -45,7 +46,8 @@ export async function render(root) {
       testOut.textContent = 'Test-PIN wird angefordert …';
       try {
         const r = await api('POST', `/api/admin/cars/${car.id}/lock-test`);
-        testOut.textContent = `Test-PIN ${r.pin}, gültig bis ${formatTime(r.valid_until)} — an der Box eingeben. Öffnet sie, ist alles eingerichtet.`;
+        testOut.replaceChildren(pinDisplay(r.pin, 'Test-PIN'),
+          `Gültig bis ${formatTime(r.valid_until)}. An der Box eingeben, dann die Taste mit dem offenen Schloss drücken. Öffnet sie, ist alles eingerichtet.`);
       } catch (x) { testOut.textContent = x.message; }
       syncTest();
     });

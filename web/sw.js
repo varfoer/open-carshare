@@ -1,6 +1,6 @@
 // Service worker: app shell cache-first with background update; /api/* is never cached.
 // Keep SHELL in sync with `git ls-files web` (minus web/test/); bump CACHE on every web change.
-const CACHE = 'ocs-v27';
+const CACHE = 'ocs-v29';
 const SHELL = [
   '/',
   '/index.html',
