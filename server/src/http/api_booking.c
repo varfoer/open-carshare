@@ -19,7 +19,8 @@ void h_cars_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t 
     if (!o || !cJSON_AddNumberToObject(o, "id", (double)c->id) ||
         !cJSON_AddStringToObject(o, "name", c->name) ||
         !cJSON_AddStringToObject(o, "plate", c->plate) ||
-        !cJSON_AddStringToObject(o, "location", c->location)) {
+        !cJSON_AddStringToObject(o, "location", c->location) ||
+        !cJSON_AddBoolToObject(o, "has_lock", c->lock_device_id[0] != 0)) {
       cJSON_Delete(o);
       cJSON_Delete(arr);
       api_json(res, 500, NULL);
@@ -260,6 +261,14 @@ void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
   booking_t b = *old_p;
   br_result_t r = br_check_start(&a->db, ctx->user, &b, req->now);
   if (r != BR_OK) { api_br_error(res, r); return; }
+  /* Key box: no PIN, no trip; the booking stays reserved. The web reads the PIN with GET /pin. */
+  const car_t *car = db_car(&a->db, b.car_id);
+  if (car && car->lock_device_id[0]) {
+    char device[sizeof car->lock_device_id];
+    memcpy(device, car->lock_device_id, sizeof device);
+    access_pin_t row;
+    if (!api_access_booking_pin(a, &b, device, req->now, &row, res)) return;
+  }
   b.state = BK_ACTIVE;
   b.actual_start = req->now;
   b.modified_at = req->now;
@@ -271,7 +280,7 @@ void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
 void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
   const booking_t *old_p = own_booking(a, req, ctx, res);
   if (!old_p) return;
-  booking_t b = *old_p;
+  booking_t old = *old_p, b = old;
   br_result_t r = br_check_return(ctx->user, &b);
   if (r != BR_OK) { api_br_error(res, r); return; }
   b.state = BK_DONE;
@@ -280,6 +289,7 @@ void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   b.modified_at = req->now;
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
+  api_access_booking_changed(a, &old, &b);
   api_notify_returned(a, &b);   /* result ignored: a failed mail never blocks the return */
   api_json(res, 200, api_booking_json(a, &b));
 }

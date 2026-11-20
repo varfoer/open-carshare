@@ -42,6 +42,67 @@ int th_mail_count(void) { return mail_count; }
 void th_mail_fail(int fail) { mail_fail = fail; }
 void th_mail_fail_to(const char *to) { snprintf(mail_fail_to, sizeof mail_fail_to, "%s", to ? to : ""); }
 
+/* ---- fake igloohome ---- */
+
+static pin_err_t pin_fail;
+static int pin_malformed, pin_count, pin_last_variance;
+static char pin_last_device[64], pin_last_name[64];
+static int64_t pin_last_from, pin_last_until;
+
+static pin_err_t fake_pin(void *ctx, const char *device_id, int64_t from, int64_t until,
+                          int variance, const char *access_name, pin_result_t *out) {
+  (void)ctx;
+  pin_count++;
+  snprintf(pin_last_device, sizeof pin_last_device, "%s", device_id ? device_id : "");
+  snprintf(pin_last_name, sizeof pin_last_name, "%s", access_name ? access_name : "");
+  pin_last_from = from;
+  pin_last_until = until;
+  pin_last_variance = variance;
+  memset(out, 0, sizeof *out);
+  if (pin_fail != PIN_OK) {
+    switch (pin_fail) {
+      case PIN_ERR_NETWORK: case PIN_ERR_CONFIG: out->http_status = 0; break;
+      case PIN_ERR_AUTH: out->http_status = 401; break;
+      case PIN_ERR_PAYMENT: out->http_status = 402; break;
+      case PIN_ERR_DEVICE: out->http_status = 404; break;
+      default: out->http_status = 400; break;
+    }
+    return pin_fail;
+  }
+  if (pin_malformed) {
+    out->http_status = 200;
+    return PIN_ERR_OTHER;
+  }
+  snprintf(out->pin, sizeof out->pin, "10000%d", pin_count);
+  snprintf(out->pin_id, sizeof out->pin_id, "P%d", pin_count);
+  return PIN_OK;
+}
+
+static pin_err_t fake_locks(void *ctx, lock_info_t *out, size_t cap, size_t *n, int *http_status) {
+  (void)ctx;
+  (void)out;
+  (void)cap;
+  *n = 0;
+  *http_status = 200;
+  return PIN_OK;
+}
+
+void th_pin_fail(pin_err_t e) { pin_fail = e; }
+void th_pin_malformed(int on) { pin_malformed = on; }
+int th_pin_count(void) { return pin_count; }
+const char *th_pin_last_device(void) { return pin_last_device; }
+int64_t th_pin_last_from(void) { return pin_last_from; }
+int64_t th_pin_last_until(void) { return pin_last_until; }
+int th_pin_last_variance(void) { return pin_last_variance; }
+const char *th_pin_last_name(void) { return pin_last_name; }
+
+static void pin_reset(void) {
+  pin_fail = PIN_OK;
+  pin_malformed = pin_count = pin_last_variance = 0;
+  pin_last_device[0] = pin_last_name[0] = 0;
+  pin_last_from = pin_last_until = 0;
+}
+
 /* ---- app ---- */
 
 /* Recursive: the data dir holds photos/ (and tests may plant directories). */
@@ -84,6 +145,10 @@ app_t *th_app(void) {
   mail_fail_to[0] = 0;
   last_to[0] = last_subject[0] = last_body[0] = last_att_name[0] = 0;
   last_att_len = 0;
+  a->pin_create = fake_pin;
+  a->lock_list = fake_locks;
+  a->pin_ctx = NULL;
+  pin_reset();
   return a;
 }
 

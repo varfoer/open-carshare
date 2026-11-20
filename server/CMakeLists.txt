@@ -89,6 +89,7 @@ ocs_add_test(test_pdf)
 ocs_add_test(test_access)
 ocs_add_test(test_igloo)
 ocs_add_test(test_igloo_client)
+ocs_add_test(test_api_access)
 
 # Validates the XML written by test_pain008 against the ISO 20022 schema; skipped (77) without xmllint or XSD.
 set(PAIN008_XSD ${CMAKE_CURRENT_SOURCE_DIR}/test/data/pain.008.001.02.xsd)

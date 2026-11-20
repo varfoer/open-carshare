@@ -39,6 +39,8 @@ static const route_t ROUTES[] = {
     {"DELETE", "/api/bookings/*", h_booking_delete, MIN_USER, BODY_JSON},
     {"POST", "/api/bookings/*/start", h_booking_start, MIN_USER, BODY_JSON},
     {"POST", "/api/bookings/*/return", h_booking_return, MIN_USER, BODY_JSON},
+    {"GET", "/api/bookings/*/pin", h_booking_pin_get, MIN_USER, BODY_JSON},
+    {"POST", "/api/bookings/*/pin", h_booking_pin_post, MIN_USER, BODY_JSON},
     {"POST", "/api/bookings/*/damage", h_damage_post, MIN_USER, BODY_JSON},
     {"GET", "/api/bookings/*/damage", h_damage_get, MIN_USER, BODY_JSON},
     {"POST", "/api/damage/*/photos", h_photo_post, MIN_USER, BODY_JPEG},

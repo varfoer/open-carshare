@@ -271,6 +271,7 @@ static void prune_cb(void *arg) {
   int64_t now = platform_now();
   if (db_prune(&a->db, now) != 0) fprintf(stderr, "ocs-server: db_prune failed\n");
   if (db_prune_readings(&a->db, now - 90 * 86400) != 0) fprintf(stderr, "ocs-server: db_prune_readings failed\n");
+  if (db_prune_pins(&a->db, now - 90 * 86400) != 0) fprintf(stderr, "ocs-server: db_prune_pins failed\n");
 }
 
 static void expire_cb(void *arg) {

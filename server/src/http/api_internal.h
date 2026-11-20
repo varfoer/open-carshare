@@ -1,7 +1,7 @@
 #ifndef OCS_HTTP_API_INTERNAL_H
 #define OCS_HTTP_API_INTERNAL_H
 
-/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c, api_mandate.c, api_billing.c).
+/* Shared by api.c and the endpoint files (api_auth.c, api_booking.c, api_access.c, api_damage.c, api_admin.c, api_tariff.c, api_price.c, api_mandate.c, api_billing.c).
  * To add an endpoint: declare its handler here, implement it in the endpoint
  * file, and add a row to ROUTES in api.c. */
 
@@ -81,6 +81,25 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_settings_public(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
+/* api_access.c (igloohome key box PINs) */
+/* Creates a PIN with igloohome and stores its row. 0 ok (*row filled); -1 igloohome failed (*err);
+ * -2 variance exhausted for car and valid_from; -3 storage. booking_id 0 = admin test. */
+int api_access_create(app_t *a, int64_t car_id, const char *device_id, int64_t booking_id,
+                      int64_t from, int64_t until, const char *access_name, int64_t now,
+                      access_pin_t *row, pin_err_t *err);
+/* Writes the 503 pin_unavailable response for rc -1/-2 of api_access_create. */
+void api_pin_unavailable(api_res_t *res, int rc, int64_t valid_from);
+/* api_access_create for booking b on device_id with access_window(now, b->booked_end) and the
+ * access name "Buchung <id>". true with *row filled; false with 503/500 written to res. */
+bool api_access_booking_pin(app_t *a, const booking_t *b, const char *device_id, int64_t now,
+                            access_pin_t *row, api_res_t *res);
+/* After a successful booking put: blanks the PIN digits of the booking when it left BK_ACTIVE or its
+ * car_id or user_id changed. A failure is logged to stderr; the caller's response stays. */
+void api_access_booking_changed(app_t *a, const booking_t *old, const booking_t *nb);
+/* GET/POST /api/bookings/<id>/pin: owner only, booking active, car has a box; else 404. */
+void h_booking_pin_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_booking_pin_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_damage.c */
 void h_damage_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

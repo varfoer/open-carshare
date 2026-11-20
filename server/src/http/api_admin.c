@@ -490,6 +490,7 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   nb.modified_by = ctx->user->id;
   api_booking_changed(&old, &nb);
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
+  api_access_booking_changed(a, &old, &nb);
   api_notify_booking_update(a, &old, &nb, ctx->user->id);
   api_json(res, 200, booking_admin_json(a, &nb));
 }

@@ -130,7 +130,8 @@ void test_cars_lists_only_active(void) {
   cJSON *j = call("GET", "/api/cars", NULL, tok1, 200, NULL);
   TEST_ASSERT_EQUAL_INT(2, cJSON_GetArraySize(j));
   cJSON *c = cJSON_GetArrayItem(j, 0);
-  TEST_ASSERT_EQUAL_INT(4, cJSON_GetArraySize(c));
+  TEST_ASSERT_EQUAL_INT(5, cJSON_GetArraySize(c));
+  TEST_ASSERT_TRUE(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(c, "has_lock")));
   TEST_ASSERT_EQUAL_INT(car1, num(c, "id"));
   TEST_ASSERT_EQUAL_STRING("Golf", cJSON_GetObjectItemCaseSensitive(c, "name")->valuestring);
   TEST_ASSERT_EQUAL_STRING("X-Golf", cJSON_GetObjectItemCaseSensitive(c, "plate")->valuestring);

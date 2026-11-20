@@ -35,12 +35,14 @@ static int setup(void) {
   if (aid < 0 || uid < 0 || th_set_creditor(app) != 0 || session_create(app, aid, FUZZ_NOW, admin_tok) != 0 ||
       session_create(app, uid, FUZZ_NOW, user_tok) != 0)
     return -1;
-  /* One active car (id 1) so booking writes get past BR_INVALID. */
+  /* One active car (id 1) so booking writes get past BR_INVALID; with a key box so start and
+   * POST /pin reach the (fake) PIN backend. */
   car_t c;
   memset(&c, 0, sizeof c);
   snprintf(c.name, sizeof c.name, "Fuzz");
   snprintf(c.plate, sizeof c.plate, "F-1");
   snprintf(c.location, sizeof c.location, "Hof");
+  snprintf(c.lock_device_id, sizeof c.lock_device_id, "FUZZ1");
   c.active = true;
   if (db_put_car(&app->db, &c) != 0 || c.id != 1) return -1;
   return 0;

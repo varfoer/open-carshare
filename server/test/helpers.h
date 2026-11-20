@@ -23,6 +23,16 @@ size_t th_last_mail_att_len(void);         /* 0 if none */
 int th_mail_count(void);                   /* reset by th_app */
 void th_mail_fail(int fail);               /* nonzero: fake mailer returns -1 */
 void th_mail_fail_to(const char *to);      /* fake mailer fails only for this recipient; NULL = off; reset by th_app */
+/* Fake igloohome PIN backend, wired and reset by th_app. Each call counts; on success the PIN is
+ * "10000<count>" (e.g. "100001") and the pinId "P<count>". */
+void th_pin_fail(pin_err_t e);             /* PIN_OK = succeed */
+void th_pin_malformed(int on);             /* nonzero: answer as if igloohome sent garbage (PIN_ERR_OTHER) */
+int th_pin_count(void);                    /* calls so far, failed ones included */
+const char *th_pin_last_device(void);
+int64_t th_pin_last_from(void);
+int64_t th_pin_last_until(void);
+int th_pin_last_variance(void);
+const char *th_pin_last_name(void);
 /* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.
  * th_add_user also inserts an ACTIVE mandate (holder "Test User", IBAN DE89370400440532013000,
  * text_version 1); th_add_user_bare does not. */
