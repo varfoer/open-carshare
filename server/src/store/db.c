@@ -846,6 +846,12 @@ int db_put_km_mail_day(db_t *db, int64_t day) {
 }
 
 int db_put_push_sub(db_t *db, push_sub_t *s) {
+  for (size_t i = 0; i < db->n_subs; i++) {
+    const push_sub_t *o = &db->subs[i];
+    if (strcmp(o->endpoint, s->endpoint) == 0 && o->user_id != s->user_id &&
+        (strcmp(o->p256dh, s->p256dh) != 0 || strcmp(o->auth, s->auth) != 0))
+      return -2;
+  }
   size_t n = db->n_subs;
   if (grow((void **)&db->subs, &db->cap_subs, n + 1, sizeof *s) != 0) return -1;
   push_sub_t *copy = malloc((n + 1) * sizeof *copy);
@@ -901,6 +907,27 @@ int db_delete_push_sub(db_t *db, const char *endpoint, int64_t user_id) {
     return 0;
   }
   return 0;
+}
+
+int db_delete_push_subs_of(db_t *db, int64_t user_id) {
+  size_t n = db->n_subs, w = 0;
+  push_sub_t *copy = n ? malloc(n * sizeof *copy) : NULL;
+  if (n && !copy) return -1;
+  if (n) memcpy(copy, db->subs, n * sizeof *copy);
+  for (size_t i = 0; i < n; i++)
+    if (copy[i].user_id != user_id) db->subs[w++] = copy[i];
+  int rc = 0;
+  if (w != n) {
+    db->n_subs = w;
+    rc = persist_table(db, "push_subscriptions.jsonl", db->subs, w, sizeof *copy,
+                       (to_json_fn)push_sub_to_json);
+    if (rc != 0) {
+      memcpy(db->subs, copy, n * sizeof *copy);
+      db->n_subs = n;
+    }
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
 }
 
 int db_put_vapid_key(db_t *db, const char *b64) {

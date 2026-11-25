@@ -4,12 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "core/mail_build.h"
 #include "core/push.h"
 #include "http/api_internal.h"
 #include "http/webpush.h"
 
 #define PUSH_TIMEOUT_S 5
-#define PUSH_TTL "3600"
 #define VAPID_EXP_S (12 * 3600)
 #define PUSH_TEST_MAX 5 /* test messages per user and RL_WINDOW_SECS */
 
@@ -41,15 +41,16 @@ char *api_push_payload(const char *title, const char *body, const char *url, con
   return s;
 }
 
-/* sub claim: base_url if https, else mailto:<mail_from> if set, else none. */
+/* sub claim: base_url if https, else mailto:<address of mail_from> if set, else none. */
 static const char *vapid_sub(const app_t *a, char *buf, size_t cap) {
   if (strncmp(a->cfg.base_url, "https://", 8) == 0) return a->cfg.base_url;
-  if (!a->cfg.mail_from[0]) return NULL;
-  int k = snprintf(buf, cap, "mailto:%s", a->cfg.mail_from);
+  char addr[160];
+  if (!a->cfg.mail_from[0] || mail_envelope_addr(a->cfg.mail_from, addr, sizeof addr) != 0) return NULL;
+  int k = snprintf(buf, cap, "mailto:%s", addr);
   return k < 0 || (size_t)k >= cap ? NULL : buf;
 }
 
-push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int64_t now) {
+push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int ttl, int64_t now) {
   if (!a->push_ready || !a->https) return PUSH_FAIL;
   char aud[PUSH_ENDPOINT_MAX];
   uint8_t ua_pub[65], auth[16], as_priv[32], as_pub[65], salt[16];
@@ -69,9 +70,13 @@ push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, i
     return PUSH_FAIL;
   char vapid[1400], sub_buf[160];
   if (webpush_vapid_header(a->vapid_priv, a->vapid_pub, aud, vapid_sub(a, sub_buf, sizeof sub_buf),
-                           now + VAPID_EXP_S, vapid, sizeof vapid) != 0)
+                           now + VAPID_EXP_S, vapid, sizeof vapid) != 0) {
+    fprintf(stderr, "push: cannot build the VAPID header (check base_url / mail_from)\n");
     return PUSH_FAIL;
-  const char *headers[] = {vapid, "TTL: " PUSH_TTL, "Urgency: high", "Content-Encoding: aes128gcm", NULL};
+  }
+  char ttl_h[32];
+  snprintf(ttl_h, sizeof ttl_h, "TTL: %d", ttl < 60 ? 60 : ttl);
+  const char *headers[] = {vapid, ttl_h, "Urgency: high", "Content-Encoding: aes128gcm", NULL};
   http_req_t r = {.method = "POST", .url = s->endpoint, .content_type = "application/octet-stream",
                   .body = (const char *)body, .body_len = body_len, .headers = headers,
                   .truncate_answer = true, .timeout_s = PUSH_TIMEOUT_S};
@@ -79,28 +84,39 @@ push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, i
   int status = 0;
   if (a->https(&r, &status, out, sizeof out) != 0) {
     fprintf(stderr, "push: no answer from %s\n", aud);
-    return PUSH_FAIL;
+    return PUSH_DOWN;
   }
   if (status >= 200 && status < 300) return PUSH_SENT;
   if (status == 404 || status == 410) return PUSH_GONE;
   fprintf(stderr, "push: HTTP %d from %s\n", status, aud);
+  /* Rejected for good (bad request, key or JWT, e.g. after a VAPID key change): the device
+   * registers again at its next app start. */
+  if (status == 400 || status == 401 || status == 403) return PUSH_GONE;
   return PUSH_FAIL;
 }
 
-int api_push_user(app_t *a, int64_t user_id, const char *payload, int64_t now, int *failed) {
+int api_push_user(app_t *a, int64_t user_id, const char *payload, int ttl, int64_t now, int *failed,
+                  bool *down) {
   /* Copy first: sends do not touch the table, deletes afterwards do. */
   push_sub_t subs[PUSH_MAX_PER_USER];
   size_t n = 0;
   for (size_t i = 0; i < a->db.n_subs && n < PUSH_MAX_PER_USER; i++)
     if (a->db.subs[i].user_id == user_id) subs[n++] = a->db.subs[i];
   int sent = 0, bad = 0;
+  if (down) *down = false;
   for (size_t i = 0; i < n; i++) {
-    push_result_t r = api_push_one(a, &subs[i], payload, now);
+    push_result_t r = api_push_one(a, &subs[i], payload, ttl, now);
     if (r == PUSH_SENT) {
       sent++;
       continue;
     }
     bad++;
+    if (r == PUSH_DOWN) {
+      /* No network to the push services: the rest would cost another timeout each. */
+      bad += (int)(n - i - 1);
+      if (down) *down = true;
+      break;
+    }
     if (r == PUSH_GONE && db_delete_push_sub(&a->db, subs[i].endpoint, 0) != 0)
       fprintf(stderr, "push: cannot delete a gone subscription\n");
   }
@@ -152,7 +168,12 @@ void h_me_push_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   snprintf(s.auth, sizeof s.auth, "%s", au);
   s.user_id = ctx->user->id;
   s.created_at = req->now;
-  if (db_put_push_sub(&a->db, &s) != 0) {
+  int rc = db_put_push_sub(&a->db, &s);
+  if (rc == -2) { /* endpoint of another member with other keys: not this browser's subscription */
+    api_invalid(res);
+    return;
+  }
+  if (rc != 0) {
     api_storage_error(res);
     return;
   }
@@ -188,7 +209,7 @@ void h_me_push_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
     return;
   }
   int failed = 0;
-  int sent = api_push_user(a, ctx->user->id, payload, req->now, &failed);
+  int sent = api_push_user(a, ctx->user->id, payload, 600, req->now, &failed, NULL);
   free(payload);
   cJSON *o = cJSON_CreateObject();
   if (o && (!cJSON_AddNumberToObject(o, "sent", sent) || !cJSON_AddNumberToObject(o, "failed", failed))) {

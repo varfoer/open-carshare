@@ -176,7 +176,7 @@ void h_me_mandate_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 void h_me_mandate_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 /* Ends every ACTIVE mandate of user_id as REVOKED (ended_by actor_id), cancels every RESERVED
  * booking of the user (cancel_fee_cents 0, cancelled_at/modified_at now, modified_by actor_id),
- * sets the user inactive and deletes the user's sessions, in this order.
+ * sets the user inactive and deletes the user's push subscriptions and sessions, in this order.
  * 0 ok, -1 storage error (steps done so far stay), -2 no current mandate. */
 int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now);
 /* Cancels every RESERVED booking of user_id: cancel_fee_cents 0, state CANCELLED,
@@ -189,16 +189,19 @@ void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t
 void api_clear_session_cookie(api_res_t *res);
 
 /* api_push.c (Web Push, spec §10). */
-typedef enum { PUSH_SENT = 0, PUSH_GONE, PUSH_FAIL } push_result_t;
+typedef enum { PUSH_SENT = 0, PUSH_GONE, PUSH_FAIL, PUSH_DOWN } push_result_t;
 /* {"title","body","url","tag"} as a malloc'd string (free), NULL on OOM. */
 char *api_push_payload(const char *title, const char *body, const char *url, const char *tag);
-/* Encrypts payload for s and POSTs it to its push service. SENT: 2xx. GONE: 404/410, or the row
- * can never be delivered (endpoint outside the allow-list, undecodable key). FAIL: anything else,
- * crypto failures included. */
-push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int64_t now);
-/* api_push_one to every subscription of user_id; GONE rows are deleted. Returns the number SENT;
- * *failed (if non-NULL) = the others. */
-int api_push_user(app_t *a, int64_t user_id, const char *payload, int64_t now, int *failed);
+/* Encrypts payload for s and POSTs it to its push service with TTL ttl s (at least 60). SENT: 2xx.
+ * GONE: 404/410, rejected for good (400/401/403), or the row can never be delivered (endpoint
+ * outside the allow-list, undecodable key). DOWN: no answer (transport error, timeout). FAIL:
+ * anything else, crypto failures included. */
+push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int ttl, int64_t now);
+/* api_push_one to every subscription of user_id; GONE rows are deleted. Stops at the first DOWN
+ * (*down = true if non-NULL; the rest count as failed). Returns the number SENT; *failed (if
+ * non-NULL) = the others. */
+int api_push_user(app_t *a, int64_t user_id, const char *payload, int ttl, int64_t now, int *failed,
+                  bool *down);
 bool api_push_has(const app_t *a, int64_t user_id);  /* at least one subscription */
 /* GET /api/push/key; POST/DELETE /api/me/push {endpoint[, p256dh, auth]}; POST /api/me/push/test
  * (5 per user and 15 min, then 429 rate_limited). */

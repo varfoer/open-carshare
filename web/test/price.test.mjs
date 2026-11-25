@@ -104,6 +104,7 @@ test('liveLine: km, price if returned now, time of the last reading', async () =
   assert.equal(liveLine({ ...live, as_of: now - 86400 }, now), 'Bisher 23 km · 41,50 € bei Rückgabe jetzt · Stand Sa, 28.03.2026, 11:20');
   assert.equal(liveLine({ ...live, price: { status: 'no_tariff', total_cents: 0 } }, now), 'Bisher 23 km · Stand 12:15');
   assert.equal(liveLine(null, now), null);
+  assert.equal(liveLine(live, now, true), 'Bisher 23 km · Stand 12:15'); // club trip: never billed
 });
 
 test('provisional price and km after the return until the final km', async () => {
@@ -114,4 +115,5 @@ test('provisional price and km after the return until the final km', async () =>
   assert.equal(provisionalPrice({ km_pending: false, live }), null);
   assert.equal(provisionalPrice({ km_pending: true, live: null }), null);
   assert.equal(provisionalKm({ km_pending: true, live: null }), null);
+  assert.equal(provisionalPrice({ km_pending: true, club_trip: true, live }), null);
 });

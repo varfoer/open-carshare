@@ -46,16 +46,21 @@ void th_mail_fail_to(const char *to) { snprintf(mail_fail_to, sizeof mail_fail_t
 /* ---- fake push services ---- */
 
 static int push_status, push_count, push_override_status;
-static char push_override[128], push_last_url[1024], push_last_auth[1400];
+static char push_override[128], push_last_url[1024], push_last_auth[1400], push_last_headers[2000];
 static size_t push_last_len;
 
 static int fake_https(const http_req_t *r, int *status, char *out, size_t cap) {
   push_count++;
   snprintf(push_last_url, sizeof push_last_url, "%s", r->url);
-  push_last_auth[0] = 0;
-  for (size_t i = 0; r->headers && r->headers[i]; i++)
+  push_last_auth[0] = push_last_headers[0] = 0;
+  for (size_t i = 0; r->headers && r->headers[i]; i++) {
     if (strncmp(r->headers[i], "Authorization: ", 15) == 0)
       snprintf(push_last_auth, sizeof push_last_auth, "%s", r->headers[i]);
+    else {
+      size_t l = strlen(push_last_headers);
+      snprintf(push_last_headers + l, sizeof push_last_headers - l, "%s\n", r->headers[i]);
+    }
+  }
   push_last_len = r->body_len;
   if (cap) out[0] = 0;
   int st = push_override[0] && strstr(r->url, push_override) ? push_override_status : push_status;
@@ -72,6 +77,7 @@ void th_push_status_for(const char *needle, int status) {
 int th_push_count(void) { return push_count; }
 const char *th_push_last_url(void) { return push_last_url; }
 const char *th_push_last_auth(void) { return push_last_auth; }
+const char *th_push_last_headers(void) { return push_last_headers; }
 size_t th_push_last_len(void) { return push_last_len; }
 
 int64_t th_add_push_sub(app_t *a, int64_t user_id, const char *endpoint) {
@@ -211,7 +217,7 @@ app_t *th_app(void) {
   a->https = fake_https;
   push_status = 201;
   push_count = 0;
-  push_override[0] = push_last_url[0] = push_last_auth[0] = 0;
+  push_override[0] = push_last_url[0] = push_last_auth[0] = push_last_headers[0] = 0;
   push_last_len = 0;
   if (api_push_init(a) != 0) {
     th_free(a);

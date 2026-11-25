@@ -208,7 +208,8 @@ void test_push_request_shape(void) {
   TEST_ASSERT_TRUE(th_add_push_sub(a, u1, APPLE) > 0);
   char *payload = api_push_payload("Titel", "Text", "/#/buchungen", "booking-1");
   TEST_ASSERT_NOT_NULL(payload);
-  TEST_ASSERT_EQUAL_INT(PUSH_SENT, api_push_one(a, &a->db.subs[0], payload, T));
+  TEST_ASSERT_EQUAL_INT(PUSH_SENT, api_push_one(a, &a->db.subs[0], payload, 3600, T));
+  TEST_ASSERT_NOT_NULL(strstr(th_push_last_headers(), "TTL: 3600\n"));
   TEST_ASSERT_EQUAL_STRING(APPLE, th_push_last_url());
   TEST_ASSERT_EQUAL_size_t(strlen(payload) + 103, th_push_last_len()); /* 86 header + delimiter + tag */
   free(payload);
@@ -237,7 +238,7 @@ void test_row_outside_allow_list_is_gone(void) {
   snprintf(s.p256dh, sizeof s.p256dh, "%s", TH_PUSH_P256DH);
   snprintf(s.auth, sizeof s.auth, "%s", TH_PUSH_AUTH);
   TEST_ASSERT_EQUAL_INT(0, db_put_push_sub(&a->db, &s));
-  TEST_ASSERT_EQUAL_INT(0, api_push_user(a, u1, "{}", T, NULL));
+  TEST_ASSERT_EQUAL_INT(0, api_push_user(a, u1, "{}", 3600, T, NULL, NULL));
   TEST_ASSERT_EQUAL_INT(0, th_push_count());
   TEST_ASSERT_EQUAL_size_t(0, a->db.n_subs);
 }
@@ -302,6 +303,108 @@ void test_reminder_push_and_mail_both_fail_retried(void) {
   TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 25 * M));
   TEST_ASSERT_EQUAL_INT(0, th_mail_count());
   TEST_ASSERT_TRUE(db_booking(&a->db, id)->start_reminded);
+}
+
+void test_push_down_skips_push_for_the_tick(void) {
+  int64_t u3 = th_add_user(a, "cora@x.de", NULL, ROLE_USER);
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, APPLE) > 0);
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u3, "https://web.push.apple.com/cora") > 0);
+  plant(BK_RESERVED, S, S + 2 * H, 0);
+  booking_t b = *db_booking(&a->db, plant(BK_RESERVED, S + 3 * H, S + 4 * H, 0));
+  b.user_id = u3;
+  b.booked_start = S;
+  b.car_id = car1 + 100; /* other car: no overlap check here, only reminders */
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  car_t c2;
+  memset(&c2, 0, sizeof c2);
+  c2.id = car1 + 100;
+  snprintf(c2.name, sizeof c2.name, "Polo");
+  c2.active = true;
+  TEST_ASSERT_EQUAL_INT(0, db_put_car(&a->db, &c2));
+  th_push_status(-1);
+  TEST_ASSERT_EQUAL_INT(2, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_EQUAL_INT(1, th_push_count()); /* first device only, then mail only */
+  TEST_ASSERT_EQUAL_INT(2, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(2, subs_of(u1));     /* kept */
+}
+
+void test_rejected_403_is_gone(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  plant(BK_RESERVED, S, S + 2 * H, 0);
+  th_push_status(403);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_EQUAL_INT(1, th_mail_count());
+  TEST_ASSERT_EQUAL_INT(0, subs_of(u1));
+}
+
+void test_start_reminder_ttl_until_start(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  plant(BK_RESERVED, S, S + 2 * H, 0);
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S - 30 * M));
+  TEST_ASSERT_NOT_NULL(strstr(th_push_last_headers(), "TTL: 1800\n"));
+}
+
+void test_endpoint_not_taken_with_other_keys(void) {
+  subscribe(tok1, FCM, 200);
+  char body[1400];
+  snprintf(body, sizeof body, "{\"endpoint\":\"%s\",\"p256dh\":\"%s\",\"auth\":\"AAAAAAAAAAAAAAAAAAAAAA\"}", FCM,
+           TH_PUSH_P256DH);
+  call_free("POST", "/api/me/push", body, tok2, 400);
+  TEST_ASSERT_EQUAL_INT(1, subs_of(u1));
+  subscribe(tok2, FCM, 200); /* same browser subscription (same keys): moves */
+  TEST_ASSERT_EQUAL_INT(1, subs_of(u2));
+}
+
+void test_password_change_drops_push(void) {
+  int64_t u4 = th_add_user(a, "dora@x.de", "altes-passwort", ROLE_USER);
+  char t4[65];
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, u4, T, t4));
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u4, FCM) > 0);
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u2, APPLE) > 0);
+  call_free("PUT", "/api/me/password", "{\"current\":\"altes-passwort\",\"new\":\"neues-passwort\"}", t4, 200);
+  TEST_ASSERT_EQUAL_INT(0, subs_of(u4));
+  TEST_ASSERT_EQUAL_INT(1, subs_of(u2));
+}
+
+void test_password_reset_drops_push(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  TEST_ASSERT_EQUAL_INT(0, api_send_token_mail(a, u1, TOKEN_RESET, T));
+  const char *tk = strstr(th_last_mail_body(), "token=");
+  TEST_ASSERT_NOT_NULL(tk);
+  char token[128], body[256];
+  size_t n = 0;
+  for (tk += 6; tk[n] && tk[n] != '\n' && tk[n] != '\r' && n < sizeof token - 1; n++) token[n] = tk[n];
+  token[n] = 0;
+  snprintf(body, sizeof body, "{\"token\":\"%s\",\"password\":\"neues-passwort\"}", token);
+  call_free("POST", "/api/password/set", body, NULL, 200);
+  TEST_ASSERT_EQUAL_INT(0, subs_of(u1));
+}
+
+void test_deactivation_drops_push(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u2, APPLE) > 0);
+  int64_t adm = th_add_user(a, "adm@x.de", NULL, ROLE_ADMIN);
+  char tadm[65], p[64];
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, adm, T, tadm));
+  snprintf(p, sizeof p, "/api/admin/users/%lld", (long long)u2);
+  call_free("PUT", p, "{\"email\":\"bert@x.de\",\"name\":\"Bert\",\"street\":\"\",\"zip\":\"\",\"city\":\"\","
+                      "\"role\":\"user\",\"active\":false}", tadm, 200);
+  TEST_ASSERT_EQUAL_INT(0, subs_of(u2));
+}
+
+void test_vapid_sub_from_mail_from(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, APPLE) > 0);
+  snprintf(a->cfg.base_url, sizeof a->cfg.base_url, "http://localhost:8080");
+  snprintf(a->cfg.mail_from, sizeof a->cfg.mail_from, "Carsharing Verein <noreply@verein.de>");
+  TEST_ASSERT_EQUAL_INT(PUSH_SENT, api_push_one(a, &a->db.subs[0], "{}", 600, T));
+  const char *h = th_push_last_auth() + 23, *d1 = strchr(h, '.'), *d2 = strchr(d1 + 1, '.');
+  char part[600];
+  uint8_t raw[600];
+  size_t n = 0;
+  snprintf(part, sizeof part, "%.*s", (int)(d2 - d1 - 1), d1 + 1);
+  TEST_ASSERT_EQUAL_INT(0, b64url_decode(part, raw, sizeof raw - 1, &n));
+  raw[n] = 0;
+  TEST_ASSERT_NOT_NULL(strstr((const char *)raw, "\"sub\":\"mailto:noreply@verein.de\""));
 }
 
 /* ---- end reminder ---- */
@@ -408,6 +511,14 @@ int main(void) {
   RUN_TEST(test_reminder_mail_when_push_not_delivered);
   RUN_TEST(test_reminder_mail_when_device_gone);
   RUN_TEST(test_reminder_push_and_mail_both_fail_retried);
+  RUN_TEST(test_push_down_skips_push_for_the_tick);
+  RUN_TEST(test_rejected_403_is_gone);
+  RUN_TEST(test_start_reminder_ttl_until_start);
+  RUN_TEST(test_endpoint_not_taken_with_other_keys);
+  RUN_TEST(test_password_change_drops_push);
+  RUN_TEST(test_password_reset_drops_push);
+  RUN_TEST(test_deactivation_drops_push);
+  RUN_TEST(test_vapid_sub_from_mail_from);
   RUN_TEST(test_end_reminder_mail_in_window);
   RUN_TEST(test_end_reminder_fee_line);
   RUN_TEST(test_end_reminder_by_push);

@@ -51,20 +51,27 @@ static int reminder_due(const settings_t *s, const booking_t *b, int64_t now) {
   return -1;
 }
 
-/* Push to every device of the user; true if at least one push service took the message. */
-static bool remind_by_push(app_t *a, const notify_booking_t *n, int64_t user_id, int64_t now) {
+/* Push to every device of the user; true if at least one push service took the message. A start or
+ * end reminder expires at the start / end (a phone offline until then gets no stale one). Sets
+ * *down when the push services did not answer. */
+static bool remind_by_push(app_t *a, const notify_booking_t *n, int64_t user_id, int64_t now, bool *down) {
   char title[128], text[512], tag[32];
   if (!api_push_has(a, user_id) || notify_booking_push(n, title, sizeof title, text, sizeof text) != 0)
     return false;
+  int64_t until = n->kind == NT_REMIND_START ? n->b->booked_start
+                : n->kind == NT_REMIND_END   ? n->b->booked_end
+                                             : now + 3600;
+  int ttl = until - now > 3600 * 24 ? 3600 * 24 : (int)(until - now);
   snprintf(tag, sizeof tag, "booking-%lld", (long long)n->b->id);
   char *payload = api_push_payload(title, text, "/#/buchungen", tag);
-  int sent = payload ? api_push_user(a, user_id, payload, now, NULL) : 0;
+  int sent = payload ? api_push_user(a, user_id, payload, ttl, now, NULL, down) : 0;
   free(payload);
   return sent > 0;
 }
 
 int api_send_reminders(app_t *a, int64_t now) {
   int sent = 0;
+  bool push_down = false; /* push services unreachable: mail only for the rest of this call */
   /* db_put_booking may invalidate pointers into the table: index, copy, put. */
   for (size_t i = 0; i < a->db.n_bookings; i++) {
     int kind = reminder_due(&a->db.settings, &a->db.bookings[i], now);
@@ -86,7 +93,8 @@ int api_send_reminders(app_t *a, int64_t now) {
     /* Push replaces the mail; without a delivered push the mail goes out. A failed mail is
      * retried on the next call. Stop the tick: with the relay down every further send would
      * block the event loop for another SMTP timeout. */
-    if (!remind_by_push(a, &n, b.user_id, now) && api_send_mail(a, to, subject, body) != 0) break;
+    bool pushed = !push_down && remind_by_push(a, &n, b.user_id, now, &push_down);
+    if (!pushed && api_send_mail(a, to, subject, body) != 0) break;
     if (kind == NT_REMIND_START) b.start_reminded = true;
     else if (kind == NT_REMIND_END) b.end_reminded = true;
     else b.late_reminded = true;

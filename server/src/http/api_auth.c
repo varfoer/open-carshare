@@ -144,8 +144,10 @@ void h_password_set(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
     return;
   }
   user_t c = *u;
+  /* Devices registered through an old session stop getting reminders; each registers again
+   * after its next login. */
   if (pw_hash(pw, c.pw_hash) != 0 || db_put_user(&a->db, &c) != 0 ||
-      db_delete_sessions(&a->db, NULL, c.id) != 0) {
+      db_delete_sessions(&a->db, NULL, c.id) != 0 || db_delete_push_subs_of(&a->db, c.id) != 0) {
     api_storage_error(res);
     return;
   }
@@ -205,7 +207,9 @@ void h_me_password(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
       keep = a->db.sessions[i];
       have = true;
     }
-  if (db_delete_sessions(&a->db, NULL, c.id) != 0 || (have && db_put_session(&a->db, &keep) != 0)) {
+  /* Push rows go with the sessions; the client re-registers this device right after. */
+  if (db_delete_sessions(&a->db, NULL, c.id) != 0 || (have && db_put_session(&a->db, &keep) != 0) ||
+      db_delete_push_subs_of(&a->db, c.id) != 0) {
     api_storage_error(res);
     return;
   }

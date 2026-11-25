@@ -212,6 +212,7 @@ int api_mandate_revoke(app_t *a, int64_t user_id, int64_t actor_id, int64_t now)
   user_t u = *up;
   u.active = false;
   if (db_put_user(&a->db, &u) != 0) return -1;
+  if (db_delete_push_subs_of(&a->db, user_id) != 0) return -1;
   return db_delete_sessions(&a->db, NULL, user_id) == 0 ? 0 : -1;
 }
 

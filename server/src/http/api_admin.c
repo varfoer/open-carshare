@@ -162,7 +162,10 @@ void h_admin_user_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   bool deactivated = old_p->active && !active;
   u.active = active;
   if (db_put_user(&a->db, &u) != 0) { api_storage_error(res); return; }
-  if (deactivated && db_delete_sessions(&a->db, NULL, id) != 0) { api_storage_error(res); return; }
+  if (deactivated && (db_delete_sessions(&a->db, NULL, id) != 0 || db_delete_push_subs_of(&a->db, id) != 0)) {
+    api_storage_error(res);
+    return;
+  }
   /* A deactivated user cannot start a reservation; expired it would be billed as unused time. */
   if (deactivated && api_cancel_reserved(a, id, ctx->user->id, req->now) < 0) { api_storage_error(res); return; }
   api_user_response(res, 200, &u);

@@ -4,7 +4,7 @@ import { el, messageBox, textField, checkField, primaryButton } from '../admin_u
 import { epochToBerlin } from '../time.js';
 import { p2 } from '../form_time.js';
 import { ibanValid, formatIban, normalizeIban } from '../sepa.js';
-import { pushState, enablePush, disablePush } from '../push.js';
+import { pushState, enablePush, disablePush, syncPush } from '../push.js';
 
 const MIN_PASSWORD = 10;
 
@@ -196,6 +196,7 @@ export async function render(root) {
     if (nw.input.value !== rep.input.value) return wErr.show('Die neuen Passwörter stimmen nicht überein.');
     try {
       await api('PUT', '/api/me/password', { current: cur.input.value, new: nw.input.value });
+      await syncPush(); // the server dropped the push devices of this account; register this one again
       wForm.reset();
       wOk.show('Passwort geändert.');
     } catch (x) { wErr.show(x.message); }

@@ -45,6 +45,7 @@ void th_push_status_for(const char *needle, int status);
 int th_push_count(void);
 const char *th_push_last_url(void);
 const char *th_push_last_auth(void);       /* the Authorization header line */
+const char *th_push_last_headers(void);    /* the other extra header lines, each ending in \n */
 size_t th_push_last_len(void);             /* body bytes */
 /* Browser key of RFC 8291 section 5 (valid point) and its auth secret. */
 #define TH_PUSH_P256DH "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"

@@ -629,14 +629,24 @@ it (the mailer logs it).
     Bitte rechtzeitig zurückbringen oder die Buchung verlängern.`, late
     `Rückgabe überfällig: <car>` / `Die Buchung ist um HH:MM abgelaufen. Bitte
     bring das Auto zurück und beende die Fahrt.`
-  - Request: `POST <endpoint>` with `TTL: 3600`, `Urgency: high`,
+  - Request: `POST <endpoint>` with `TTL` (start reminder: seconds until
+    `booked_start`, end reminder: until `booked_end`, late return: 3600; at
+    least 60, at most 86400), `Urgency: high`,
     `Content-Encoding: aes128gcm` and `Authorization: vapid t=<JWT>, k=<key>`
     (ES256; `aud` = endpoint origin, `exp` = now + 12 h, `sub` = `base_url` if
     https, else `mailto:<mail_from>` if set, else none). Timeout 5 s per
     request, synchronous like mail.
-  - Answers: 2xx delivered; 404/410 the subscription is deleted; anything else
-    (or no answer) not delivered, the subscription stays. The answer body is
-    read up to 511 bytes and the rest dropped, so the status always counts.
+  - Answers: 2xx delivered; 404/410 and 400/401/403 (rejected for good, e.g.
+    after a VAPID key change; the device registers again at its next app start)
+    the subscription is deleted; anything else not delivered, the subscription
+    stays. No answer at all (transport error, timeout): not delivered, and the
+    rest of that reminder run sends mail only. The answer body is read up to
+    511 bytes and the rest dropped, so the status always counts.
+  - A user's subscriptions are deleted with the sessions: password set (reset or
+    invite), password change (the client registers the current device again),
+    deactivation and mandate revocation.
+  - Registering an endpoint that belongs to another user moves it only when
+    `p256dh` and `auth` match (same browser subscription); else 400 `invalid`.
   - Endpoint allow-list (SSRF guard): `https://`, no port, no userinfo, host
     equal to or below `fcm.googleapis.com`, `push.services.mozilla.com`,
     `push.apple.com` or `notify.windows.com`. Rows outside it are deleted

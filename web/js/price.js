@@ -12,17 +12,19 @@ export function priceSummary(price) {
 }
 
 // Running trip with tracker data (booking.live): "Bisher 23 km · 41,50 € bei Rückgabe jetzt · Stand 11:05".
-// The price is what the invoice says if the car is returned now. null without live data.
-export function liveLine(live, nowSec) {
+// The price is what the invoice says if the car is returned now; left out for club trips (never
+// billed) and without a tariff. null without live data.
+export function liveLine(live, nowSec, clubTrip = false) {
   if (!live) return null;
   const at = sameBerlinDay(live.as_of, nowSec) ? formatTime(live.as_of) : formatDateTime(live.as_of);
-  const price = live.price && live.price.status === 'ok' ? ` · ${formatEuro(live.price.total_cents)} bei Rückgabe jetzt` : '';
+  const priced = !clubTrip && live.price && live.price.status === 'ok';
+  const price = priced ? ` · ${formatEuro(live.price.total_cents)} bei Rückgabe jetzt` : '';
   return `Bisher ${live.km} km${price} · Stand ${at}`;
 }
 
 // Returned trip whose final km are not in yet: price and km from the readings so far, else null.
 export function provisionalPrice(b) {
-  if (!b.km_pending || !b.live || !b.live.price || b.live.price.status !== 'ok') return null;
+  if (b.club_trip || !b.km_pending || !b.live || !b.live.price || b.live.price.status !== 'ok') return null;
   return `${formatEuro(b.live.price.total_cents)} (vorläufiger Preis)`;
 }
 

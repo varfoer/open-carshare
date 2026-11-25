@@ -112,11 +112,14 @@ int db_put_km_mail_day(db_t *db, int64_t day);
 
 /* push_subscriptions.jsonl (missing file = empty). put: drops the row with the same endpoint (of
  * any user), inserts s with id max+1, then drops the oldest rows (smallest id) of s->user_id beyond
- * PUSH_MAX_PER_USER; one write, RAM restored on -1. delete: removes the row with this endpoint when
- * user_id is 0 or owns it; 0 also when nothing matched (no write). Pointers into the table are
- * invalid after either call. */
+ * PUSH_MAX_PER_USER; one write, RAM restored on -1. -2 (no write) when the endpoint belongs to
+ * another user with other p256dh/auth: only the browser that holds the subscription may move it.
+ * delete: removes the row with this endpoint when user_id is 0 or owns it; 0 also when nothing
+ * matched (no write). delete_of: removes all rows of user_id (no write if none). Pointers into the
+ * table are invalid after these calls. */
 int db_put_push_sub(db_t *db, push_sub_t *s);
 int db_delete_push_sub(db_t *db, const char *endpoint, int64_t user_id);
+int db_delete_push_subs_of(db_t *db, int64_t user_id);
 /* Persists vapid.json {"private":"<base64url of 32 bytes>"}, then sets db->vapid_key. */
 int db_put_vapid_key(db_t *db, const char *b64);
 

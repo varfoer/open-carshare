@@ -140,8 +140,8 @@ function pinLine(b, now, err, probe) {
 // page is visible; stops by itself when the view is left.
 const LIVE_REFRESH_MS = 60000;
 
-function setLive(p, live) {
-  const text = liveLine(live, Math.floor(Date.now() / 1000));
+function setLive(p, b) {
+  const text = liveLine(b.live, Math.floor(Date.now() / 1000), b.club_trip);
   p.textContent = text || '';
   p.hidden = !text;
 }
@@ -150,12 +150,17 @@ function refreshLive(lines) {
   const timer = setInterval(async () => {
     if (![...lines.values()].some((p) => p.isConnected)) { clearInterval(timer); return; }
     if (document.hidden) return;
-    try {
-      for (const b of await api('GET', '/api/bookings')) {
-        const p = lines.get(b.id);
-        if (p && b.state === 'active') setLive(p, b.live);
-      }
-    } catch { /* keep the last values; next tick tries again */ }
+    let list;
+    try { list = await api('GET', '/api/bookings'); } catch { return; } /* keep the last values */
+    const active = new Map(list.filter((b) => b.state === 'active').map((b) => [b.id, b]));
+    for (const [id, p] of lines) {
+      const b = active.get(id);
+      if (b) { setLive(p, b); continue; }
+      // Returned elsewhere (other device, admin): no "bei Rückgabe jetzt" any more.
+      p.hidden = true;
+      lines.delete(id);
+    }
+    if (!lines.size) clearInterval(timer);
   }, LIVE_REFRESH_MS);
 }
 
@@ -231,7 +236,7 @@ export async function render(root) {
     const lines = line ? [line] : [];
     if (b.state === 'active') {
       const p = el('p', { className: 'booking-car live' });
-      setLive(p, b.live);
+      setLive(p, b);
       liveLines.set(b.id, p);
       lines.push(p);
     }
