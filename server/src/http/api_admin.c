@@ -396,9 +396,9 @@ static int cmp_idx(const void *x, const void *y) {
 }
 
 /* Booking json + user_name/user_email. NULL on OOM. */
-static cJSON *booking_admin_json(app_t *a, const booking_t *b) {
+static cJSON *booking_admin_json(app_t *a, const booking_t *b, int64_t now) {
   const db_t *db = &a->db;
-  cJSON *o = api_booking_json(a, b);
+  cJSON *o = api_booking_json(a, b, now);
   if (!o) return NULL;
   const user_t *u = NULL;
   for (size_t i = 0; i < db->n_users; i++)
@@ -431,7 +431,7 @@ void h_admin_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   sort_db = db;
   qsort(idx, n, sizeof *idx, cmp_idx);
   for (size_t k = 0; k < n; k++) {
-    cJSON *o = booking_admin_json(a, &db->bookings[idx[k]]);
+    cJSON *o = booking_admin_json(a, &db->bookings[idx[k]], req->now);
     if (!o) { free(idx); cJSON_Delete(arr); api_json(res, 500, NULL); return; }
     cJSON_AddItemToArray(arr, o);
   }
@@ -486,7 +486,7 @@ void h_admin_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_notify_booking(a, NT_CREATED, &b, ctx->user->id);
-  api_json(res, 201, booking_admin_json(a, &b));
+  api_json(res, 201, booking_admin_json(a, &b, req->now));
 }
 
 void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -513,7 +513,7 @@ void h_admin_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, a
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
   api_access_booking_changed(a, &old, &nb);
   api_notify_booking_update(a, &old, &nb, ctx->user->id);
-  api_json(res, 200, booking_admin_json(a, &nb));
+  api_json(res, 200, booking_admin_json(a, &nb, req->now));
 }
 
 void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -532,7 +532,7 @@ void h_admin_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_notify_booking(a, NT_CANCELLED, &b, ctx->user->id);
-  api_json(res, 200, booking_admin_json(a, &b));
+  api_json(res, 200, booking_admin_json(a, &b, req->now));
 }
 
 /* ---- settings ---- */

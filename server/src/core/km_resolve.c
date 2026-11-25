@@ -41,3 +41,20 @@ kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
   *km_end = ke;
   return KMR_OK;
 }
+
+bool km_live(const odometer_reading_t *r, size_t n, int64_t car_id, int64_t a0, int64_t a1,
+             int64_t *km, int64_t *as_of) {
+  const odometer_reading_t *lo = NULL, *hi = NULL;
+  for (size_t i = 0; i < n; i++) {
+    const odometer_reading_t *x = &r[i];
+    if (x->car_id != car_id || x->ts < a0 || x->ts > a1) continue;
+    if (!lo || x->ts < lo->ts) lo = x;
+    if (!hi || x->ts > hi->ts) hi = x;
+  }
+  if (!lo || lo->odometer_m < 0 || hi->odometer_m > M_MAX || hi->odometer_m < lo->odometer_m) return false;
+  int64_t k = (hi->odometer_m - lo->odometer_m + 500) / 1000;
+  if (k > KM_MAX) return false;
+  *km = k;
+  *as_of = hi->ts;
+  return true;
+}

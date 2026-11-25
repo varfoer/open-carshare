@@ -95,3 +95,23 @@ test('tariffSummary', () => {
   assert.equal(tariffSummary(TARIFF), 'Tag 3,00 €/h, Nacht 1,50 €/h (20:00–06:00), 0,30 €/km, ungenutzt 50 %, ' +
     'Deckel 30,00 € / 50,00 € pro Tag, Verspätung 15,00 €/h');
 });
+
+test('liveLine: km, price if returned now, time of the last reading', async () => {
+  const { liveLine } = await import('../js/price.js');
+  const now = 1774779600; // 2026-03-29 12:20 CEST
+  const live = { km: 23, as_of: now - 300, price: { status: 'ok', total_cents: 4150 } };
+  assert.equal(liveLine(live, now), 'Bisher 23 km · 41,50 € bei Rückgabe jetzt · Stand 12:15');
+  assert.equal(liveLine({ ...live, as_of: now - 86400 }, now), 'Bisher 23 km · 41,50 € bei Rückgabe jetzt · Stand Sa, 28.03.2026, 11:20');
+  assert.equal(liveLine({ ...live, price: { status: 'no_tariff', total_cents: 0 } }, now), 'Bisher 23 km · Stand 12:15');
+  assert.equal(liveLine(null, now), null);
+});
+
+test('provisional price and km after the return until the final km', async () => {
+  const { provisionalPrice, provisionalKm } = await import('../js/price.js');
+  const live = { km: 41, as_of: 1, price: { status: 'ok', total_cents: 5230 } };
+  assert.equal(provisionalPrice({ km_pending: true, live }), '52,30 € (vorläufiger Preis)');
+  assert.equal(provisionalKm({ km_pending: true, live }), 'ca. 41 km (vorläufig)');
+  assert.equal(provisionalPrice({ km_pending: false, live }), null);
+  assert.equal(provisionalPrice({ km_pending: true, live: null }), null);
+  assert.equal(provisionalKm({ km_pending: true, live: null }), null);
+});

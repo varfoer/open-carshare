@@ -1,11 +1,11 @@
 import { api } from '../api.js';
 import { formatDateTime } from '../time.js';
 import { el } from '../admin_ui.js';
-import { priceSummary } from '../price.js';
+import { priceSummary, provisionalPrice, provisionalKm } from '../price.js';
 import { bookingCard } from '../booking_card.js';
 
 function kmText(b) {
-  if (b.km_pending) return 'km ausstehend';
+  if (b.km_pending) return provisionalKm(b) || 'km ausstehend';
   if (b.km_source === 'none') return '';
   return `${b.km_start} – ${b.km_end} km (${b.km_end - b.km_start} km)`;
 }
@@ -35,7 +35,7 @@ export async function render(root) {
     const km = b.state === 'cancelled' ? '' : kmText(b);
     if (km) lines.push(km);
     if (b.price && (b.state === 'done' || b.state === 'cancelled')) {
-      lines.push(el('p', { className: 'booking-time', text: priceSummary(b.price) }));
+      lines.push(el('p', { className: 'booking-time', text: provisionalPrice(b) || priceSummary(b.price) }));
     }
     root.append(bookingCard({ start: b.booked_start, end: b.booked_end, nowSec: now, badges, lines }));
   }

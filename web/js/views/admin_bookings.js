@@ -1,7 +1,7 @@
 import { api } from '../api.js';
 import { el, adminPage, pageHead, messageBox, selectField, checkField, primaryButton } from '../admin_ui.js';
 import { epochToBerlin, formatDateTime, monthRange } from '../time.js';
-import { priceSummary } from '../price.js';
+import { priceSummary, provisionalPrice, provisionalKm } from '../price.js';
 import { field, dateTime, toEpoch, p2 } from '../form_time.js';
 
 const STATES = { reserved: 'reserviert', active: 'aktiv', done: 'beendet', cancelled: 'storniert' };
@@ -96,7 +96,7 @@ export async function render(root) {
       const trip = [];
       if (b.actual_start) {
         trip.push(el('p', { text: `Gefahren: ${formatDateTime(b.actual_start)} – ${b.actual_end ? formatDateTime(b.actual_end) : 'läuft'}` }));
-        if (b.km_pending) trip.push(el('p', {}, el('span', { className: 'badge', text: 'km ausstehend' })));
+        if (b.km_pending) trip.push(el('p', {}, el('span', { className: 'badge', text: 'km ausstehend' }), ...(provisionalKm(b) ? [' ', provisionalKm(b)] : [])));
         else if (kmText(b)) trip.push(el('p', { text: `${kmText(b)}${b.km_source === 'manual' ? ' · manuell' : ''}${b.km_source === 'telematics' ? ' · Tracker' : ''}` }));
       }
       list.append(el('div', { className: 'card booking' },
@@ -105,7 +105,7 @@ export async function render(root) {
           text: `${carName.get(b.car_id) || b.car_id} · ${b.user_name} (${b.user_email}) · ${STATES[b.state] || b.state}` },
           ...(b.club_trip ? [' ', el('span', { className: 'badge', text: 'Vereinsfahrt' })] : []),
           ...(b.invoice_id ? [' ', el('span', { className: 'badge', text: `Rechnung ${b.invoice_id}` })] : [])),
-        ...trip, ...(b.price && (b.state === 'done' || b.state === 'cancelled') ? [el('p', { text: `Preis: ${priceSummary(b.price)}` })] : []), actions));
+        ...trip, ...(b.price && (b.state === 'done' || b.state === 'cancelled') ? [el('p', { text: `Preis: ${provisionalPrice(b) || priceSummary(b.price)}` })] : []), actions));
     }
   }
 

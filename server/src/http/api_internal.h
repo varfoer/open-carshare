@@ -159,8 +159,10 @@ void h_admin_billing_sepa(app_t *a, const api_req_t *req, const api_ctx_t *ctx, 
 void h_admin_invoice_pdf(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 
 /* api_price.c */
-/* booking_to_json plus "price" (tariff of the user at booked_start). NULL on OOM. */
-cJSON *api_booking_json(app_t *a, const booking_t *b);
+/* booking_to_json plus "price" (tariff of the user at booked_start) and "live": null, or for an
+ * active trip / a km_pending return of a car with a tracker {km, as_of, price}: km from the readings
+ * so far (km_live), price as if returned now (active) or at actual_end. NULL on OOM. */
+cJSON *api_booking_json(app_t *a, const booking_t *b, int64_t now);
 /* Every price_t number by name, status as string, "tariff" = tariff_version_to_json(t) or null.
  * NULL on OOM. */
 cJSON *price_to_json(const price_t *p, const tariff_version_t *t);

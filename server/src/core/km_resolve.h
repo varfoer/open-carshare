@@ -1,6 +1,7 @@
 #ifndef OCS_CORE_KM_RESOLVE_H
 #define OCS_CORE_KM_RESOLVE_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -20,5 +21,11 @@ typedef enum { KMR_OK = 0, KMR_WAIT, KMR_BAD } kmr_result_t;
 kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
                         int64_t actual_start, int64_t actual_end, int64_t settled_before,
                         int64_t *km_start, int64_t *km_end);
+
+/* Provisional km of car_id from a0 to a1: last minus first reading with a0 <= ts <= a1, rounded
+ * half-up to km like km_resolve. false (outputs untouched) when there is no reading in the window,
+ * the odometer went backwards or a value is implausible. *as_of = ts of the last reading. */
+bool km_live(const odometer_reading_t *r, size_t n, int64_t car_id, int64_t a0, int64_t a1,
+             int64_t *km, int64_t *as_of);
 
 #endif

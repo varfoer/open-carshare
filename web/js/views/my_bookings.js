@@ -3,6 +3,7 @@ import { navigate } from '../app.js';
 import { formatDateTime, formatTime, sameBerlinDay } from '../time.js';
 import { formatEuro } from '../money.js';
 import { tripActions, pinView } from '../trip.js';
+import { liveLine } from '../price.js';
 import { apiUpload, resizeToJpeg } from '../photo.js';
 import { damageDialog } from './damage_dialog.js';
 import { pinDialog, pinDisplay } from './pin_dialog.js';
@@ -135,6 +136,29 @@ function pinLine(b, now, err, probe) {
   return box;
 }
 
+// Live km and price of running trips: refreshed every 60 s while the lines are on screen and the
+// page is visible; stops by itself when the view is left.
+const LIVE_REFRESH_MS = 60000;
+
+function setLive(p, live) {
+  const text = liveLine(live, Math.floor(Date.now() / 1000));
+  p.textContent = text || '';
+  p.hidden = !text;
+}
+
+function refreshLive(lines) {
+  const timer = setInterval(async () => {
+    if (![...lines.values()].some((p) => p.isConnected)) { clearInterval(timer); return; }
+    if (document.hidden) return;
+    try {
+      for (const b of await api('GET', '/api/bookings')) {
+        const p = lines.get(b.id);
+        if (p && b.state === 'active') setLive(p, b.live);
+      }
+    } catch { /* keep the last values; next tick tries again */ }
+  }, LIVE_REFRESH_MS);
+}
+
 // Error from a failed trip step; shown after the list reloads.
 let carriedError = '';
 
@@ -156,6 +180,7 @@ export async function render(root) {
       el('a', { className: 'btn primary', href: '#/kalender', text: 'Zum Kalender' }));
     return;
   }
+  const liveLines = new Map();
   for (const b of upcoming) {
     const probe = b.state === 'active' ? await probePin(b) : null;
     const hasBox = !!probe && !probe.none;
@@ -204,9 +229,16 @@ export async function render(root) {
     if (b.club_trip) badges.push({ text: 'Vereinsfahrt' });
     const line = subline(b, now, names.get(b.car_id), cars.length);
     const lines = line ? [line] : [];
+    if (b.state === 'active') {
+      const p = el('p', { className: 'booking-car live' });
+      setLive(p, b.live);
+      liveLines.set(b.id, p);
+      lines.push(p);
+    }
     if (hasBox) lines.push(pinLine(b, now, err, probe));
     root.append(bookingCard({
       start: b.booked_start, end: b.booked_end, nowSec: now, badges, lines, actions,
     }));
   }
+  if (liveLines.size) refreshLive(liveLines);
 }

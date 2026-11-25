@@ -1,8 +1,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "cJSON.h"
+#include "auth/session.h"
+#include "core/pricing.h"
 #include "helpers.h"
 #include "http/api.h"
+#include "http/api_internal.h"
 #include "unity.h"
 
 #define T 1774742400
@@ -176,6 +180,131 @@ static void test_mail_all_fail_retries(void) {
   TEST_ASSERT_EQUAL_INT64(now / 86400, a->db.km_mail_day);
 }
 
+/* ---- live km and price ---- */
+
+#define B0 (T + 8 * H) /* 10:00 CEST */
+#define B1 (T + 12 * H)
+
+static int64_t add_trip(int64_t car, booking_state_t st, int64_t a0, int64_t a1, bool pending) {
+  booking_t b;
+  memset(&b, 0, sizeof b);
+  b.car_id = car;
+  b.user_id = user1;
+  b.booked_start = B0;
+  b.booked_end = B1;
+  b.state = st;
+  b.actual_start = a0;
+  b.actual_end = a1;
+  b.km_pending = pending;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  return b.id;
+}
+
+static void reading(int64_t car, int64_t ts, int64_t m) {
+  odometer_reading_t r = {car, ts, m, ts};
+  TEST_ASSERT_EQUAL_INT(0, db_add_readings(&a->db, &r, 1));
+}
+
+static const tariff_version_t *standard_tariff(void) {
+  int64_t t = th_add_tariff(a, "Standard");
+  TEST_ASSERT_TRUE(th_add_version(a, t, T - 86400, 0, 0, 500) > 0);
+  TEST_ASSERT_TRUE(th_assign_tariff(a, user1, t, T - 86400) > 0);
+  return db_tariff_at(&a->db, user1, B0);
+}
+
+static cJSON *live_of(int64_t id, int64_t now) {
+  cJSON *o = api_booking_json(a, db_booking(&a->db, id), now);
+  TEST_ASSERT_NOT_NULL(o);
+  return o;
+}
+
+static int64_t num(const cJSON *o, const char *k) {
+  const cJSON *v = cJSON_GetObjectItemCaseSensitive(o, k);
+  TEST_ASSERT_TRUE(cJSON_IsNumber(v));
+  return (int64_t)v->valuedouble;
+}
+
+static void test_live_active_return_now(void) {
+  const tariff_version_t *t = standard_tariff();
+  int64_t id = add_trip(car1, BK_ACTIVE, B0, 0, false);
+  reading(car1, B0 - 600, 999000);      /* before the trip: not counted */
+  reading(car1, B0 + 60, 1000000);
+  reading(car1, B0 + H - 60, 1023400);  /* 23.4 km */
+  cJSON *o = live_of(id, B0 + H);
+  const cJSON *live = cJSON_GetObjectItemCaseSensitive(o, "live");
+  TEST_ASSERT_TRUE(cJSON_IsObject(live));
+  TEST_ASSERT_EQUAL_INT64(23, num(live, "km"));
+  TEST_ASSERT_EQUAL_INT64(B0 + H - 60, num(live, "as_of"));
+  price_t p;
+  price_compute(t, a->db.settings.start_tolerance_min, B0, B1, B0, B0 + H, 23, &p);
+  const cJSON *lp = cJSON_GetObjectItemCaseSensitive(live, "price");
+  TEST_ASSERT_EQUAL_INT64(p.total_cents, num(lp, "total_cents"));
+  TEST_ASSERT_EQUAL_INT64(23, num(lp, "km"));
+  TEST_ASSERT_TRUE(num(lp, "unused_day_min") > 0); /* rest of the booked time counted as unused */
+  TEST_ASSERT_EQUAL_STRING("ok", cJSON_GetObjectItemCaseSensitive(lp, "status")->valuestring);
+  /* the booking's own price is unchanged: booked time, km unknown */
+  TEST_ASSERT_EQUAL_STRING("km_pending",
+                           cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(o, "price"), "status")->valuestring);
+  cJSON_Delete(o);
+  /* past the booked end: late fee included */
+  o = live_of(id, B1 + 30 * 60);
+  TEST_ASSERT_TRUE(num(cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(o, "live"), "price"),
+                       "late_fee_cents") > 0);
+  cJSON_Delete(o);
+}
+
+static void test_live_after_return_until_km(void) {
+  standard_tariff();
+  int64_t id = add_trip(car1, BK_DONE, B0, B0 + 2 * H, true);
+  reading(car1, B0 + 60, 1000000);
+  reading(car1, B0 + 2 * H - 300, 1041000);
+  reading(car1, B0 + 2 * H + 600, 1045000); /* after the return: not counted */
+  cJSON *o = live_of(id, B0 + 3 * H);
+  const cJSON *live = cJSON_GetObjectItemCaseSensitive(o, "live");
+  TEST_ASSERT_EQUAL_INT64(41, num(live, "km"));
+  TEST_ASSERT_EQUAL_INT64(B0 + 2 * H - 300, num(live, "as_of"));
+  cJSON_Delete(o);
+  /* resolved: no live part any more */
+  booking_t b = *db_booking(&a->db, id);
+  b.km_pending = false;
+  b.km_source = KM_TELEMATICS;
+  b.km_start = 1000;
+  b.km_end = 1041;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  o = live_of(id, B0 + 3 * H);
+  TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(o, "live")));
+  cJSON_Delete(o);
+}
+
+static void test_live_null_cases(void) {
+  int64_t no_tracker = add_trip(car2, BK_ACTIVE, B0, 0, false);
+  reading(car2, B0 + 60, 1000000);
+  int64_t no_reading = add_trip(car1, BK_ACTIVE, B0, 0, false);
+  int64_t reserved = add_trip(car1, BK_RESERVED, 0, 0, false);
+  int64_t ids[] = {no_tracker, no_reading, reserved};
+  for (size_t i = 0; i < 3; i++) {
+    cJSON *o = live_of(ids[i], B0 + H);
+    TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(o, "live")));
+    cJSON_Delete(o);
+  }
+}
+
+static void test_live_in_bookings_list(void) {
+  standard_tariff();
+  add_trip(car1, BK_ACTIVE, B0, 0, false);
+  reading(car1, B0 + 60, 1000000);
+  reading(car1, B0 + 600, 1005000);
+  char tok[65];
+  TEST_ASSERT_EQUAL_INT(0, session_create(a, user1, B0, tok));
+  api_res_t r = th_req(a, "GET", "/api/bookings", NULL, tok, B0 + 700);
+  TEST_ASSERT_EQUAL_INT(200, r.status);
+  cJSON *arr = cJSON_Parse(r.body);
+  api_res_free(&r);
+  const cJSON *live = cJSON_GetObjectItemCaseSensitive(cJSON_GetArrayItem(arr, 0), "live");
+  TEST_ASSERT_EQUAL_INT64(5, num(live, "km"));
+  cJSON_Delete(arr);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_resolve_sets_telematics_km);
@@ -188,5 +317,9 @@ int main(void) {
   RUN_TEST(test_mail_once_per_day_survives_restart);
   RUN_TEST(test_mail_ignores_car_without_tracker);
   RUN_TEST(test_mail_all_fail_retries);
+  RUN_TEST(test_live_active_return_now);
+  RUN_TEST(test_live_after_return_until_km);
+  RUN_TEST(test_live_null_cases);
+  RUN_TEST(test_live_in_bookings_list);
   return UNITY_END();
 }

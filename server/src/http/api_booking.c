@@ -148,7 +148,7 @@ void h_bookings_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
     return;
   }
   for (size_t k = 0; k < n; k++) {
-    cJSON *o = api_booking_json(a, &a->db.bookings[idx[k]]);
+    cJSON *o = api_booking_json(a, &a->db.bookings[idx[k]], req->now);
     if (!o) {
       free(idx);
       cJSON_Delete(arr);
@@ -201,7 +201,7 @@ void h_booking_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_re
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_notify_booking(a, NT_CREATED, &b, ctx->user->id);
-  api_json(res, 201, api_booking_json(a, &b));
+  api_json(res, 201, api_booking_json(a, &b, req->now));
 }
 
 /* Own booking by path id, or NULL (res already filled with 400/404). */
@@ -236,7 +236,7 @@ void h_booking_put(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res
   api_booking_changed(&old, &nb);
   if (db_put_booking(&a->db, &nb) != 0) { api_storage_error(res); return; }
   api_notify_booking_update(a, &old, &nb, ctx->user->id);
-  api_json(res, 200, api_booking_json(a, &nb));
+  api_json(res, 200, api_booking_json(a, &nb, req->now));
 }
 
 void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -252,7 +252,7 @@ void h_booking_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   b.modified_by = ctx->user->id;
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_notify_booking(a, NT_CANCELLED, &b, ctx->user->id);
-  api_json(res, 200, api_booking_json(a, &b));
+  api_json(res, 200, api_booking_json(a, &b, req->now));
 }
 
 void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -278,7 +278,7 @@ void h_booking_start(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_r
     api_storage_error(res);
     return;
   }
-  api_json(res, 200, api_booking_json(a, &b));
+  api_json(res, 200, api_booking_json(a, &b, req->now));
 }
 
 void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
@@ -295,7 +295,7 @@ void h_booking_return(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
   if (db_put_booking(&a->db, &b) != 0) { api_storage_error(res); return; }
   api_access_booking_changed(a, &old, &b);
   api_notify_returned(a, &b);   /* result ignored: a failed mail never blocks the return */
-  api_json(res, 200, api_booking_json(a, &b));
+  api_json(res, 200, api_booking_json(a, &b, req->now));
 }
 
 int api_expire_bookings(app_t *a, int64_t now) {

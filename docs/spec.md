@@ -354,7 +354,7 @@ Tracker configuration (documented in `deploy/vps/README.md`): server domain
 and port, TCP, Codec 8 Extended, APN of the SIM, records on movement
 start/stop (movement source: movement sensor/GNSS, since ignition detection is
 unreliable on EVs), records sorted oldest first, a record at least every
-5 min while moving and every 60 min while parked. The parked record is what lets a trip resolve after the
+60 s while moving (live km, below) and every 60 min while parked. The parked record is what lets a trip resolve after the
 car is returned (see below); the 12 V battery drain of the parked mode is
 checked in the hardware acceptance.
 
@@ -390,6 +390,21 @@ Resolution:
   persisted in `data/` so a restart does not resend it.
 - Billing run refuses to finalize while any booking of the period has
   `km_pending`.
+
+Live km (display only, never billed): the booking JSON carries `live`, null
+unless the car has `tracker_imei` and the booking is `active` (window
+`actual_start..now`) or `done` with `km_pending` (window
+`actual_start..actual_end`) and the window holds at least one plausible
+reading. Then `{km, as_of, price}`: km = last minus first reading in the
+window, rounded half-up like the resolution (0 with one reading; null when the
+odometer went backwards); `as_of` = ts of the last reading; `price` = the
+price object of the booking as if returned at the window end (`price_booking`
+on a copy with state `done`, that `actual_end` and those km), so for an active
+trip it is the invoice of a return now, late fee included. The running trip's
+card shows „Bisher <km> km · <price> bei Rückgabe jetzt · Stand HH:MM“,
+refreshed every 60 s while the page is visible; „Verlauf“ and the admin list
+show a `km_pending` return as „<price> (vorläufiger Preis)“ and „ca. <km> km
+(vorläufig)“ until the km are resolved.
 
 ## 9. Billing run (admin)
 
@@ -722,7 +737,7 @@ POST /api/me/push/test            {sent, failed}: test message to the caller's d
                                   user and 15 min, then 429 rate_limited
 GET  /api/cars                    (items carry has_lock: bool)
 GET  /api/calendar?car=&from=&to=
-GET  /api/bookings?scope=upcoming|history
+GET  /api/bookings?scope=upcoming|history   (items carry price and live, §8)
 POST /api/bookings                PUT /api/bookings/{id}     DELETE /api/bookings/{id}
 POST /api/bookings/{id}/start     POST /api/bookings/{id}/return
 POST /api/bookings/{id}/damage    GET /api/bookings/{id}/damage

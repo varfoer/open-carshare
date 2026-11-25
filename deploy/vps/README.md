@@ -232,9 +232,13 @@ firmware versions: check names in your firmware's Configurator.
   networks). Check names in your firmware's Configurator.
 - System / data protocol: Codec 8 Extended. Check names in your firmware's
   Configurator.
-- Data acquisition: on moving every 300 s, on stop every 3600 s; records on
-  movement start/stop; movement source movement sensor + GNSS (not
-  ignition). Check names in your firmware's Configurator.
+- Data acquisition: on moving every 60 s (min period; the app shows live km
+  and price of a running trip from these records), send period 60 s, on stop
+  every 3600 s; records on movement start/stop; movement source movement
+  sensor + GNSS (not ignition). Set the same values in the **Home and the
+  Roaming** tab: the SIMs above roam (`getstatus` shows `Roaming: 1`), so the
+  tracker uses the Roaming tab, and an unset tab keeps the factory defaults.
+  Check names in your firmware's Configurator.
 - Records sorting: oldest first. Check names in your firmware's
   Configurator. The server waits for the trip-end records before it
   resolves km; newest-first sending can deliver the post-return record
