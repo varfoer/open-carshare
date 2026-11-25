@@ -54,6 +54,8 @@ async function register(reg) {
   const { key } = await api('GET', '/api/push/key');
   let sub = await reg.pushManager.getSubscription();
   if (sub && !sameKey(sub.options.applicationServerKey, key)) {
+    // Made with an old server key: remove its row too, it can never be delivered again.
+    await api('DELETE', '/api/me/push', { endpoint: sub.endpoint }).catch(() => {});
     await sub.unsubscribe();
     sub = null;
   }
@@ -64,7 +66,14 @@ async function register(reg) {
       throw new Error('Push-Nachrichten konnten auf diesem Gerät nicht eingerichtet werden.');
     }
   }
-  await api('POST', '/api/me/push', subscriptionBody(sub.toJSON()));
+  try {
+    await api('POST', '/api/me/push', subscriptionBody(sub.toJSON()));
+  } catch (x) {
+    // Refused (e.g. push service not allowed): no subscription the server does not know, else the
+    // card would say "on" while reminders still come by mail. Network errors keep it for a retry.
+    if (x.status >= 400 && x.status < 500 && x.status !== 401) await sub.unsubscribe().catch(() => {});
+    throw x;
+  }
 }
 
 export async function enablePush() {

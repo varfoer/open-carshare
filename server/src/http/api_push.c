@@ -11,6 +11,7 @@
 #define PUSH_TIMEOUT_S 5
 #define PUSH_TTL "3600"
 #define VAPID_EXP_S (12 * 3600)
+#define PUSH_TEST_MAX 5 /* test messages per user and RL_WINDOW_SECS */
 
 int api_push_init(app_t *a) {
   uint8_t priv[32];
@@ -61,9 +62,11 @@ push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, i
   size_t len = strlen(payload), body_len = 0;
   uint8_t body[WEBPUSH_MAX_PLAIN + WEBPUSH_OVERHEAD];
   if (platform_p256_keygen(as_priv, as_pub) != 0 || platform_random(salt, sizeof salt) != 0) return PUSH_FAIL;
+  /* FAIL, not GONE: a crypto failure (e.g. out of memory) must not delete a valid row; the browser
+   * key was checked on the curve when the row was stored. */
   if (webpush_encrypt(ua_pub, auth, as_priv, salt, (const uint8_t *)payload, len, body, sizeof body,
                       &body_len) != 0)
-    return len > WEBPUSH_MAX_PLAIN ? PUSH_FAIL : PUSH_GONE; /* else: browser key off the curve */
+    return PUSH_FAIL;
   char vapid[1400], sub_buf[160];
   if (webpush_vapid_header(a->vapid_priv, a->vapid_pub, aud, vapid_sub(a, sub_buf, sizeof sub_buf),
                            now + VAPID_EXP_S, vapid, sizeof vapid) != 0)
@@ -71,7 +74,7 @@ push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, i
   const char *headers[] = {vapid, "TTL: " PUSH_TTL, "Urgency: high", "Content-Encoding: aes128gcm", NULL};
   http_req_t r = {.method = "POST", .url = s->endpoint, .content_type = "application/octet-stream",
                   .body = (const char *)body, .body_len = body_len, .headers = headers,
-                  .timeout_s = PUSH_TIMEOUT_S};
+                  .truncate_answer = true, .timeout_s = PUSH_TIMEOUT_S};
   char out[512];
   int status = 0;
   if (a->https(&r, &status, out, sizeof out) != 0) {
@@ -171,6 +174,14 @@ void h_me_push_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_
 }
 
 void h_me_push_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res) {
+  /* Each call blocks the event loop for up to 5 sends: a few per user and 15 min. */
+  char key[48];
+  snprintf(key, sizeof key, "push-test:%lld", (long long)ctx->user->id);
+  if (!rl_allowed_n(&a->rl, key, req->now, PUSH_TEST_MAX)) {
+    api_error(res, 429, "rate_limited", "Zu viele Testnachrichten. Bitte versuche es später erneut.");
+    return;
+  }
+  rl_fail_n(&a->rl, key, req->now, PUSH_TEST_MAX);
   char *payload = api_push_payload("Testnachricht", "Push-Benachrichtigungen sind eingerichtet.", "/#/konto", "test");
   if (!payload) {
     api_json(res, 500, NULL);

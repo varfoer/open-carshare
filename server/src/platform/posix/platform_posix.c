@@ -97,14 +97,18 @@ int platform_mail_send(const char *smtp_url, const char *user, const char *pass,
   return rc == CURLE_OK ? 0 : -1;
 }
 
-typedef struct { char *out; size_t cap, len; } https_sink_t;
+typedef struct { char *out; size_t cap, len; bool truncate; } https_sink_t;
 
 static size_t https_write_cb(char *p, size_t sz, size_t nm, void *u) {
   https_sink_t *s = u;
   size_t n = sz * nm;
-  if (n > s->cap - 1 - s->len) return 0; /* abort: answer too large */
-  memcpy(s->out + s->len, p, n);
-  s->len += n;
+  size_t room = s->cap - 1 - s->len, k = n;
+  if (k > room) {
+    if (!s->truncate) return 0; /* abort: answer too large */
+    k = room;
+  }
+  memcpy(s->out + s->len, p, k);
+  s->len += k;
   return n;
 }
 
@@ -133,7 +137,7 @@ int platform_https(const http_req_t *r, int *status, char *out, size_t cap) {
     if (!h2) { curl_slist_free_all(hdr); hdr = NULL; } else hdr = h2;
   }
   if (!hdr) { curl_easy_cleanup(c); return -1; }
-  https_sink_t sink = {out, cap, 0};
+  https_sink_t sink = {out, cap, 0, r->truncate_answer};
   out[0] = 0;
   long connect_s = r->timeout_s < 5 ? r->timeout_s : 5;
   curl_easy_setopt(c, CURLOPT_URL, r->url);

@@ -191,13 +191,15 @@ typedef enum { PUSH_SENT = 0, PUSH_GONE, PUSH_FAIL } push_result_t;
 /* {"title","body","url","tag"} as a malloc'd string (free), NULL on OOM. */
 char *api_push_payload(const char *title, const char *body, const char *url, const char *tag);
 /* Encrypts payload for s and POSTs it to its push service. SENT: 2xx. GONE: 404/410, or the row
- * can never be delivered (endpoint outside the allow-list, bad key). FAIL: anything else. */
+ * can never be delivered (endpoint outside the allow-list, undecodable key). FAIL: anything else,
+ * crypto failures included. */
 push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int64_t now);
 /* api_push_one to every subscription of user_id; GONE rows are deleted. Returns the number SENT;
  * *failed (if non-NULL) = the others. */
 int api_push_user(app_t *a, int64_t user_id, const char *payload, int64_t now, int *failed);
 bool api_push_has(const app_t *a, int64_t user_id);  /* at least one subscription */
-/* GET /api/push/key; POST/DELETE /api/me/push {endpoint[, p256dh, auth]}; POST /api/me/push/test. */
+/* GET /api/push/key; POST/DELETE /api/me/push {endpoint[, p256dh, auth]}; POST /api/me/push/test
+ * (5 per user and 15 min, then 429 rate_limited). */
 void h_push_key_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_me_push_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
 void h_me_push_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);

@@ -1,6 +1,7 @@
 #ifndef OCS_PLATFORM_PLATFORM_H
 #define OCS_PLATFORM_PLATFORM_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -24,10 +25,12 @@ typedef struct {
   const char *content_type, *body;     /* NULL = no body */
   size_t body_len;                     /* 0: strlen(body); else body is binary of this length */
   const char *const *headers;          /* NULL or NULL-terminated extra "Name: value" lines */
+  bool truncate_answer;                /* true: answer bytes beyond cap - 1 are dropped, not an error */
   long timeout_s;                      /* total; connect = min(5, timeout_s) */
 } http_req_t;
 /* HTTPS request via libcurl, TLS verification on. 0: answer received (*status set, out
- * NUL-terminated); -1: transport error, timeout, non-https URL or answer >= cap. */
+ * NUL-terminated); -1: transport error, timeout, non-https URL or answer >= cap (unless
+ * truncate_answer). */
 int platform_https(const http_req_t *r, int *status, char *out, size_t cap);
 
 /* Web Push crypto (RFC 8291/8292), OpenSSL on POSIX. P-256 private key: 32-byte big-endian

@@ -617,7 +617,8 @@ it (the mailer logs it).
     https, else `mailto:<mail_from>` if set, else none). Timeout 5 s per
     request, synchronous like mail.
   - Answers: 2xx delivered; 404/410 the subscription is deleted; anything else
-    (or no answer) not delivered, the subscription stays.
+    (or no answer) not delivered, the subscription stays. The answer body is
+    read up to 511 bytes and the rest dropped, so the status always counts.
   - Endpoint allow-list (SSRF guard): `https://`, no port, no userinfo, host
     equal to or below `fcm.googleapis.com`, `push.services.mozilla.com`,
     `push.apple.com` or `notify.windows.com`. Rows outside it are deleted
@@ -717,7 +718,8 @@ GET/POST/DELETE /api/me/mandate   (DELETE needs the password)
 GET  /api/push/key                {key}: VAPID public key, base64url
 POST /api/me/push                 {endpoint, p256dh, auth}; 400 invalid | push_endpoint
 DELETE /api/me/push               {endpoint}; only the caller's own row; ok also if unknown
-POST /api/me/push/test            {sent, failed}: test message to the caller's devices
+POST /api/me/push/test            {sent, failed}: test message to the caller's devices; 5 per
+                                  user and 15 min, then 429 rate_limited
 GET  /api/cars                    (items carry has_lock: bool)
 GET  /api/calendar?car=&from=&to=
 GET  /api/bookings?scope=upcoming|history

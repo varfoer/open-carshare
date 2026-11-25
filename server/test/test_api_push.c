@@ -194,6 +194,16 @@ void test_test_push_counts_and_drops_gone(void) {
   TEST_ASSERT_EQUAL_INT(1, subs_of(u1));
 }
 
+void test_test_push_rate_limited(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  for (int i = 0; i < 5; i++) call_free("POST", "/api/me/push/test", "{}", tok1, 200);
+  cJSON *j = call("POST", "/api/me/push/test", "{}", tok1, 429);
+  TEST_ASSERT_EQUAL_STRING("rate_limited", err_code(j));
+  cJSON_Delete(j);
+  TEST_ASSERT_EQUAL_INT(5, th_push_count());
+  call_free("POST", "/api/me/push/test", "{}", tok2, 200); /* per user */
+}
+
 void test_push_request_shape(void) {
   TEST_ASSERT_TRUE(th_add_push_sub(a, u1, APPLE) > 0);
   char *payload = api_push_payload("Titel", "Text", "/#/buchungen", "booking-1");
@@ -391,6 +401,7 @@ int main(void) {
   RUN_TEST(test_subscribe_rejects);
   RUN_TEST(test_delete_only_own);
   RUN_TEST(test_test_push_counts_and_drops_gone);
+  RUN_TEST(test_test_push_rate_limited);
   RUN_TEST(test_push_request_shape);
   RUN_TEST(test_row_outside_allow_list_is_gone);
   RUN_TEST(test_start_reminder_by_push_replaces_mail);
