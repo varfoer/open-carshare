@@ -23,7 +23,8 @@ UI language: German. Code and docs: English. License: GPL-2.0-only
 - Installable as a PWA (no app store), dark mode, help page
   (`web/help.html`).
 - Car key in an igloohome key box, PIN shown at trip start.
-- Mail notifications only (no push).
+- Mail notifications; reminders (start, end of booking, late return) as
+  Web Push on devices that turned it on.
 
 Not yet done: ESP32 port.
 See `docs/spec.md` §14.
@@ -41,7 +42,8 @@ Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port
   RAM, persisted as JSON-lines files. No database.
 - `web/`: vanilla HTML/JS/CSS, no build step, served by `ocs-server`.
 - Libraries (vendored in `server/third_party/`): Mongoose, cJSON,
-  Monocypher, Unity; libcurl for SMTP.
+  Monocypher, Unity; libcurl for SMTP and HTTPS, OpenSSL libcrypto for Web
+  Push.
 
 | Path | Content |
 |---|---|
@@ -57,6 +59,7 @@ Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port
 ## Development
 
 Requirements: `cmake` (>= 3.22), a C11 compiler, `libcurl4-openssl-dev`,
+`libssl-dev` (OpenSSL >= 3.0),
 Node.js (web tests only).
 
 ```sh

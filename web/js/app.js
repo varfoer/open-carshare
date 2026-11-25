@@ -1,6 +1,7 @@
 // Shell: hash router, session state, top bar, menu and mobile tab bar.
 import { api, onUnauthorized } from './api.js';
 import { icon } from './icons.js';
+import { syncPush, dropPushOnLogout } from './push.js';
 
 const ROUTES = {
   '#/login': 'login',
@@ -136,6 +137,7 @@ function updateChrome() {
 }
 
 async function logout() {
+  await dropPushOnLogout(); /* needs the session, so before /api/logout */
   try { await api('POST', '/api/logout'); } catch { /* session gone anyway */ }
   user = null;
   updateChrome();
@@ -197,5 +199,6 @@ onUnauthorized(() => {
 });
 
 await refreshUser();
+if (user) syncPush();
 if (!location.hash) location.hash = user ? DEFAULT_ROUTE : '#/login';
 else route();

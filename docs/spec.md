@@ -18,6 +18,7 @@ UI language: German only. Code, docs, identifiers: English.
 Browser / PWA  --HTTPS-->  Caddy (TLS, Let's Encrypt)  --HTTP localhost-->  ocs-server (C)
                                                                               |-- data/   (files)
                                                                               |-- SMTP relay (mail out)
+                                                                              |-- push services (Web Push out, §10)
 Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port (§8)
 ```
 
@@ -36,6 +37,7 @@ Teltonika trackers  --TCP (Codec 8 Extended)-->  ocs-server tracker port (§8)
 | JSON | cJSON | small, ships with ESP-IDF |
 | Password hashing | Monocypher (Argon2id) | single file, portable |
 | Mail | SMTP via libcurl to relay | behind `platform/` interface |
+| Web Push crypto | OpenSSL 3 libcrypto (P-256, AES-128-GCM, HMAC-SHA-256) | already a libcurl dependency; behind `platform/` (mbedTLS on ESP32) |
 | Tests | Unity | also runs on ESP32 |
 
 ### Repo layout
@@ -130,8 +132,16 @@ id, car_id, user_id, booked_start, booked_end, state
 km_start, km_end, km_source (`telematics`|`manual`), km_pending,
 cancelled_at, club_trip (default false), invoice_id (0 = not invoiced, else
 the number of the invoice that billed it), created_at, modified_at,
-modified_by, start_reminded, late_reminded (reminder mail sent; default
-false, §10).
+modified_by, start_reminded, end_reminded, late_reminded (reminder sent by
+push or mail; default false, §10).
+
+### push_subscription
+id, user_id, endpoint (https URL of the browser's push service, < 1024
+bytes, unique: registering it again moves it to the current user), p256dh,
+auth (browser key and secret, base64url of 65 / 16 bytes), created_at. At most
+5 per user; the 6th drops the oldest. File `push_subscriptions.jsonl`. The
+server's VAPID key pair lives in `vapid.json` (`{"private":"<base64url>"}`),
+created at the first start; the public key is derived.
 
 ### damage_report
 id, booking_id, user_id, phase (`start`|`end`), text (required, < 1024 bytes),
@@ -178,7 +188,9 @@ collection; the minimum is the 5-day pre-notification promised in the
 mandate text), `invoice_footer` (free text, printed on the invoice PDF; it must fit the
 PDF footer, at most 24 lines, else the settings PUT answers 400 `invalid`),
 `reminder_before_min` (integer 0..1440, default 60, 0 = no start reminder;
-required in the settings PUT), SMTP config.
+required in the settings PUT), `end_reminder_before_min` (integer 0..1440,
+default 30, 0 = no end reminder; optional in the settings PUT, absent keeps
+the stored value), SMTP config.
 
 ### odometer_reading
 car_id, ts (device GNSS time, epoch seconds), odometer_m (tracker total
@@ -538,10 +550,11 @@ for total > 0). Stored under `data/invoices/<number>.pdf`; written at the
 first send, so the admin cannot download a PDF before that. The mail carries
 it as attachment `Rechnung-<number>.pdf`.
 
-## 10. Notifications (mail only)
+## 10. Notifications (mail, reminders also by push)
 
 Booking created / modified / cancelled, reminder before start (configurable,
-default 1 h), late return reminder, invoice. Admin: billing run done,
+default 1 h), reminder before the end of a running trip (configurable, default
+30 min), late return reminder, invoice. Admin: billing run done,
 km still pending 24 h after return (daily, §8).
 
 Mails address the user with „du“; times are Europe/Berlin, `04.11.2026 14:30`.
@@ -566,18 +579,52 @@ it (the mailer logs it).
   booking when `booked_start - reminder_before_min <= now < booked_start`,
   unless the booking was created inside that window. Off when
   `reminder_before_min` is 0.
+- **End reminder** (`Erinnerung: Rückgabe bis HH:MM`): once for an `active`
+  booking when `booked_end - end_reminder_before_min <= now < booked_end`,
+  unless the trip started inside that window (`actual_start >= booked_end -
+  end_reminder_before_min`). Off when `end_reminder_before_min` is 0. Body:
+  return in time or extend the booking; the late-fee line as in the
+  late-return reminder.
 - **Late-return reminder** (`Rückgabe überfällig: <car>`): once for an
   `active` booking when `now >= booked_end`. It names the late fee only when
   the user's tariff at `booked_start` has `late_fee_cents_per_started_h > 0` and the
   booking is not a club trip.
-- **Once only:** `start_reminded` / `late_reminded` are set only after a
-  successful send, so a failed send is retried on the next 5-min tick while
-  the condition holds. A change of `booked_start` clears `start_reminded`, a
-  change of `booked_end` clears `late_reminded`. The reminders run in the
+- **Once only:** `start_reminded` / `end_reminded` / `late_reminded` are set
+  only after a successful send (push delivered or mail sent), so a failed send
+  is retried on the next 5-min tick while the condition holds. A change of
+  `booked_start` clears `start_reminded`, a change of `booked_end` clears
+  `end_reminded` and `late_reminded`. The reminders run in the
   5-min expiry job, after expiry; the first failed send ends that tick.
 - Mail is sent synchronously in the event loop: while the SMTP relay is
   unreachable, a booking request that mails waits up to the SMTP timeout
   (connect 5 s, total 20 s) before it answers.
+- **Push (Web Push, RFC 8030/8291/8292)** replaces the mail for the three
+  reminders (start, end, late return): when the user has push subscriptions,
+  the server sends the reminder to each; at least one 2xx answer counts as
+  delivered and no mail is sent. Without subscriptions, or when no push is
+  delivered, the mail goes out in the same tick. All other mails stay mail
+  only. Opt-in per device under „Konto“ (browser permission); on iPhone/iPad
+  only in the app installed to the home screen (iOS 16.4+).
+  - Message: JSON `{title, body, url: "/#/buchungen", tag: "booking-<id>"}`,
+    encrypted (aes128gcm) for the browser key; start `Fahrt ab HH:MM` /
+    `<car>: Starten kannst du ab HH:MM.`, end `Rückgabe bis HH:MM` / `<car>:
+    Bitte rechtzeitig zurückbringen oder die Buchung verlängern.`, late
+    `Rückgabe überfällig: <car>` / `Die Buchung ist um HH:MM abgelaufen. Bitte
+    bring das Auto zurück und beende die Fahrt.`
+  - Request: `POST <endpoint>` with `TTL: 3600`, `Urgency: high`,
+    `Content-Encoding: aes128gcm` and `Authorization: vapid t=<JWT>, k=<key>`
+    (ES256; `aud` = endpoint origin, `exp` = now + 12 h, `sub` = `base_url` if
+    https, else `mailto:<mail_from>` if set, else none). Timeout 5 s per
+    request, synchronous like mail.
+  - Answers: 2xx delivered; 404/410 the subscription is deleted; anything else
+    (or no answer) not delivered, the subscription stays.
+  - Endpoint allow-list (SSRF guard): `https://`, no port, no userinfo, host
+    equal to or below `fcm.googleapis.com`, `push.services.mozilla.com`,
+    `push.apple.com` or `notify.windows.com`. Rows outside it are deleted
+    when sending.
+  - The client re-sends its subscription at app start and after login (so
+    the owner, endpoint and server key stay current; a subscription made with
+    another server key is renewed) and deletes it before logout.
 - **Trip finished** (`Fahrt beendet: <car>`, to every active admin, so they
   can check and later unplug the car at the public charger): when a member
   returns a trip (`POST /api/bookings/{id}/return`). Body: the local return
@@ -616,6 +663,12 @@ it (the mailer logs it).
   with `pin_unavailable`.
 - PIN digits are stored in plain text in `data/access_pins.jsonl` only
   while the trip runs (the backup is age-encrypted).
+- Outbound HTTPS (TLS verification on) to the browsers' push services (§10),
+  allow-listed hosts only. Payloads are end-to-end encrypted to the device;
+  the push service (Google, Mozilla, Apple, Microsoft) sees only the time,
+  size and the device endpoint. `vapid.json` holds the server's signing key
+  in `data/` (in the encrypted backup); losing it only makes the devices
+  re-subscribe at their next app start.
 
 ## 12. Data and backup
 
@@ -643,7 +696,8 @@ it (the mailer logs it).
   `user` (public, no `pw_hash`), `bookings`, `damage_reports` (each with
   `photos`: API paths `/api/damage/{id}/photos/{k}`), `mandates` (masked
   IBAN only, `iban_masked`), `invoices` (each with its `lines`). Sessions,
-  tokens, odometer readings and `access_pin` rows (PINs) are not exported. Full IBANs never leave the
+  tokens, push subscriptions (device addresses and keys), odometer readings
+  and `access_pin` rows (PINs) are not exported. Full IBANs never leave the
   server, the export included. The web saves it as `ocs-export-<id>.json`.
 - Deactivation (admin user PUT with `active:false`) deletes the sessions and
   cancels every `reserved` booking of the user with cancel fee 0, like a
@@ -660,6 +714,10 @@ it (the mailer logs it).
 POST /api/login | /api/logout | /api/password-reset
 GET/PUT /api/me
 GET/POST/DELETE /api/me/mandate   (DELETE needs the password)
+GET  /api/push/key                {key}: VAPID public key, base64url
+POST /api/me/push                 {endpoint, p256dh, auth}; 400 invalid | push_endpoint
+DELETE /api/me/push               {endpoint}; only the caller's own row; ok also if unknown
+POST /api/me/push/test            {sent, failed}: test message to the caller's devices
 GET  /api/cars                    (items carry has_lock: bool)
 GET  /api/calendar?car=&from=&to=
 GET  /api/bookings?scope=upcoming|history

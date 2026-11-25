@@ -37,6 +37,7 @@ int notify_booking_mail(const notify_booking_t *n, char *subject, size_t scap, c
     case NT_CANCELLED: add(subject, scap, &sl, "Buchung %lld storniert", (long long)b->id); break;
     case NT_REMIND_START: add(subject, scap, &sl, "Erinnerung: Fahrt ab %s", from + 11); break;
     case NT_REMIND_LATE: add(subject, scap, &sl, "R\xC3\xBC" "ckgabe \xC3\xBC" "berf\xC3\xA4llig: %s", n->car->name); break;
+    case NT_REMIND_END: add(subject, scap, &sl, "Erinnerung: R\xC3\xBC" "ckgabe bis %s", to + 11); break;
     default: return -1;
   }
   add(body, bcap, &bl, "Hallo %s,\n\n", n->user_name);
@@ -57,6 +58,12 @@ int notify_booking_mail(const notify_booking_t *n, char *subject, size_t scap, c
           "zur\xC3\xBC" "ck und beende die Fahrt unter \xE2\x80\x9EMeine Buchungen\xE2\x80\x9C.",
           to);
       break;
+    case NT_REMIND_END:
+      add(body, bcap, &bl,
+          "deine Buchung endet bald. Bitte bring das Auto rechtzeitig zur\xC3\xBC" "ck und beende die Fahrt unter "
+          "\xE2\x80\x9EMeine Buchungen\xE2\x80\x9C. Brauchst du l\xC3\xA4nger, verl\xC3\xA4ngere die Buchung dort, "
+          "solange das Auto frei ist.");
+      break;
   }
   add(body, bcap, &bl, "\n\nAuto: %s (%s)\nVon: %s\nBis: %s\n", n->car->name, n->car->plate, from, to);
   if (b->club_trip) add(body, bcap, &bl, "Vereinsfahrt\n");
@@ -70,7 +77,7 @@ int notify_booking_mail(const notify_booking_t *n, char *subject, size_t scap, c
     notify_local_time(b->booked_start - (int64_t)n->start_tolerance_min * 60, t);
     add(body, bcap, &bl, "Starten kannst du ab %s.\n", t);
   }
-  if (n->kind == NT_REMIND_LATE && n->late_fee_cents_per_h > 0 && !b->club_trip) {
+  if ((n->kind == NT_REMIND_LATE || n->kind == NT_REMIND_END) && n->late_fee_cents_per_h > 0 && !b->club_trip) {
     char t[17];
     notify_local_time(b->booked_end + (int64_t)n->start_tolerance_min * 60, t);
     money_de(n->late_fee_cents_per_h, money, sizeof money);
@@ -78,6 +85,36 @@ int notify_booking_mail(const notify_booking_t *n, char *subject, size_t scap, c
   }
   add(body, bcap, &bl, "\nMeine Buchungen: %s/#/buchungen\n", n->base_url);
   return sl >= scap || bl >= bcap ? -1 : 0;
+}
+
+int notify_booking_push(const notify_booking_t *n, char *title, size_t tcap, char *body, size_t bcap) {
+  const booking_t *b = n->b;
+  char t[17];
+  size_t tl = 0, bl = 0;
+  if (!tcap || !bcap) return -1;
+  title[0] = body[0] = 0;
+  switch (n->kind) {
+    case NT_REMIND_START:
+      notify_local_time(b->booked_start, t);
+      add(title, tcap, &tl, "Fahrt ab %s", t + 11);
+      notify_local_time(b->booked_start - (int64_t)n->start_tolerance_min * 60, t);
+      add(body, bcap, &bl, "%s: Starten kannst du ab %s.", n->car->name, t + 11);
+      break;
+    case NT_REMIND_END:
+      notify_local_time(b->booked_end, t);
+      add(title, tcap, &tl, "R\xC3\xBC" "ckgabe bis %s", t + 11);
+      add(body, bcap, &bl, "%s: Bitte rechtzeitig zur\xC3\xBC" "ckbringen oder die Buchung verl\xC3\xA4ngern.",
+          n->car->name);
+      break;
+    case NT_REMIND_LATE:
+      notify_local_time(b->booked_end, t);
+      add(title, tcap, &tl, "R\xC3\xBC" "ckgabe \xC3\xBC" "berf\xC3\xA4llig: %s", n->car->name);
+      add(body, bcap, &bl, "Die Buchung ist um %s abgelaufen. Bitte bring das Auto zur\xC3\xBC" "ck und beende die Fahrt.",
+          t + 11);
+      break;
+    default: return -1;
+  }
+  return tl >= tcap || bl >= bcap ? -1 : 0;
 }
 
 int notify_run_mail(const notify_run_t *r, char *subject, size_t scap, char *body, size_t bcap) {

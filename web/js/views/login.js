@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { refreshUser, navigate } from '../app.js';
+import { syncPush } from '../push.js';
 
 // Shown once above the next login form, e.g. after a new password was set.
 let notice = '';
@@ -38,6 +39,7 @@ export function render(root) {
         password: form.password.value,
       });
       await refreshUser();
+      syncPush();
       navigate('#/kalender');
     } catch (ex) {
       err.textContent = ex.message;

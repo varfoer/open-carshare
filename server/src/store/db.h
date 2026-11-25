@@ -23,7 +23,9 @@ typedef struct {
   settings_t settings;
   access_pin_t *pins; size_t n_pins, cap_pins;
   odometer_reading_t *readings; size_t n_readings, cap_readings;
+  push_sub_t *subs; size_t n_subs, cap_subs;
   int64_t km_mail_day;
+  char vapid_key[48];  /* base64url P-256 private key from vapid.json; "" if none yet */
 } db_t;
 
 /* 0 ok, -1 on bad dir, unreadable or corrupt file. db is freed on failure.
@@ -107,6 +109,16 @@ int db_pins_blank(db_t *db, int64_t booking_id);
 int db_prune_pins(db_t *db, int64_t before);
 /* Persists jobs.json {"km_mail_day":N}, then sets db->km_mail_day. */
 int db_put_km_mail_day(db_t *db, int64_t day);
+
+/* push_subscriptions.jsonl (missing file = empty). put: drops the row with the same endpoint (of
+ * any user), inserts s with id max+1, then drops the oldest rows (smallest id) of s->user_id beyond
+ * PUSH_MAX_PER_USER; one write, RAM restored on -1. delete: removes the row with this endpoint when
+ * user_id is 0 or owns it; 0 also when nothing matched (no write). Pointers into the table are
+ * invalid after either call. */
+int db_put_push_sub(db_t *db, push_sub_t *s);
+int db_delete_push_sub(db_t *db, const char *endpoint, int64_t user_id);
+/* Persists vapid.json {"private":"<base64url of 32 bytes>"}, then sets db->vapid_key. */
+int db_put_vapid_key(db_t *db, const char *b64);
 
 /* Writes "<dir>/photos/r<report_id>-<k>.jpg" (k is 1-based) into out. -1 if it does not fit. */
 int db_photo_path(const db_t *db, int64_t report_id, int k, char *out, size_t cap);

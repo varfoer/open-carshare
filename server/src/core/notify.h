@@ -9,17 +9,19 @@
 /* Pure mail texts for booking events, reminders and the billing run (spec §10). Bodies use LF;
  * mail_build converts to CRLF. */
 
-typedef enum { NT_CREATED = 0, NT_MODIFIED, NT_CANCELLED, NT_REMIND_START, NT_REMIND_LATE } notify_kind_t;
+typedef enum { NT_CREATED = 0, NT_MODIFIED, NT_CANCELLED, NT_REMIND_START, NT_REMIND_LATE, NT_REMIND_END } notify_kind_t;
 typedef struct {
   notify_kind_t kind;
   const booking_t *b; const car_t *car;
   const char *user_name, *base_url;
   bool by_admin;                 /* NT_MODIFIED/NT_CANCELLED: actor != booking user */
-  int start_tolerance_min;       /* NT_REMIND_START: start allowed from; NT_REMIND_LATE: fee from */
-  int64_t late_fee_cents_per_h;  /* NT_REMIND_LATE; 0 = no fee line */
+  int start_tolerance_min;       /* NT_REMIND_START: start allowed from; NT_REMIND_LATE/END: fee from */
+  int64_t late_fee_cents_per_h;  /* NT_REMIND_LATE/END; 0 = no fee line */
 } notify_booking_t;
 /* 0 ok, -1 if subject or body does not fit. */
 int notify_booking_mail(const notify_booking_t *n, char *subject, size_t scap, char *body, size_t bcap);
+/* Short push texts for NT_REMIND_START/END/LATE. 0 ok, -1 for other kinds or if a text does not fit. */
+int notify_booking_push(const notify_booking_t *n, char *title, size_t tcap, char *body, size_t bcap);
 
 typedef struct {
   int64_t run_id; const char *period;          /* "YYYY-MM" */

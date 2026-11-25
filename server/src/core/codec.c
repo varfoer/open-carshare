@@ -1,5 +1,6 @@
 #include "core/codec.h"
 #include "core/access.h"
+#include "core/push.h"
 #include "core/sepa.h"
 
 #include <string.h>
@@ -239,6 +240,7 @@ cJSON *booking_to_json(const booking_t *v) {
   PUT(put_i64(o, "invoice_id", v->invoice_id));
   PUT(put_bool(o, "start_reminded", v->start_reminded));
   PUT(put_bool(o, "late_reminded", v->late_reminded));
+  PUT(put_bool(o, "end_reminded", v->end_reminded));
   return o;
 }
 
@@ -261,6 +263,7 @@ int booking_from_json(const cJSON *j, booking_t *out) {
   TRY(get_bool_opt(j, "club_trip", &out->club_trip));
   TRY(get_bool_opt(j, "start_reminded", &out->start_reminded));
   TRY(get_bool_opt(j, "late_reminded", &out->late_reminded));
+  TRY(get_bool_opt(j, "end_reminded", &out->end_reminded));
   TRY(get_i64_opt(j, "actual_start", &out->actual_start));
   TRY(get_i64_opt(j, "actual_end", &out->actual_end));
   TRY(get_i64_opt(j, "km_start", &out->km_start));
@@ -374,6 +377,44 @@ int access_pin_from_json(const cJSON *j, access_pin_t *out) {
   return 0;
 }
 
+/* ---- push subscription ---- */
+
+cJSON *push_sub_to_json(const push_sub_t *v) {
+  cJSON *o = cJSON_CreateObject();
+  if (!o) return NULL;
+  PUT(put_i64(o, "id", v->id));
+  PUT(put_i64(o, "user_id", v->user_id));
+  /* put_str truncates at 255; the endpoint is up to 1023, so it is length-checked here. */
+  if (strnlen(v->endpoint, sizeof v->endpoint) >= sizeof v->endpoint) PUT(-1);
+  PUT(put_cstr(o, "endpoint", v->endpoint));
+  PUT(put_str(o, "p256dh", v->p256dh, sizeof v->p256dh));
+  PUT(put_str(o, "auth", v->auth, sizeof v->auth));
+  PUT(put_i64(o, "created_at", v->created_at));
+  return o;
+}
+
+/* Decodes to exactly want bytes. */
+static int b64url_len_is(const char *s, size_t want) {
+  uint8_t buf[80];
+  size_t n = 0;
+  return b64url_decode(s, buf, sizeof buf, &n) == 0 && n == want ? 0 : -1;
+}
+
+int push_sub_from_json(const cJSON *j, push_sub_t *out) {
+  OBJ_OR_FAIL(j);
+  memset(out, 0, sizeof *out);
+  TRY(get_i64(j, "id", &out->id));
+  TRY(get_i64(j, "user_id", &out->user_id));
+  TRY(get_str(j, "endpoint", out->endpoint, sizeof out->endpoint));
+  TRY(get_str(j, "p256dh", out->p256dh, sizeof out->p256dh));
+  TRY(get_str(j, "auth", out->auth, sizeof out->auth));
+  TRY(get_i64(j, "created_at", &out->created_at));
+  if (strncmp(out->endpoint, "https://", 8) != 0) return -1;
+  TRY(b64url_len_is(out->p256dh, 65));
+  TRY(b64url_len_is(out->auth, 16));
+  return 0;
+}
+
 /* ---- session ---- */
 
 cJSON *session_to_json(const session_t *v) {
@@ -437,6 +478,7 @@ cJSON *settings_to_json(const settings_t *v) {
   PUT(put_str(o, "creditor_bic", v->creditor_bic, sizeof v->creditor_bic));
   PUT(put_i64(o, "sepa_lead_days", v->sepa_lead_days));
   PUT(put_i64(o, "reminder_before_min", v->reminder_before_min));
+  PUT(put_i64(o, "end_reminder_before_min", v->end_reminder_before_min));
   /* put_str truncates at 255; the footer is up to 511, so it is length-checked here. */
   if (strnlen(v->invoice_footer, sizeof v->invoice_footer) >= sizeof v->invoice_footer) PUT(-1);
   PUT(put_cstr(o, "invoice_footer", v->invoice_footer));
@@ -449,6 +491,7 @@ int settings_from_json(const cJSON *j, settings_t *out) {
   out->start_tolerance_min = 15;
   out->sepa_lead_days = 5;
   out->reminder_before_min = 60;
+  out->end_reminder_before_min = 30;
   /* Present keys must be valid; missing keys keep their defaults. */
   if (cJSON_GetObjectItemCaseSensitive(j, "start_tolerance_min"))
     TRY(get_int(j, "start_tolerance_min", &out->start_tolerance_min));
@@ -460,6 +503,8 @@ int settings_from_json(const cJSON *j, settings_t *out) {
     TRY(get_int(j, "sepa_lead_days", &out->sepa_lead_days));
   if (cJSON_GetObjectItemCaseSensitive(j, "reminder_before_min"))
     TRY(get_int(j, "reminder_before_min", &out->reminder_before_min));
+  if (cJSON_GetObjectItemCaseSensitive(j, "end_reminder_before_min"))
+    TRY(get_int(j, "end_reminder_before_min", &out->end_reminder_before_min));
   /* String keys default to "" when missing. */
 #define SETTINGS_STR(field)                                                   \
   if (cJSON_GetObjectItemCaseSensitive(j, #field))                            \

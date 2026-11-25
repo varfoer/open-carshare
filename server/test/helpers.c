@@ -11,6 +11,7 @@
 #include "auth/password.h"
 #include "core/sepa.h"
 #include "cJSON.h"
+#include "http/api.h"
 #include "platform/platform.h"
 
 /* ---- fake mailer ---- */
@@ -41,6 +42,48 @@ size_t th_last_mail_att_len(void) { return last_att_len; }
 int th_mail_count(void) { return mail_count; }
 void th_mail_fail(int fail) { mail_fail = fail; }
 void th_mail_fail_to(const char *to) { snprintf(mail_fail_to, sizeof mail_fail_to, "%s", to ? to : ""); }
+
+/* ---- fake push services ---- */
+
+static int push_status, push_count, push_override_status;
+static char push_override[128], push_last_url[1024], push_last_auth[1400];
+static size_t push_last_len;
+
+static int fake_https(const http_req_t *r, int *status, char *out, size_t cap) {
+  push_count++;
+  snprintf(push_last_url, sizeof push_last_url, "%s", r->url);
+  push_last_auth[0] = 0;
+  for (size_t i = 0; r->headers && r->headers[i]; i++)
+    if (strncmp(r->headers[i], "Authorization: ", 15) == 0)
+      snprintf(push_last_auth, sizeof push_last_auth, "%s", r->headers[i]);
+  push_last_len = r->body_len;
+  if (cap) out[0] = 0;
+  int st = push_override[0] && strstr(r->url, push_override) ? push_override_status : push_status;
+  if (st < 0) return -1;
+  *status = st;
+  return 0;
+}
+
+void th_push_status(int status) { push_status = status; }
+void th_push_status_for(const char *needle, int status) {
+  snprintf(push_override, sizeof push_override, "%s", needle ? needle : "");
+  push_override_status = status;
+}
+int th_push_count(void) { return push_count; }
+const char *th_push_last_url(void) { return push_last_url; }
+const char *th_push_last_auth(void) { return push_last_auth; }
+size_t th_push_last_len(void) { return push_last_len; }
+
+int64_t th_add_push_sub(app_t *a, int64_t user_id, const char *endpoint) {
+  push_sub_t s;
+  memset(&s, 0, sizeof s);
+  s.user_id = user_id;
+  s.created_at = 1;
+  snprintf(s.endpoint, sizeof s.endpoint, "%s", endpoint);
+  snprintf(s.p256dh, sizeof s.p256dh, "%s", TH_PUSH_P256DH);
+  snprintf(s.auth, sizeof s.auth, "%s", TH_PUSH_AUTH);
+  return db_put_push_sub(&a->db, &s) == 0 ? s.id : -1;
+}
 
 /* ---- fake igloohome ---- */
 
@@ -165,6 +208,15 @@ app_t *th_app(void) {
   a->lock_list = fake_locks;
   a->pin_ctx = NULL;
   pin_reset();
+  a->https = fake_https;
+  push_status = 201;
+  push_count = 0;
+  push_override[0] = push_last_url[0] = push_last_auth[0] = 0;
+  push_last_len = 0;
+  if (api_push_init(a) != 0) {
+    th_free(a);
+    return NULL;
+  }
   return a;
 }
 

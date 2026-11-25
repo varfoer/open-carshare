@@ -53,8 +53,9 @@ int api_km_pending_mail(app_t *a, int64_t now);
  * 0 sent, 1 skipped (user missing or inactive), -1 build or send failed. Never touches the db. */
 int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t actor_id);
 
-/* Sends due start/late reminders (rules: spec §10) and persists the flag after each
- * successful send. Returns number sent, -1 on storage error (stops). Mail failures are skipped
+/* Sends due start/end/late reminders (rules: spec §10) and persists the flag after each
+ * successful send: by push when the user has subscriptions and at least one push is delivered,
+ * else by mail. Returns number sent, -1 on storage error (stops). Mail failures are skipped
  * (flag stays false, retried next call) and end the call, so a down relay costs one SMTP timeout
  * per call. */
 int api_send_reminders(app_t *a, int64_t now);
@@ -67,6 +68,9 @@ int api_notify_run_sent(app_t *a, const billing_run_t *run, const invoice_t *inv
 /* Mails "Fahrt beendet: <car>" with the local return time (actual_end) to every active admin, so
  * they can check the charger. 1 if at least one sent, 0 no admin, -1 all failed. */
 int api_notify_returned(app_t *a, const booking_t *b);
+
+/* Loads the VAPID key from vapid.json, or creates and persists one; sets push_ready. 0 ok, -1 fail. */
+int api_push_init(app_t *a);
 
 /* helpers for api_*.c */
 void api_json(api_res_t *res, int status, cJSON *body);           /* takes ownership; NULL -> 500 */

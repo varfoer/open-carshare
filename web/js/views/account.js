@@ -4,6 +4,7 @@ import { el, messageBox, textField, checkField, primaryButton } from '../admin_u
 import { epochToBerlin } from '../time.js';
 import { p2 } from '../form_time.js';
 import { ibanValid, formatIban, normalizeIban } from '../sepa.js';
+import { pushState, enablePush, disablePush } from '../push.js';
 
 const MIN_PASSWORD = 10;
 
@@ -103,6 +104,60 @@ function mandateCard(user) {
   return card;
 }
 
+// Push on this device: reminders (start, end, late return) as push instead of mail.
+function pushCard() {
+  const card = el('section', { className: 'card' });
+  const err = messageBox('error');
+  const ok = messageBox('success');
+  const button = (text, className, run) => {
+    const b = el('button', { type: 'button', className, text });
+    b.addEventListener('click', async () => {
+      err.hide(); ok.hide();
+      b.disabled = true;
+      try { await run(); } catch (x) { err.show(x.message); } finally { b.disabled = false; }
+    });
+    return b;
+  };
+
+  async function load() {
+    let st;
+    try { st = await pushState(); } catch { st = 'unsupported'; }
+    card.replaceChildren(el('h2', { text: 'Benachrichtigungen' }),
+      el('p', { className: 'hint', text: 'Erinnerungen an Fahrtbeginn, Rückgabe und Verspätung kommen als Push-Nachricht auf dieses Gerät statt per E-Mail.' }));
+    if (st === 'ios-install') {
+      card.append(el('p', { text: 'Auf iPhone und iPad gehen Push-Nachrichten nur in der installierten App: in Safari „Teilen“ → „Zum Home-Bildschirm“, dann die App vom Home-Bildschirm öffnen und hier einschalten.' }));
+    } else if (st === 'unsupported') {
+      card.append(el('p', { text: 'Dieser Browser unterstützt keine Push-Nachrichten. Erinnerungen kommen per E-Mail.' }));
+    } else if (st === 'denied') {
+      card.append(el('p', { text: 'Benachrichtigungen sind für diese Seite blockiert. Erlaube sie in den Einstellungen des Browsers und lade die Seite neu.' }));
+    } else if (st === 'off') {
+      card.append(el('p', { text: 'Aus. Erinnerungen kommen per E-Mail.' }),
+        el('div', { className: 'dialog-actions' }, button('Push-Nachrichten einschalten', 'primary', async () => {
+          await enablePush();
+          await load();
+          ok.show('Eingeschaltet. Mit „Testnachricht senden“ kannst du es prüfen.');
+        })));
+    } else {
+      card.append(el('p', { text: 'An auf diesem Gerät.' }),
+        el('div', { className: 'dialog-actions' },
+          button('Testnachricht senden', 'btn', async () => {
+            const r = await api('POST', '/api/me/push/test');
+            if (r.sent > 0) ok.show('Gesendet. Die Nachricht sollte gleich erscheinen.');
+            else err.show('Die Testnachricht konnte nicht zugestellt werden. Schalte Push-Nachrichten aus und wieder ein.');
+          }),
+          button('Ausschalten', 'soft', async () => {
+            await disablePush();
+            await load();
+            ok.show('Ausgeschaltet. Erinnerungen kommen wieder per E-Mail.');
+          })));
+    }
+    card.append(err.node, ok.node);
+  }
+
+  load();
+  return card;
+}
+
 export async function render(root) {
   const { user } = await api('GET', '/api/me');
 
@@ -146,5 +201,5 @@ export async function render(root) {
     } catch (x) { wErr.show(x.message); }
   });
 
-  root.append(pForm, mandateCard(user), wForm);
+  root.append(pForm, mandateCard(user), pushCard(), wForm);
 }

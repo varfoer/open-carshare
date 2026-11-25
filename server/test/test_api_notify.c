@@ -37,6 +37,7 @@ void setUp(void) {
   s.cancel_deadline_min = 60;
   s.cancel_fee_cents = 500;
   s.reminder_before_min = 60;
+  s.end_reminder_before_min = 0; /* end reminder: test_api_push.c */
   TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
 }
 

@@ -1,6 +1,6 @@
 // Service worker: app shell cache-first with background update; /api/* is never cached.
 // Keep SHELL in sync with `git ls-files web` (minus web/test/); bump CACHE on every web change.
-const CACHE = 'ocs-v30';
+const CACHE = 'ocs-v31';
 const SHELL = [
   '/',
   '/index.html',
@@ -24,6 +24,7 @@ const SHELL = [
   '/js/money.js',
   '/js/photo.js',
   '/js/price.js',
+  '/js/push.js',
   '/js/sepa.js',
   '/js/time.js',
   '/js/trip.js',
@@ -72,5 +73,35 @@ self.addEventListener('fetch', (event) => {
     });
     if (cached) { update.catch(() => {}); return cached; }
     return update;
+  })());
+});
+
+// Web Push (spec §10): the server sends {title, body, url, tag}, encrypted end to end.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
+  event.waitUntil(self.registration.showNotification(d.title || 'Carsharing', {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    renotify: !!d.tag,
+    icon: '/icon-192.png',
+    data: { url: d.url || '/#/buchungen' },
+  }));
+});
+
+// Tap: bring an open app window to the target view, else open one. Same origin only.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  let url = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin);
+  if (url.origin !== self.location.origin) url = new URL('/', self.location.origin);
+  event.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (new URL(w.url).origin !== self.location.origin) continue;
+      await w.focus();
+      if ('navigate' in w) await w.navigate(url.href).catch(() => {});
+      return;
+    }
+    await self.clients.openWindow(url.href);
   })());
 });

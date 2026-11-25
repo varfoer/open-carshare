@@ -4,6 +4,7 @@
 #include "auth/ratelimit.h"
 #include "core/access.h"
 #include "core/mail_build.h"
+#include "platform/platform.h"
 #include "store/db.h"
 
 typedef struct {
@@ -27,6 +28,9 @@ typedef pin_err_t (*pin_create_fn)(void *ctx, const char *device_id, int64_t fro
 /* List the locks of the igloohome account; *http_status = last HTTP status (0 = transport). */
 typedef pin_err_t (*lock_list_fn)(void *ctx, lock_info_t *out, size_t cap, size_t *n, int *http_status);
 
+/* HTTPS request as platform_https (production) or a fake (tests). */
+typedef int (*https_fn)(const http_req_t *r, int *status, char *out, size_t cap);
+
 /* Variance already tried for (car, hour) in this process; see api_access. */
 typedef struct { int64_t car_id, hour; int used; } pin_attempt_t;
 #define APP_PIN_ATTEMPTS 16
@@ -36,6 +40,9 @@ typedef struct {
   mail_send_fn mail_send; void *mail_ctx;
   pin_create_fn pin_create; lock_list_fn lock_list; void *pin_ctx;
   pin_attempt_t pin_attempts[APP_PIN_ATTEMPTS];
+  /* Web Push (api_push): sender and VAPID key pair; push_ready after api_push_init. */
+  https_fn https;
+  uint8_t vapid_priv[32], vapid_pub[65]; char vapid_pub_b64[96]; bool push_ready;
 } app_t;
 
 #endif

@@ -1,6 +1,7 @@
 /* Glue between booking/billing events and the pure mail texts of core/notify (spec §10).
  * Mail failures never change the outcome of the request that triggered them. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/notify.h"
@@ -21,7 +22,7 @@ int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t
 void api_booking_changed(const booking_t *old, booking_t *nb) {
   bool reassigned = nb->user_id != old->user_id;   /* the new user was never reminded */
   if (reassigned || nb->booked_start != old->booked_start) nb->start_reminded = false;
-  if (reassigned || nb->booked_end != old->booked_end) nb->late_reminded = false;
+  if (reassigned || nb->booked_end != old->booked_end) nb->late_reminded = nb->end_reminded = false;
 }
 
 void api_notify_booking_update(app_t *a, const booking_t *old, const booking_t *nb, int64_t actor_id) {
@@ -41,8 +42,25 @@ static int reminder_due(const settings_t *s, const booking_t *b, int64_t now) {
     int64_t from = b->booked_start - (int64_t)s->reminder_before_min * 60;
     if (from <= now && now < b->booked_start && b->created_at < from) return NT_REMIND_START;
   }
+  if (b->state == BK_ACTIVE && !b->end_reminded && s->end_reminder_before_min > 0) {
+    int64_t from = b->booked_end - (int64_t)s->end_reminder_before_min * 60;
+    /* A trip started inside the window needs no reminder: the member just saw the end time. */
+    if (from <= now && now < b->booked_end && b->actual_start < from) return NT_REMIND_END;
+  }
   if (b->state == BK_ACTIVE && !b->late_reminded && now >= b->booked_end) return NT_REMIND_LATE;
   return -1;
+}
+
+/* Push to every device of the user; true if at least one push service took the message. */
+static bool remind_by_push(app_t *a, const notify_booking_t *n, int64_t user_id, int64_t now) {
+  char title[128], text[512], tag[32];
+  if (!api_push_has(a, user_id) || notify_booking_push(n, title, sizeof title, text, sizeof text) != 0)
+    return false;
+  snprintf(tag, sizeof tag, "booking-%lld", (long long)n->b->id);
+  char *payload = api_push_payload(title, text, "/#/buchungen", tag);
+  int sent = payload ? api_push_user(a, user_id, payload, now, NULL) : 0;
+  free(payload);
+  return sent > 0;
 }
 
 int api_send_reminders(app_t *a, int64_t now) {
@@ -58,16 +76,19 @@ int api_send_reminders(app_t *a, int64_t now) {
     notify_booking_t n = {.kind = (notify_kind_t)kind, .b = &b, .car = c, .user_name = u->name,
                           .base_url = a->cfg.base_url,
                           .start_tolerance_min = a->db.settings.start_tolerance_min};
-    if (kind == NT_REMIND_LATE) {
+    if (kind == NT_REMIND_LATE || kind == NT_REMIND_END) {
       const tariff_version_t *t = db_tariff_at(&a->db, b.user_id, b.booked_start);
       n.late_fee_cents_per_h = t ? t->late_fee_cents_per_started_h : 0;
     }
-    char subject[256], body[4096];
+    char subject[256], body[4096], to[sizeof u->email];
     if (notify_booking_mail(&n, subject, sizeof subject, body, sizeof body) != 0) continue;
-    /* Retried on the next call. Stop the tick: with the relay down every further send would
+    snprintf(to, sizeof to, "%s", u->email);
+    /* Push replaces the mail; without a delivered push the mail goes out. A failed mail is
+     * retried on the next call. Stop the tick: with the relay down every further send would
      * block the event loop for another SMTP timeout. */
-    if (api_send_mail(a, u->email, subject, body) != 0) break;
+    if (!remind_by_push(a, &n, b.user_id, now) && api_send_mail(a, to, subject, body) != 0) break;
     if (kind == NT_REMIND_START) b.start_reminded = true;
+    else if (kind == NT_REMIND_END) b.end_reminded = true;
     else b.late_reminded = true;
     if (db_put_booking(&a->db, &b) != 0) return -1;
     sent++;

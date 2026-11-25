@@ -37,6 +37,20 @@ const char *th_pin_last_name(void);
  * (PIN_OK = succeed). Both reset by th_app. */
 void th_locks_set(const lock_info_t *l, size_t n);
 void th_locks_fail(pin_err_t e);
+/* Fake push services (a->https), wired and reset by th_app, which also sets up the VAPID key.
+ * Every request answers th_push_status (default 201; -1 = transport error); requests whose URL
+ * contains the th_push_status_for needle answer that status instead (needle NULL/"" = off). */
+void th_push_status(int status);
+void th_push_status_for(const char *needle, int status);
+int th_push_count(void);
+const char *th_push_last_url(void);
+const char *th_push_last_auth(void);       /* the Authorization header line */
+size_t th_push_last_len(void);             /* body bytes */
+/* Browser key of RFC 8291 section 5 (valid point) and its auth secret. */
+#define TH_PUSH_P256DH "BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4"
+#define TH_PUSH_AUTH "BTBZMqHH6r4Tts7J_aSIgg"
+/* Subscription with the key above; id or -1. */
+int64_t th_add_push_sub(app_t *a, int64_t user_id, const char *endpoint);
 /* Active user, name "Test User"; pw NULL or "" -> empty pw_hash. id or -1.
  * th_add_user also inserts an ACTIVE mandate (holder "Test User", IBAN DE89370400440532013000,
  * text_version 1); th_add_user_bare does not. */

@@ -7,11 +7,12 @@ Files here: `ocs-server.service`, `ocs.conf.example`, `Caddyfile`.
 
 ## 1. Packages
 
-Build: `build-essential cmake libcurl4-openssl-dev` (cmake >= 3.22).
-Runtime: `libcurl4`.
+Build: `build-essential cmake libcurl4-openssl-dev libssl-dev` (cmake >= 3.22,
+OpenSSL >= 3.0 for Web Push).
+Runtime: `libcurl4`, `libssl3`.
 
 ```sh
-sudo apt install build-essential cmake libcurl4-openssl-dev git
+sudo apt install build-essential cmake libcurl4-openssl-dev libssl-dev git
 ```
 
 ## 2. Build
@@ -103,6 +104,10 @@ sudo ufw enable
 If sshd listens on a port other than 22, allow that port before `ufw enable`.
 
 Port 8080 stays closed; the server listens on loopback only.
+
+Outbound HTTPS must stay open (default): mail relay, igloohome and the
+browsers' push services (`fcm.googleapis.com`, `*.push.services.mozilla.com`,
+`*.push.apple.com`, `*.notify.windows.com`) for push reminders.
 
 Only if `tracker_port` is set in `ocs.conf` (section 10), also open it:
 

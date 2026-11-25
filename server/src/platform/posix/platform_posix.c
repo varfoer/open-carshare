@@ -128,6 +128,10 @@ int platform_https(const http_req_t *r, int *status, char *out, size_t cap) {
     struct curl_slist *h2 = (n > 0 && (size_t)n < sizeof buf) ? curl_slist_append(hdr, buf) : NULL;
     if (!h2) { curl_slist_free_all(hdr); hdr = NULL; } else hdr = h2;
   }
+  for (size_t i = 0; hdr && r->headers && r->headers[i]; i++) {
+    struct curl_slist *h2 = curl_slist_append(hdr, r->headers[i]);
+    if (!h2) { curl_slist_free_all(hdr); hdr = NULL; } else hdr = h2;
+  }
   if (!hdr) { curl_easy_cleanup(c); return -1; }
   https_sink_t sink = {out, cap, 0};
   out[0] = 0;
@@ -154,8 +158,9 @@ int platform_https(const http_req_t *r, int *status, char *out, size_t cap) {
   }
   if (post) {
     curl_easy_setopt(c, CURLOPT_POST, 1L);
+    size_t blen = !r->body ? 0 : r->body_len ? r->body_len : strlen(r->body);
+    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)blen);
     curl_easy_setopt(c, CURLOPT_POSTFIELDS, r->body ? r->body : "");
-    curl_easy_setopt(c, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)(r->body ? strlen(r->body) : 0));
   }
   CURLcode rc = curl_easy_perform(c);
   long code = 0;

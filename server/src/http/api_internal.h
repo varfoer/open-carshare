@@ -186,8 +186,25 @@ void h_admin_user_mandate_revoke(app_t *a, const api_req_t *req, const api_ctx_t
 /* api_auth.c: sets the expiring ocs_session cookie (Max-Age=0) on res. */
 void api_clear_session_cookie(api_res_t *res);
 
+/* api_push.c (Web Push, spec §10). */
+typedef enum { PUSH_SENT = 0, PUSH_GONE, PUSH_FAIL } push_result_t;
+/* {"title","body","url","tag"} as a malloc'd string (free), NULL on OOM. */
+char *api_push_payload(const char *title, const char *body, const char *url, const char *tag);
+/* Encrypts payload for s and POSTs it to its push service. SENT: 2xx. GONE: 404/410, or the row
+ * can never be delivered (endpoint outside the allow-list, bad key). FAIL: anything else. */
+push_result_t api_push_one(app_t *a, const push_sub_t *s, const char *payload, int64_t now);
+/* api_push_one to every subscription of user_id; GONE rows are deleted. Returns the number SENT;
+ * *failed (if non-NULL) = the others. */
+int api_push_user(app_t *a, int64_t user_id, const char *payload, int64_t now, int *failed);
+bool api_push_has(const app_t *a, int64_t user_id);  /* at least one subscription */
+/* GET /api/push/key; POST/DELETE /api/me/push {endpoint[, p256dh, auth]}; POST /api/me/push/test. */
+void h_push_key_get(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_me_push_post(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_me_push_delete(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+void h_me_push_test(app_t *a, const api_req_t *req, const api_ctx_t *ctx, api_res_t *res);
+
 /* api_notify.c. Booking PUT, before the put: a changed booked_start re-arms the start reminder,
- * a changed booked_end the late reminder, a changed user_id both. */
+ * a changed booked_end the end and late reminders, a changed user_id all three. */
 void api_booking_changed(const booking_t *old, booking_t *nb);
 /* Booking PUT, after the put. user_id changed: NT_CANCELLED (old row) to the old user and
  * NT_CREATED to the new one. Else NT_MODIFIED if booked_start, booked_end, car_id or club_trip

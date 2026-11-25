@@ -8,6 +8,7 @@
 
 #include "cJSON.h"
 #include "core/codec.h"
+#include "core/push.h"
 #include "store/store.h"
 
 typedef cJSON *(*to_json_fn)(const void *);
@@ -122,6 +123,19 @@ DEFINE_LOADER_X(tokens, token_t, tokens, n_tokens, cap_tokens, token_from_json)
 DEFINE_LOADER_X(pins, access_pin_t, pins, n_pins, cap_pins, access_pin_from_json)
 DEFINE_LOADER_X(readings, odometer_reading_t, readings, n_readings, cap_readings,
                 odometer_reading_from_json)
+DEFINE_LOADER_X(subs, push_sub_t, subs, n_subs, cap_subs, push_sub_from_json)
+
+static int load_vapid(const cJSON *obj, void *ctx) {
+  db_t *db = ctx;
+  const cJSON *k = cJSON_GetObjectItemCaseSensitive(obj, "private");
+  uint8_t raw[32];
+  size_t n = 0;
+  if (!cJSON_IsString(k) || strlen(k->valuestring) >= sizeof db->vapid_key ||
+      b64url_decode(k->valuestring, raw, sizeof raw, &n) != 0 || n != 32)
+    return -1;
+  snprintf(db->vapid_key, sizeof db->vapid_key, "%s", k->valuestring);
+  return 0;
+}
 
 static int load_jobs(const cJSON *obj, void *ctx) {
   db_t *db = ctx;
@@ -159,6 +173,7 @@ void db_free(db_t *db) {
   free(db->tokens);
   free(db->pins);
   free(db->readings);
+  free(db->subs);
   memset(db, 0, sizeof *db);
 }
 
@@ -213,6 +228,8 @@ int db_load(db_t *db, const char *dir) {
   if (rc == 0) rc = load_file(db, "tokens.jsonl", load_tokens);
   if (rc == 0) rc = load_file(db, "settings.json", load_settings);
   if (rc == 0) rc = load_file(db, "jobs.json", load_jobs);
+  if (rc == 0) rc = load_file(db, "push_subscriptions.jsonl", load_subs);
+  if (rc == 0) rc = load_file(db, "vapid.json", load_vapid);
   if (rc == 0) {
     char path[512];
     long keep = -1;
@@ -825,5 +842,73 @@ int db_put_km_mail_day(db_t *db, int64_t day) {
   if (k < 0 || (size_t)k >= sizeof line) return -1;
   if (store_write_atomic(path, line, (size_t)k) != 0) return -1;
   db->km_mail_day = day;
+  return 0;
+}
+
+int db_put_push_sub(db_t *db, push_sub_t *s) {
+  size_t n = db->n_subs;
+  if (grow((void **)&db->subs, &db->cap_subs, n + 1, sizeof *s) != 0) return -1;
+  push_sub_t *copy = malloc((n + 1) * sizeof *copy);
+  if (!copy) return -1;
+  if (n) memcpy(copy, db->subs, n * sizeof *copy);
+  int64_t orig = s->id, max = 0;
+  size_t w = 0, own = 0;
+  for (size_t i = 0; i < n; i++) {
+    if (copy[i].id > max) max = copy[i].id;
+    if (strcmp(copy[i].endpoint, s->endpoint) == 0) continue;
+    if (copy[i].user_id == s->user_id) own++;
+    db->subs[w++] = copy[i];
+  }
+  s->id = max + 1;
+  db->subs[w++] = *s;
+  own++;
+  /* Rows are in id order of insertion, so the user's oldest rows come first. */
+  for (size_t i = 0; own > PUSH_MAX_PER_USER && i < w;) {
+    if (db->subs[i].user_id == s->user_id) {
+      memmove(&db->subs[i], &db->subs[i + 1], (w - i - 1) * sizeof *copy);
+      w--;
+      own--;
+    } else {
+      i++;
+    }
+  }
+  db->n_subs = w;
+  int rc = persist_table(db, "push_subscriptions.jsonl", db->subs, w, sizeof *copy,
+                         (to_json_fn)push_sub_to_json);
+  if (rc != 0) {
+    if (n) memcpy(db->subs, copy, n * sizeof *copy);
+    db->n_subs = n;
+    s->id = orig;
+  }
+  free(copy);
+  return rc == 0 ? 0 : -1;
+}
+
+int db_delete_push_sub(db_t *db, const char *endpoint, int64_t user_id) {
+  for (size_t i = 0; i < db->n_subs; i++) {
+    if (strcmp(db->subs[i].endpoint, endpoint) != 0) continue;
+    if (user_id != 0 && db->subs[i].user_id != user_id) return 0;
+    push_sub_t gone = db->subs[i];
+    memmove(&db->subs[i], &db->subs[i + 1], (db->n_subs - i - 1) * sizeof gone);
+    db->n_subs--;
+    if (persist_table(db, "push_subscriptions.jsonl", db->subs, db->n_subs, sizeof gone,
+                      (to_json_fn)push_sub_to_json) != 0) {
+      memmove(&db->subs[i + 1], &db->subs[i], (db->n_subs - i) * sizeof gone);
+      db->subs[i] = gone;
+      db->n_subs++;
+      return -1;
+    }
+    return 0;
+  }
+  return 0;
+}
+
+int db_put_vapid_key(db_t *db, const char *b64) {
+  char path[512], line[96];
+  if (strlen(b64) >= sizeof db->vapid_key || table_path(db, "vapid.json", path, sizeof path) != 0) return -1;
+  int k = snprintf(line, sizeof line, "{\"private\":\"%s\"}\n", b64);
+  if (k < 0 || (size_t)k >= sizeof line) return -1;
+  if (store_write_atomic(path, line, (size_t)k) != 0) return -1;
+  snprintf(db->vapid_key, sizeof db->vapid_key, "%s", b64);
   return 0;
 }

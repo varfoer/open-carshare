@@ -1,4 +1,5 @@
 find_package(CURL REQUIRED)
+find_package(OpenSSL 3.0 REQUIRED)
 
 set(TP ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
 
@@ -14,7 +15,7 @@ add_library(ocs_core STATIC ${OCS_SOURCES} ${OCS_THIRD_PARTY_SOURCES})
 target_include_directories(ocs_core PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/src
   ${TP}/cjson ${TP}/monocypher ${TP}/mongoose)
-target_link_libraries(ocs_core PUBLIC CURL::libcurl m)
+target_link_libraries(ocs_core PUBLIC CURL::libcurl OpenSSL::Crypto m)
 if(OCS_SOURCES)
   set_source_files_properties(${OCS_SOURCES} PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
 endif()
@@ -90,6 +91,8 @@ ocs_add_test(test_access)
 ocs_add_test(test_igloo)
 ocs_add_test(test_igloo_client)
 ocs_add_test(test_api_access)
+ocs_add_test(test_webpush)
+ocs_add_test(test_api_push)
 
 # Validates the XML written by test_pain008 against the ISO 20022 schema; skipped (77) without xmllint or XSD.
 set(PAIN008_XSD ${CMAKE_CURRENT_SOURCE_DIR}/test/data/pain.008.001.02.xsd)

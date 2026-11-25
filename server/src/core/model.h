@@ -28,7 +28,7 @@ typedef struct {
   int64_t actual_start, actual_end, km_start, km_end; /* actual_*: 0 = unset */
   km_source_t km_source; bool km_pending;
   int64_t invoice_id;  /* 0 = not invoiced */
-  bool start_reminded, late_reminded;  /* reminder mail sent; default false */
+  bool start_reminded, late_reminded, end_reminded;  /* reminder sent (push or mail); default false */
 } booking_t;
 typedef struct {
   int64_t invoice_number, booking_id;
@@ -68,6 +68,7 @@ typedef struct {
   char creditor_id[36], creditor_iban[35], creditor_bic[12];
   int sepa_lead_days;                  /* default 5 */
   int reminder_before_min;             /* 0..1440, default 60, 0 = off */
+  int end_reminder_before_min;         /* 0..1440, default 30, 0 = off */
   char invoice_footer[512];
 } settings_t;
 typedef enum { MANDATE_ACTIVE = 0, MANDATE_REPLACED, MANDATE_REVOKED } mandate_status_t;
@@ -97,5 +98,11 @@ typedef struct {
 typedef struct { int64_t id, booking_id, car_id; char pin_id[64]; char pin[16];
   int64_t valid_from, valid_until; int variance; int64_t created_at; } access_pin_t;
 /* booking_id 0 = admin test PIN; pin "" = hidden or test */
+
+/* Web Push subscription of one browser (spec §10). endpoint unique; p256dh/auth base64url as the
+ * browser sends them (65 / 16 bytes decoded). */
+#define PUSH_ENDPOINT_MAX 1024
+typedef struct { int64_t id, user_id, created_at; char endpoint[PUSH_ENDPOINT_MAX];
+  char p256dh[96]; char auth[32]; } push_sub_t;
 
 #endif

@@ -7,6 +7,7 @@
 #include "config.h"
 #include "core/email.h"
 #include "core/mail_build.h"
+#include "http/api.h"
 #include "http/igloo_client.h"
 #include "platform/platform.h"
 #include "server.h"
@@ -133,6 +134,7 @@ int main(int argc, char **argv) {
   a->pin_create = igloo_pin_create;
   a->lock_list = igloo_lock_list;
   a->pin_ctx = &ig;
+  a->https = platform_https;
 
   int rc;
   if (check) {
@@ -142,6 +144,9 @@ int main(int argc, char **argv) {
     rc = 0;
   } else if (admin) {
     rc = create_admin(a, argv[i + 1], argv[i + 2]);
+  } else if (api_push_init(a) != 0) {
+    fprintf(stderr, "ocs-server: cannot set up the push key (vapid.json)\n");
+    rc = 1;
   } else {
     rc = server_run(a) == 0 ? 0 : 1;
   }

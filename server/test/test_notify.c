@@ -135,6 +135,48 @@ void test_remind_late_club_no_fee_line(void) {
   TEST_ASSERT_NULL(strstr(body, "Verspätungsgebühr"));
 }
 
+void test_remind_end_golden(void) {
+  booking_t b = bk();
+  notify_booking_t n = nb(NT_REMIND_END, &b);
+  n.start_tolerance_min = 15;
+  n.late_fee_cents_per_h = 300;
+  TEST_ASSERT_EQUAL_INT(0, notify_booking_mail(&n, subj, sizeof subj, body, sizeof body));
+  TEST_ASSERT_EQUAL_STRING("Erinnerung: Rückgabe bis 17:30", subj);
+  TEST_ASSERT_EQUAL_STRING("Hallo Anna,\n\n"
+                           "deine Buchung endet bald. Bitte bring das Auto rechtzeitig zurück und beende die "
+                           "Fahrt unter „Meine Buchungen“. Brauchst du länger, verlängere die Buchung dort, "
+                           "solange das Auto frei ist.\n\n"
+                           "Auto: Zoe (KI-CS 1)\n"
+                           "Von: 04.11.2026 14:30\n"
+                           "Bis: 04.11.2026 17:30\n"
+                           "Standort: Hof Mitte\n"
+                           "Ab 04.11.2026 17:45 kostet jede angefangene Stunde 3,00 € Verspätungsgebühr.\n\n"
+                           "Meine Buchungen: https://carshare.test/#/buchungen\n",
+                           body);
+}
+
+void test_push_texts(void) {
+  booking_t b = bk();
+  char t[128], x[512];
+  notify_booking_t n = nb(NT_REMIND_START, &b);
+  n.start_tolerance_min = 15;
+  TEST_ASSERT_EQUAL_INT(0, notify_booking_push(&n, t, sizeof t, x, sizeof x));
+  TEST_ASSERT_EQUAL_STRING("Fahrt ab 14:30", t);
+  TEST_ASSERT_EQUAL_STRING("Zoe: Starten kannst du ab 14:15.", x);
+  n.kind = NT_REMIND_END;
+  TEST_ASSERT_EQUAL_INT(0, notify_booking_push(&n, t, sizeof t, x, sizeof x));
+  TEST_ASSERT_EQUAL_STRING("Rückgabe bis 17:30", t);
+  TEST_ASSERT_EQUAL_STRING("Zoe: Bitte rechtzeitig zurückbringen oder die Buchung verlängern.", x);
+  n.kind = NT_REMIND_LATE;
+  TEST_ASSERT_EQUAL_INT(0, notify_booking_push(&n, t, sizeof t, x, sizeof x));
+  TEST_ASSERT_EQUAL_STRING("Rückgabe überfällig: Zoe", t);
+  TEST_ASSERT_EQUAL_STRING("Die Buchung ist um 17:30 abgelaufen. Bitte bring das Auto zurück und beende die Fahrt.", x);
+  n.kind = NT_CREATED;
+  TEST_ASSERT_EQUAL_INT(-1, notify_booking_push(&n, t, sizeof t, x, sizeof x));
+  n.kind = NT_REMIND_END;
+  TEST_ASSERT_EQUAL_INT(-1, notify_booking_push(&n, t, 10, x, sizeof x));
+}
+
 static notify_run_t run(const int64_t *failed, size_t n_failed) {
   notify_run_t r = {.run_id = 3, .period = "2026-10", .n_invoices = 4, .n_mailed_total = 2,
                     .n_sent_now = 2, .failed = failed, .n_failed = n_failed, .total_cents = 123456,
@@ -194,6 +236,8 @@ int main(void) {
   RUN_TEST(test_remind_start_golden);
   RUN_TEST(test_remind_late_fee_golden);
   RUN_TEST(test_remind_late_club_no_fee_line);
+  RUN_TEST(test_remind_end_golden);
+  RUN_TEST(test_push_texts);
   RUN_TEST(test_run_mail_failed_golden);
   RUN_TEST(test_run_mail_no_failed);
   RUN_TEST(test_too_small_buffer_returns_minus1);
