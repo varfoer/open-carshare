@@ -616,10 +616,12 @@ it (the mailer logs it).
 - Mail is sent synchronously in the event loop: while the SMTP relay is
   unreachable, a booking request that mails waits up to the SMTP timeout
   (connect 5 s, total 20 s) before it answers.
-- **Push (Web Push, RFC 8030/8291/8292)** replaces the mail for the three
-  reminders (start, end, late return): when the user has push subscriptions,
-  the server sends the reminder to each; at least one 2xx answer counts as
-  delivered and no mail is sent. Without subscriptions, or when no push is
+- **Push (Web Push, RFC 8030/8291/8292)** replaces the mail for the start and
+  end reminders: when the user has push subscriptions, the server sends the
+  reminder to each; at least one 2xx answer counts as delivered and no mail is
+  sent. The late-return reminder goes by push and always also by mail (it
+  costs money, and a 2xx only means queued, not seen); its flag is set by the
+  mail, so a failed mail repeats both on the next tick. Without subscriptions, or when no push is
   delivered, the mail goes out in the same tick. All other mails stay mail
   only. Opt-in per device under „Konto“ (browser permission); on iPhone/iPad
   only in the app installed to the home screen (iOS 16.4+).

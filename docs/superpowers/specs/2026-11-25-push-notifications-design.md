@@ -13,7 +13,8 @@ while driving, where a mail goes unnoticed.
 - New **end reminder** shortly before `booked_end` of an active trip (setting, default 30 min).
 - **Web Push** as a channel for the three reminders: start, end (new), late return.
 - A member with push enabled on at least one device gets these reminders as push **instead of** mail.
-  Without push (or when no push is delivered) the reminder goes by mail, as today.
+  Without push (or when no push is delivered) the reminder goes by mail, as today. Exception (product
+  owner, 2026-11-25, after review): the late-return reminder always also goes by mail.
 - Opt-in per device under „Konto“, with a test button.
 
 ## Non-goals

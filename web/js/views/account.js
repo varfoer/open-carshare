@@ -123,7 +123,7 @@ function pushCard() {
     let st;
     try { st = await pushState(); } catch { st = 'unsupported'; }
     card.replaceChildren(el('h2', { text: 'Benachrichtigungen' }),
-      el('p', { className: 'hint', text: 'Erinnerungen an Fahrtbeginn, Rückgabe und Verspätung kommen als Push-Nachricht auf dieses Gerät statt per E-Mail.' }));
+      el('p', { className: 'hint', text: 'Erinnerungen an Fahrtbeginn und Rückgabe kommen als Push-Nachricht auf dieses Gerät statt per E-Mail. Ist die Rückgabe überfällig, kommt die Nachricht zusätzlich per E-Mail.' }));
     if (st === 'ios-install') {
       card.append(el('p', { text: 'Auf iPhone und iPad gehen Push-Nachrichten nur in der installierten App: in Safari „Teilen“ → „Zum Home-Bildschirm“, dann die App vom Home-Bildschirm öffnen und hier einschalten.' }));
     } else if (st === 'unsupported') {

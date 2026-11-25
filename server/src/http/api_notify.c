@@ -94,7 +94,9 @@ int api_send_reminders(app_t *a, int64_t now) {
      * retried on the next call. Stop the tick: with the relay down every further send would
      * block the event loop for another SMTP timeout. */
     bool pushed = !push_down && remind_by_push(a, &n, b.user_id, now, &push_down);
-    if (!pushed && api_send_mail(a, to, subject, body) != 0) break;
+    /* The late-return reminder costs money and a delivered push may go unseen: it always also
+     * goes by mail, and only the mail sets its flag (a failed mail repeats the push next call). */
+    if ((!pushed || kind == NT_REMIND_LATE) && api_send_mail(a, to, subject, body) != 0) break;
     if (kind == NT_REMIND_START) b.start_reminded = true;
     else if (kind == NT_REMIND_END) b.end_reminded = true;
     else b.late_reminded = true;

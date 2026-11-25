@@ -407,6 +407,27 @@ void test_vapid_sub_from_mail_from(void) {
   TEST_ASSERT_NOT_NULL(strstr((const char *)raw, "\"sub\":\"mailto:noreply@verein.de\""));
 }
 
+void test_late_reminder_push_and_mail(void) {
+  TEST_ASSERT_TRUE(th_add_push_sub(a, u1, FCM) > 0);
+  int64_t id = plant(BK_ACTIVE, S, S + 2 * H, S);
+  settings_t s = a->db.settings;
+  s.end_reminder_before_min = 0;
+  TEST_ASSERT_EQUAL_INT(0, db_put_settings(&a->db, &s));
+  TEST_ASSERT_EQUAL_INT(1, api_send_reminders(a, S + 2 * H));
+  TEST_ASSERT_EQUAL_INT(1, th_push_count());
+  TEST_ASSERT_EQUAL_INT(1, th_mail_count());
+  TEST_ASSERT_EQUAL_STRING("R\xC3\xBC" "ckgabe \xC3\xBC" "berf\xC3\xA4llig: Golf", th_last_mail_subject());
+  TEST_ASSERT_TRUE(db_booking(&a->db, id)->late_reminded);
+  /* mail fails: flag stays, retried (push again) next call */
+  booking_t b = *db_booking(&a->db, id);
+  b.late_reminded = false;
+  TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
+  th_mail_fail(1);
+  TEST_ASSERT_EQUAL_INT(0, api_send_reminders(a, S + 2 * H + 5 * M));
+  TEST_ASSERT_FALSE(db_booking(&a->db, id)->late_reminded);
+  TEST_ASSERT_EQUAL_INT(2, th_push_count());
+}
+
 /* ---- end reminder ---- */
 
 void test_end_reminder_mail_in_window(void) {
@@ -519,6 +540,7 @@ int main(void) {
   RUN_TEST(test_password_reset_drops_push);
   RUN_TEST(test_deactivation_drops_push);
   RUN_TEST(test_vapid_sub_from_mail_from);
+  RUN_TEST(test_late_reminder_push_and_mail);
   RUN_TEST(test_end_reminder_mail_in_window);
   RUN_TEST(test_end_reminder_fee_line);
   RUN_TEST(test_end_reminder_by_push);

@@ -55,7 +55,7 @@ int api_notify_booking(app_t *a, notify_kind_t kind, const booking_t *b, int64_t
 
 /* Sends due start/end/late reminders (rules: spec §10) and persists the flag after each
  * successful send: by push when the user has subscriptions and at least one push is delivered,
- * else by mail. Returns number sent, -1 on storage error (stops). Mail failures are skipped
+ * else by mail; the late-return reminder always also by mail (its flag follows the mail). Returns number sent, -1 on storage error (stops). Mail failures are skipped
  * (flag stays false, retried next call) and end the call, so a down relay costs one SMTP timeout
  * per call. */
 int api_send_reminders(app_t *a, int64_t now);
