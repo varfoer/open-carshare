@@ -7,7 +7,7 @@
 
 kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
                         int64_t actual_start, int64_t actual_end, int64_t settled_before,
-                        int64_t *km_start, int64_t *km_end) {
+                        int64_t *km) {
   const odometer_reading_t *lo = NULL, *hi = NULL, *before = NULL, *after = NULL;
   bool settled = false;
   for (size_t i = 0; i < n; i++) {
@@ -34,11 +34,9 @@ kmr_result_t km_resolve(const odometer_reading_t *r, size_t n, int64_t car_id,
   }
   if (start_m < 0 || start_m > M_MAX || end_m < 0 || end_m > M_MAX || end_m < start_m)
     return KMR_BAD;
-  int64_t ks = (start_m + 500) / 1000;
-  int64_t ke = ks + (end_m - start_m + 500) / 1000;
-  if (ke > KM_MAX) return KMR_BAD;
-  *km_start = ks;
-  *km_end = ke;
+  int64_t k = (end_m - start_m + 500) / 1000;
+  if (k > KM_MAX) return KMR_BAD;
+  *km = k;
   return KMR_OK;
 }
 

@@ -35,8 +35,9 @@ int user_from_json(const cJSON *j, user_t *out);
 int car_from_json(const cJSON *j, car_t *out);
 /* invoice_id is optional on load (absent -> 0).
  * km_source "geotab" (Phase 2 data) loads as KM_TELEMATICS; it is never written.
- * Trip keys (actual_start, actual_end, km_start, km_end, km_source, km_pending) are
- * optional on load (Phase 1 lines); absent -> 0 / KM_NONE / false.
+ * Trip keys (actual_start, actual_end, km, km_source, km_pending) are optional on load
+ * (Phase 1 lines); absent -> 0 / KM_NONE / false. km must be >= 0; without km, the km_start/km_end
+ * of older lines give km = km_end - km_start (0 if negative).
  * start_reminded, late_reminded, end_reminded are optional on load (absent -> false). */
 int booking_from_json(const cJSON *j, booking_t *out);
 int damage_report_from_json(const cJSON *j, damage_report_t *out); /* all keys required */

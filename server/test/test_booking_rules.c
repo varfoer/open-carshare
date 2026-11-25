@@ -372,8 +372,7 @@ static booking_t done_telematics(void) {
   o.actual_start = T - 3 * H;
   o.actual_end = T - H;
   o.km_source = KM_TELEMATICS;
-  o.km_start = 1000;
-  o.km_end = 1012;
+  o.km = 12;
   return o;
 }
 void test_apply_trip_resets_telematics_on_time_change(void) {
@@ -381,8 +380,7 @@ void test_apply_trip_resets_telematics_on_time_change(void) {
   nb.actual_end = T - H + 60;
   TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
   TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
-  TEST_ASSERT_EQUAL_INT64(0, nb.km_start);
-  TEST_ASSERT_EQUAL_INT64(0, nb.km_end);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km);
   TEST_ASSERT_TRUE(nb.km_pending);
   nb = o;
   nb.actual_start = T - 3 * H - 60;
@@ -394,8 +392,7 @@ void test_apply_trip_keeps_telematics_if_times_same(void) {
   booking_t o = done_telematics(), nb = o;
   TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
   TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, nb.km_source);
-  TEST_ASSERT_EQUAL_INT64(1000, nb.km_start);
-  TEST_ASSERT_EQUAL_INT64(1012, nb.km_end);
+  TEST_ASSERT_EQUAL_INT64(12, nb.km);
   TEST_ASSERT_FALSE(nb.km_pending);
 }
 void test_apply_trip_keeps_manual_on_time_change(void) {
@@ -405,8 +402,7 @@ void test_apply_trip_keeps_manual_on_time_change(void) {
   nb.actual_end = T - H + 60;
   TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
   TEST_ASSERT_EQUAL_INT(KM_MANUAL, nb.km_source);
-  TEST_ASSERT_EQUAL_INT64(1000, nb.km_start);
-  TEST_ASSERT_EQUAL_INT64(1012, nb.km_end);
+  TEST_ASSERT_EQUAL_INT64(12, nb.km);
   TEST_ASSERT_FALSE(nb.km_pending);
 }
 void test_apply_trip_reopen_drops_telematics(void) {
@@ -415,8 +411,7 @@ void test_apply_trip_reopen_drops_telematics(void) {
   TEST_ASSERT_EQUAL_INT(BR_OK, br_apply_trip(&o, &nb, T));
   TEST_ASSERT_EQUAL_INT(BK_ACTIVE, nb.state);
   TEST_ASSERT_EQUAL_INT(KM_NONE, nb.km_source);
-  TEST_ASSERT_EQUAL_INT64(0, nb.km_start);
-  TEST_ASSERT_EQUAL_INT64(0, nb.km_end);
+  TEST_ASSERT_EQUAL_INT64(0, nb.km);
   TEST_ASSERT_FALSE(nb.km_pending);
   nb = o;
   nb.actual_start = nb.actual_end = 0;
@@ -496,7 +491,7 @@ void test_admin_done_skips_active_checks(void) {
   TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, o, &nb, now));
   booking_t *d = add(2, 1, 2, T - 6 * H, T - 5 * H, BK_DONE);
   users[1].active = false;
-  nb = *d; nb.km_start = 10; nb.km_end = 20;
+  nb = *d; nb.km = 10;
   TEST_ASSERT_EQUAL(BR_OK, br_check_update(&db, ADM, d, &nb, now));
   nb = *d; nb.user_id = 77; /* the user must still exist */
   TEST_ASSERT_EQUAL(BR_INVALID, br_check_update(&db, ADM, d, &nb, now));

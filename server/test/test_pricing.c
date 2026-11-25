@@ -179,7 +179,7 @@ static void test_booking_club_trip_cancelled(void) {
 static void test_booking_club_trip(void) {
     tariff_version_t t = cur(); booking_t b = bk(BK_DONE); price_t p;
     b.club_trip = true; b.actual_start = b.booked_start; b.actual_end = b.booked_end + 2 * H;
-    b.km_start = 100; b.km_end = 200;
+    b.km = 100;
     price_booking(&t, &S, &b, &p);
     TEST_ASSERT_EQUAL_INT64(0, p.total_cents);
 }
@@ -187,7 +187,7 @@ static void test_booking_club_trip(void) {
 static void test_booking_done(void) {
     tariff_version_t t = cur(); booking_t b = bk(BK_DONE); price_t p;
     b.actual_start = b.booked_start; b.actual_end = b.booked_end;
-    b.km_start = 1000; b.km_end = 1040;
+    b.km = 40;
     price_booking(&t, &S, &b, &p);
     TEST_ASSERT_EQUAL_INT(PRICE_OK, p.status);
     TEST_ASSERT_EQUAL_INT64(2400, p.total_cents);

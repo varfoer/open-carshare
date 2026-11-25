@@ -475,11 +475,10 @@ void test_admin_clear_actuals_reserved(void) {
 void test_admin_manual_km(void) {
   int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
   TEST_ASSERT_TRUE(db_booking(&a->db, id)->km_pending);
-  cJSON *j = trip_put(id, "\"km_start\":1000,\"km_end\":1042", 200, NULL);
+  cJSON *j = trip_put(id, "\"km\":42", 200, NULL);
   TEST_ASSERT_EQUAL_STRING("manual", str(j, "km_source"));
   TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
-  TEST_ASSERT_EQUAL_INT64(1042, num(j, "km_end"));
-  TEST_ASSERT_EQUAL_INT64(1000, num(j, "km_start"));
+  TEST_ASSERT_EQUAL_INT64(42, num(j, "km"));
   cJSON_Delete(j);
   const booking_t *b = db_booking(&a->db, id);
   TEST_ASSERT_EQUAL_INT(KM_MANUAL, b->km_source);
@@ -491,8 +490,7 @@ void test_admin_time_edit_reopens_telematics_km(void) {
   int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
   booking_t b = *db_booking(&a->db, id);
   b.km_source = KM_TELEMATICS;
-  b.km_start = 1000;
-  b.km_end = 1012;
+  b.km = 12;
   b.km_pending = false;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   char x[80];
@@ -501,15 +499,14 @@ void test_admin_time_edit_reopens_telematics_km(void) {
   TEST_ASSERT_TRUE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
   TEST_ASSERT_EQUAL_STRING("none", str(j, "km_source"));
   cJSON_Delete(j);
-  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, id)->km_end);
+  TEST_ASSERT_EQUAL_INT64(0, db_booking(&a->db, id)->km);
 }
 
 void test_admin_reopen_then_return_recomputes_km(void) {
   int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
   booking_t b = *db_booking(&a->db, id);
   b.km_source = KM_TELEMATICS;
-  b.km_start = 1000;
-  b.km_end = 1012;
+  b.km = 12;
   b.km_pending = false;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   cJSON *j = trip_put(id, "\"actual_end\":null", 200, NULL);
@@ -525,14 +522,12 @@ void test_admin_reopen_then_return_recomputes_km(void) {
 
 void test_admin_km_invalid(void) {
   int64_t id = mk_trip(BK_DONE, T - 3 * H, T - H);
-  cJSON_Delete(trip_put(id, "\"km_start\":1000", 400, "invalid"));
-  cJSON_Delete(trip_put(id, "\"km_end\":1000", 400, "invalid"));
-  cJSON_Delete(trip_put(id, "\"km_start\":1000,\"km_end\":999", 400, "invalid"));
-  cJSON_Delete(trip_put(id, "\"km_start\":0,\"km_end\":10000001", 400, "invalid"));
-  cJSON_Delete(trip_put(id, "\"km_start\":-1,\"km_end\":5", 400, "invalid"));
-  cJSON_Delete(trip_put(id, "\"km_start\":1.5,\"km_end\":5", 400, "invalid"));
+  cJSON_Delete(trip_put(id, "\"km\":10000001", 400, "invalid"));
+  cJSON_Delete(trip_put(id, "\"km\":-1", 400, "invalid"));
+  cJSON_Delete(trip_put(id, "\"km\":1.5", 400, "invalid"));
+  cJSON_Delete(trip_put(id, "\"km\":\"5\"", 400, "invalid"));
   TEST_ASSERT_EQUAL_INT(KM_NONE, db_booking(&a->db, id)->km_source);
-  cJSON_Delete(trip_put(id, "\"km_start\":0,\"km_end\":10000000", 200, NULL));
+  cJSON_Delete(trip_put(id, "\"km\":10000000", 200, NULL));
 }
 
 void test_admin_actual_in_future_invalid(void) {
@@ -548,7 +543,7 @@ void test_admin_trip_on_cancelled_400(void) {
   char x[80];
   snprintf(x, sizeof x, "\"actual_start\":%lld", (long long)(T - H));
   cJSON_Delete(trip_put(id, x, 400, "not_modifiable"));
-  cJSON_Delete(trip_put(id, "\"km_start\":1,\"km_end\":2", 400, "not_modifiable"));
+  cJSON_Delete(trip_put(id, "\"km\":1", 400, "not_modifiable"));
   TEST_ASSERT_EQUAL_INT(BK_CANCELLED, db_booking(&a->db, id)->state);
 }
 
@@ -580,7 +575,7 @@ void test_admin_km_for_inactive_user(void) {
   user_t u = *db_user(&a->db, u1);
   u.active = false;
   TEST_ASSERT_EQUAL_INT(0, db_put_user(&a->db, &u));
-  cJSON *j = trip_put(id, "\"km_start\":1000,\"km_end\":1042", 200, NULL);
+  cJSON *j = trip_put(id, "\"km\":42", 200, NULL);
   TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
   cJSON_Delete(j);
   TEST_ASSERT_EQUAL_INT(KM_MANUAL, db_booking(&a->db, id)->km_source);

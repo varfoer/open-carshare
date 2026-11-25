@@ -7,7 +7,7 @@ import { bookingCard } from '../booking_card.js';
 function kmText(b) {
   if (b.km_pending) return provisionalKm(b) || 'km ausstehend';
   if (b.km_source === 'none') return '';
-  return `${b.km_start} – ${b.km_end} km (${b.km_end - b.km_start} km)`;
+  return `${b.km} km`;
 }
 
 function tripText(b) {

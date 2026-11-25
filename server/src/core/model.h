@@ -25,7 +25,8 @@ typedef struct {
   int64_t id, car_id, user_id, booked_start, booked_end; booking_state_t state;
   int64_t cancelled_at, cancel_fee_cents, created_at, modified_at, modified_by;
   bool club_trip;
-  int64_t actual_start, actual_end, km_start, km_end; /* actual_*: 0 = unset */
+  int64_t actual_start, actual_end; /* 0 = unset */
+  int64_t km;                       /* km driven on the trip; 0 until known */
   km_source_t km_source; bool km_pending;
   int64_t invoice_id;  /* 0 = not invoiced */
   bool start_reminded, late_reminded, end_reminded;  /* reminder sent (push or mail); default false */

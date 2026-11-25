@@ -24,7 +24,7 @@ void price_compute(const tariff_version_t *t, int tolerance_min, int64_t b0, int
                    int64_t a0, int64_t a1, int64_t km, price_t *out);
 /* Booking wrapper: cancelled -> cancel_fee only (status OK, no tariff needed); club_trip -> all 0;
  * t == NULL otherwise -> NO_TARIFF; reserved/active -> booked time fully used, km unknown;
- * done with km_pending -> km unknown; km = km_end - km_start. */
+ * done with km_pending -> km unknown; else km = b->km. */
 void price_booking(const tariff_version_t *t, const settings_t *s, const booking_t *b, price_t *out);
 
 #endif

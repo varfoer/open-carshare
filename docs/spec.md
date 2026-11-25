@@ -129,7 +129,9 @@ tariff's version in force at `booked_start`; either missing means no tariff.
 ### booking
 id, car_id, user_id, booked_start, booked_end, state
 (`reserved`|`active`|`done`|`cancelled`), actual_start, actual_end,
-km_start, km_end, km_source (`telematics`|`manual`), km_pending,
+km (km driven on the trip, 0..10000000; 0 until known; lines written before
+this field carry km_start/km_end and load as their difference), km_source
+(`telematics`|`manual`), km_pending,
 cancelled_at, club_trip (default false), invoice_id (0 = not invoiced, else
 the number of the invoice that billed it), created_at, modified_at,
 modified_by, start_reminded, end_reminded, late_reminded (reminder sent by
@@ -373,10 +375,11 @@ Resolution:
     and the first reading after `actual_end` have the same odometer, the
     trip is 0 km (both ends = that value); otherwise it stays pending.
   - end below start: stays pending.
-  - `km_start = round(start_m / 1000)`,
-    `km_end = km_start + round((end_m - start_m) / 1000)` (half-up), so the
-    trip distance is rounded once. `km_source = telematics`,
-    `km_pending = false`.
+  - `km = round((end_m - start_m) / 1000)` (half-up); more than 10000000 km:
+    stays pending. `km_source = telematics`, `km_pending = false`.
+  - Only readings inside the trip window count. The previous booking's end
+    reading is never used, so km driven between bookings (without a booking)
+    are billed to nobody.
 - Cars without `tracker_imei`: `km_pending` is resolved manually by admin.
 - Admin can enter km manually (`km_source = manual`) at any time; the job
   never touches a booking that is not `km_pending`. Return does not set

@@ -493,18 +493,35 @@ static void test_settings_roundtrip_and_wrong_type(void) {
     cJSON_Delete(j);
 }
 
+static void test_booking_legacy_km_start_end(void) {
+    cJSON *j = cJSON_Parse("{\"id\":1,\"car_id\":2,\"user_id\":3,\"booked_start\":600,\"booked_end\":1200,"
+                           "\"state\":\"done\",\"cancelled_at\":0,\"cancel_fee_cents\":0,\"created_at\":1,"
+                           "\"modified_at\":1,\"modified_by\":1,\"km_start\":1000,\"km_end\":1042}");
+    booking_t r;
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(42, r.km);
+    cJSON_ReplaceItemInObject(j, "km_end", cJSON_CreateNumber(900)); /* backwards: 0 */
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(0, r.km);
+    cJSON_AddNumberToObject(j, "km", 7); /* km wins */
+    TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
+    TEST_ASSERT_EQUAL_INT64(7, r.km);
+    cJSON_ReplaceItemInObject(j, "km", cJSON_CreateNumber(-1));
+    TEST_ASSERT_EQUAL_INT(-1, booking_from_json(j, &r));
+    cJSON_Delete(j);
+}
+
 static void test_booking_trip_roundtrip(void) {
     booking_t b = {.id = 1, .car_id = 2, .user_id = 3, .booked_start = 600, .booked_end = 1200,
-                   .state = BK_DONE, .actual_start = 590, .actual_end = 1300, .km_start = 1000,
-                   .km_end = 1042, .km_source = KM_MANUAL, .km_pending = false};
+                   .state = BK_DONE, .actual_start = 590, .actual_end = 1300, .km = 42,
+                   .km_source = KM_MANUAL, .km_pending = false};
     cJSON *j = booking_to_json(&b);
     TEST_ASSERT_EQUAL_STRING("manual", cJSON_GetObjectItem(j, "km_source")->valuestring);
     booking_t r;
     TEST_ASSERT_EQUAL_INT(0, booking_from_json(j, &r));
     TEST_ASSERT_EQUAL_INT64(590, r.actual_start);
     TEST_ASSERT_EQUAL_INT64(1300, r.actual_end);
-    TEST_ASSERT_EQUAL_INT64(1000, r.km_start);
-    TEST_ASSERT_EQUAL_INT64(1042, r.km_end);
+    TEST_ASSERT_EQUAL_INT64(42, r.km);
     TEST_ASSERT_EQUAL_INT(KM_MANUAL, r.km_source);
     cJSON_Delete(j);
 }
@@ -899,6 +916,7 @@ int main(void) {
     RUN_TEST(test_booking_roundtrip);
     RUN_TEST(test_club_flags_roundtrip_and_default);
     RUN_TEST(test_booking_trip_roundtrip);
+    RUN_TEST(test_booking_legacy_km_start_end);
     RUN_TEST(test_booking_loads_phase1_line);
     RUN_TEST(test_booking_rejects_bad_km_source);
     RUN_TEST(test_damage_roundtrip);

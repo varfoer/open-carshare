@@ -18,13 +18,12 @@ int api_resolve_km(app_t *a, int64_t now) {
     if (p->state != BK_DONE || !p->km_pending || p->actual_start == 0 || p->actual_end == 0) continue;
     const car_t *c = db_car(&a->db, p->car_id);
     if (!c || !c->tracker_imei[0]) continue;
-    int64_t ks, ke;
+    int64_t km;
     if (km_resolve(a->db.readings, a->db.n_readings, p->car_id, p->actual_start, p->actual_end,
-                   now - KM_SETTLE_S, &ks, &ke) != KMR_OK)
+                   now - KM_SETTLE_S, &km) != KMR_OK)
       continue;
     booking_t b = *p;
-    b.km_start = ks;
-    b.km_end = ke;
+    b.km = km;
     b.km_source = KM_TELEMATICS;
     b.km_pending = false;
     b.modified_at = now;

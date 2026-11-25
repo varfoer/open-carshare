@@ -11,7 +11,7 @@ const filter = { car: '', month: '' };
 
 function kmText(b) {
   if (b.km_source === 'none') return '';
-  return `${b.km_start} – ${b.km_end} km (${b.km_end - b.km_start} km)`;
+  return `${b.km} km`;
 }
 
 const PHASES = { start: 'bei Start', end: 'bei Rückgabe' };
@@ -116,10 +116,8 @@ export async function render(root) {
     const e = dateTime(b.booked_end);
     const as = optionalDateTime(b.actual_start, b.booked_start);
     const ae = optionalDateTime(b.actual_end, b.booked_end);
-    const kmS0 = b.km_source === 'none' ? '' : String(b.km_start);
-    const kmE0 = b.km_source === 'none' ? '' : String(b.km_end);
-    const kmS = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: kmS0 });
-    const kmE = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: kmE0 });
+    const km0 = b.km_source === 'none' ? '' : String(b.km);
+    const kmF = el('input', { type: 'number', min: 0, max: 10000000, step: 1, value: km0 });
     const club = checkField('Vereinsfahrt (wird nicht berechnet)', !!b.club_trip);
     const fErr = messageBox('error');
     const cancel = el('button', { type: 'button', text: 'Abbrechen', className: 'btn' });
@@ -129,7 +127,7 @@ export async function render(root) {
       field('Start', s.date, s.time), field('Ende', e.date, e.time),
       field('Tatsächlicher Beginn', as.date, as.time, as.clear),
       field('Tatsächliches Ende', ae.date, ae.time, ae.clear),
-      field('km Start', kmS), field('km Ende', kmE), club.node, fErr.node,
+      field('Gefahrene km', kmF), club.node, fErr.node,
       primaryButton('Speichern'), cancel);
     form.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -145,13 +143,10 @@ export async function render(root) {
         body.actual_start = nas;
         body.actual_end = nae;
       }
-      // Sending km turns the source into manual: only when the admin changed a value.
-      if (kmS.value !== '' || kmE.value !== '') {
-        if (kmS.value === '' || kmE.value === '') return fErr.show('Bitte km Start und km Ende angeben.');
-        if (kmS.value !== kmS0 || kmE.value !== kmE0) {
-          body.km_start = Number(kmS.value);
-          body.km_end = Number(kmE.value);
-        }
+      // Sending km turns the source into manual: only when the admin changed the value.
+      if (kmF.value !== '' && kmF.value !== km0) {
+        if (!/^\d{1,8}$/.test(kmF.value) || Number(kmF.value) > 10000000) return fErr.show('Gefahrene km: bitte eine ganze Zahl von 0 bis 10000000 eingeben.');
+        body.km = Number(kmF.value);
       }
       try {
         await api('PUT', `/api/admin/bookings/${b.id}`, body);

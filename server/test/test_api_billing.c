@@ -52,8 +52,7 @@ static int64_t add_done(int64_t user, int64_t car, int64_t start, int h, int km)
   b.booked_start = b.actual_start = start;
   b.booked_end = b.actual_end = start + h * H;
   b.state = BK_DONE;
-  b.km_start = 100;
-  b.km_end = 100 + km;
+  b.km = km;
   b.km_source = KM_MANUAL;
   b.created_at = b.modified_at = start - H;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
@@ -213,7 +212,7 @@ void test_draft_zero_invoice_club_only(void) {
   int64_t bid = add_done(ub, car1, APR10, 2, 0);
   booking_t b = *db_booking(&a->db, bid);
   b.club_trip = true;
-  b.km_start = b.km_end = 0;
+  b.km = 0;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   int64_t id = create_run("2026-04");
   cJSON *j = detail(id);
@@ -413,7 +412,7 @@ void test_finalize_uses_current_state(void) {
   TEST_ASSERT_EQUAL_INT64(10, num(cJSON_GetArrayItem(obj(cJSON_GetArrayItem(obj(j, "users"), 0), "lines"), 0), "km"));
   cJSON_Delete(j);
   booking_t b = *db_booking(&a->db, bid);
-  b.km_end = b.km_start + 40;
+  b.km = 40;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   j = call("POST", rpath(id, "/finalize"), NULL, 200, NULL);
   cJSON *line = cJSON_GetArrayItem(obj(cJSON_GetArrayItem(obj(j, "users"), 0), "lines"), 0);
@@ -541,7 +540,7 @@ void test_send_zero_invoice_no_prenotification(void) {
   int64_t bid = add_done(ub, car1, APR10, 2, 0);
   booking_t b = *db_booking(&a->db, bid);
   b.club_trip = true;
-  b.km_start = b.km_end = 0;
+  b.km = 0;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   int64_t id = finalized_april();
   th_mail_fail_to("admin@x.de");   /* keep the last invoice mail inspectable */
@@ -564,7 +563,7 @@ void test_send_only_zero_invoices_no_xml(void) {
   int64_t bid = add_done(ub, car1, APR10, 2, 0);
   booking_t b = *db_booking(&a->db, bid);
   b.club_trip = true;
-  b.km_start = b.km_end = 0;
+  b.km = 0;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   int64_t id = create_run("2026-04");
   call_free("POST", rpath(id, "/finalize"), NULL, 200, NULL);

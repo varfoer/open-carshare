@@ -566,14 +566,12 @@ void test_return_keeps_manual_km(void) {
   booking_t b = *db_booking(&a->db, id);
   b.actual_start = T - H;
   b.km_source = KM_MANUAL;
-  b.km_start = 100;
-  b.km_end = 150;
+  b.km = 50;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   cJSON *j = call_at("POST", return_path(id), NULL, tok1, 200, NULL, T);
   TEST_ASSERT_FALSE(cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(j, "km_pending")));
   TEST_ASSERT_EQUAL_STRING("manual", cJSON_GetObjectItemCaseSensitive(j, "km_source")->valuestring);
-  TEST_ASSERT_EQUAL_INT(100, num(j, "km_start"));
-  TEST_ASSERT_EQUAL_INT(150, num(j, "km_end"));
+  TEST_ASSERT_EQUAL_INT(50, num(j, "km"));
   cJSON_Delete(j);
   TEST_ASSERT_FALSE(db_booking(&a->db, id)->km_pending);
 }

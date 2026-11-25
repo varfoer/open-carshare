@@ -52,8 +52,7 @@ static cJSON *live_json(app_t *a, const booking_t *b, const tariff_version_t *t,
   x.state = BK_DONE;
   x.actual_end = end;
   x.km_pending = false;
-  x.km_start = 0;
-  x.km_end = km;
+  x.km = km;
   price_t p;
   price_booking(t, &a->db.settings, &x, &p);
   cJSON *o = cJSON_CreateObject(), *pj = price_to_json(&p, t);

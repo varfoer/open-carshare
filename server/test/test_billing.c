@@ -163,7 +163,7 @@ static void test_line_cancelled_and_club(void) {
     TEST_ASSERT_EQUAL_INT64(300, l.total_cents);
     /* club trip: km from booking, money 0 */
     b = done(5000);
-    b.club_trip = true; b.km_start = 100; b.km_end = 160; b.km_pending = false;
+    b.club_trip = true; b.km = 60; b.km_pending = false;
     memset(&p, 0, sizeof p);
     billing_line(&b, "Zoe", &p, &l);
     TEST_ASSERT_TRUE(l.club_trip);

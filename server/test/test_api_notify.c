@@ -156,9 +156,9 @@ void test_admin_put_km_only_no_mail(void) {
   b.km_pending = true;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   int before = th_mail_count();
-  admin_put(id, 0, 0, ",\"km_start\":100,\"km_end\":142", T + 5 * H);
+  admin_put(id, 0, 0, ",\"km\":42", T + 5 * H);
   TEST_ASSERT_EQUAL_INT(before, th_mail_count());
-  TEST_ASSERT_EQUAL_INT64(142, db_booking(&a->db, id)->km_end);
+  TEST_ASSERT_EQUAL_INT64(42, db_booking(&a->db, id)->km);
 }
 
 void test_admin_put_times_mail_says_admin(void) {

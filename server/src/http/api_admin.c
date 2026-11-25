@@ -449,7 +449,8 @@ static bool read_booking_fields(const cJSON *body, booking_t *b) {
   return true;
 }
 
-/* actual_start/actual_end: integer or null (= 0), absent keeps b. km_start/km_end: both or neither. */
+/* actual_start/actual_end: integer or null (= 0), absent keeps b. km: km driven, 0..10000000; present
+ * makes them manual. */
 static bool read_trip_fields(const cJSON *body, booking_t *b, bool *has_actual) {
   static const char *const keys[2] = {"actual_start", "actual_end"};
   int64_t *const dst[2] = {&b->actual_start, &b->actual_end};
@@ -460,15 +461,10 @@ static bool read_trip_fields(const cJSON *body, booking_t *b, bool *has_actual) 
     if (cJSON_IsNull(v)) *dst[i] = 0;
     else if (!api_get_int(body, keys[i], dst[i])) return false;
   }
-  bool has_ks = cJSON_GetObjectItemCaseSensitive(body, "km_start") != NULL;
-  bool has_ke = cJSON_GetObjectItemCaseSensitive(body, "km_end") != NULL;
-  if (has_ks != has_ke) return false;
-  if (has_ks) {
-    int64_t ks, ke;
-    if (!api_get_int(body, "km_start", &ks) || !api_get_int(body, "km_end", &ke)) return false;
-    if (ks < 0 || ke < ks || ke > 10000000) return false;
-    b->km_start = ks;
-    b->km_end = ke;
+  if (cJSON_GetObjectItemCaseSensitive(body, "km")) {
+    int64_t km;
+    if (!api_get_int(body, "km", &km) || km < 0 || km > 10000000) return false;
+    b->km = km;
     b->km_source = KM_MANUAL;
     b->km_pending = false;
   }

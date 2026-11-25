@@ -233,8 +233,7 @@ cJSON *booking_to_json(const booking_t *v) {
   PUT(put_bool(o, "club_trip", v->club_trip));
   PUT(put_i64(o, "actual_start", v->actual_start));
   PUT(put_i64(o, "actual_end", v->actual_end));
-  PUT(put_i64(o, "km_start", v->km_start));
-  PUT(put_i64(o, "km_end", v->km_end));
+  PUT(put_i64(o, "km", v->km));
   PUT(put_cstr(o, "km_source", enum_name(KM_SOURCE_NAMES, 3, v->km_source)));
   PUT(put_bool(o, "km_pending", v->km_pending));
   PUT(put_i64(o, "invoice_id", v->invoice_id));
@@ -266,8 +265,16 @@ int booking_from_json(const cJSON *j, booking_t *out) {
   TRY(get_bool_opt(j, "end_reminded", &out->end_reminded));
   TRY(get_i64_opt(j, "actual_start", &out->actual_start));
   TRY(get_i64_opt(j, "actual_end", &out->actual_end));
-  TRY(get_i64_opt(j, "km_start", &out->km_start));
-  TRY(get_i64_opt(j, "km_end", &out->km_end));
+  if (cJSON_GetObjectItemCaseSensitive(j, "km")) {
+    TRY(get_i64(j, "km", &out->km));
+  } else {
+    /* Lines written before the single km field carry odometer start/end: keep the difference. */
+    int64_t ks = 0, ke = 0;
+    TRY(get_i64_opt(j, "km_start", &ks));
+    TRY(get_i64_opt(j, "km_end", &ke));
+    out->km = ke > ks ? ke - ks : 0;
+  }
+  if (out->km < 0) return -1;
   int km_source = KM_NONE;
   /* Phase 2 wrote "geotab"; it now means telematics. */
   const cJSON *ks = cJSON_GetObjectItemCaseSensitive(j, "km_source");

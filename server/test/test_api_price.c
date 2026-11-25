@@ -99,8 +99,7 @@ static int64_t put_done(int64_t car, int64_t start, int64_t end, int64_t km0, in
   b.state = BK_DONE;
   b.actual_start = start;
   b.actual_end = end;
-  b.km_start = km0;
-  b.km_end = km1;
+  b.km = km1 - km0;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   return b.id;
 }

@@ -70,8 +70,7 @@ static void test_resolve_sets_telematics_km(void) {
   add_readings(car1, T, T + 2 * H);
   TEST_ASSERT_EQUAL_INT(1, api_resolve_km(a, T + 3 * H));
   const booking_t *b = db_booking(&a->db, id);
-  TEST_ASSERT_EQUAL_INT64(1000, b->km_start);
-  TEST_ASSERT_EQUAL_INT64(1012, b->km_end);
+  TEST_ASSERT_EQUAL_INT64(12, b->km);
   TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, b->km_source);
   TEST_ASSERT_FALSE(b->km_pending);
   TEST_ASSERT_EQUAL_INT64(T + 3 * H, b->modified_at);
@@ -81,7 +80,7 @@ static void test_resolve_sets_telematics_km(void) {
   db_free(&a->db);
   TEST_ASSERT_EQUAL_INT(0, db_load(&a->db, dir));
   b = db_booking(&a->db, id);
-  TEST_ASSERT_EQUAL_INT64(1012, b->km_end);
+  TEST_ASSERT_EQUAL_INT64(12, b->km);
   TEST_ASSERT_EQUAL_INT(KM_TELEMATICS, b->km_source);
   TEST_ASSERT_FALSE(b->km_pending);
 }
@@ -99,8 +98,7 @@ static void test_resolve_waits_for_late_trip_end_records(void) {
   TEST_ASSERT_EQUAL_INT(0, api_resolve_km(a, T + 3 * H + 599));
   TEST_ASSERT_EQUAL_INT(1, api_resolve_km(a, T + 3 * H + 600));
   const booking_t *b = db_booking(&a->db, id);
-  TEST_ASSERT_EQUAL_INT64(1000, b->km_start);
-  TEST_ASSERT_EQUAL_INT64(1030, b->km_end);
+  TEST_ASSERT_EQUAL_INT64(30, b->km);
 }
 
 static void test_resolve_waits_without_later_reading(void) {
@@ -124,7 +122,7 @@ static void test_resolve_skips_manual(void) {
   TEST_ASSERT_EQUAL_INT(0, api_resolve_km(a, T + 3 * H));
   const booking_t *b = db_booking(&a->db, id);
   TEST_ASSERT_EQUAL_INT(KM_NONE, b->km_source);
-  TEST_ASSERT_EQUAL_INT64(0, b->km_end);
+  TEST_ASSERT_EQUAL_INT64(0, b->km);
 }
 
 static void test_mail_after_24h_to_active_admins_only(void) {
@@ -268,8 +266,7 @@ static void test_live_after_return_until_km(void) {
   booking_t b = *db_booking(&a->db, id);
   b.km_pending = false;
   b.km_source = KM_TELEMATICS;
-  b.km_start = 1000;
-  b.km_end = 1041;
+  b.km = 41;
   TEST_ASSERT_EQUAL_INT(0, db_put_booking(&a->db, &b));
   o = live_of(id, B0 + 3 * H);
   TEST_ASSERT_TRUE(cJSON_IsNull(cJSON_GetObjectItemCaseSensitive(o, "live")));

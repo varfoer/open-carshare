@@ -131,7 +131,7 @@ void price_booking(const tariff_version_t *t, const settings_t *s, const booking
     if (b->state == BK_DONE) {
         a0 = b->actual_start;
         a1 = b->actual_end ? b->actual_end : max64(a0, b->booked_end);
-        if (!b->km_pending) km = b->km_end > b->km_start ? b->km_end - b->km_start : 0;
+        if (!b->km_pending) km = b->km;
     }
     price_compute(t, s->start_tolerance_min, b->booked_start, b->booked_end, a0, a1, km, out);
 }

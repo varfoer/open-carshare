@@ -89,8 +89,7 @@ void billing_line(const booking_t *b, const char *car_name, const price_t *p, in
   out->night_min = p->night_min;
   out->unused_min = p->unused_day_min + p->unused_night_min;
   if (b->club_trip)
-    out->km = (!b->km_pending && b->km_end > 0 && b->km_end >= b->km_start)
-                  ? b->km_end - b->km_start : 0;
+    out->km = b->km_pending ? 0 : b->km;
   else
     out->km = p->km < 0 ? 0 : p->km;
   out->time_cents = p->time_cents;
